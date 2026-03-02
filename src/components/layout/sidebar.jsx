@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/sidebar'
 import { useAuth } from '@/context/auth-context/context'
 import { useGlobalContext } from '@/context/global-context/context'
+import { WaterfordBrand } from '@/components/branding/waterford-brand'
 
 import {
   ChartColumnBig,
@@ -80,9 +81,7 @@ const SideBar = () => {
                   className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                   tooltip="Fleet Management"
                 >
-                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-blue-600 text-white">
-                    <Truck className="size-4" />
-                  </div>
+                  <WaterfordBrand compact />
                   <div className="flex flex-col gap-0.5 leading-none">
                     <span className="font-semibold text-[#18181b]">
                       {/* {costCentre || 'Fleet Management'} */}

@@ -40,13 +40,15 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
 
   useEffect(() => {
     const initializeMap = async () => {
-      if (!mapContainer.current || map.current) return;
+      const container = mapContainer.current;
+      if (!container || map.current) return;
+      if (!(container instanceof HTMLElement)) return;
       
       const mapboxgl = (await import('mapbox-gl')).default;
       mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '';
 
       map.current = new mapboxgl.Map({
-        container: mapContainer.current,
+        container,
         style: 'mapbox://styles/mapbox/streets-v12',
         center: [28.0473, -26.2041],
         zoom: 6

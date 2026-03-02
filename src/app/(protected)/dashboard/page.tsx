@@ -37,6 +37,7 @@ import {
   ChevronDown,
   ChevronRight,
   Video,
+  Gauge,
 } from "lucide-react";
 import { getDashboardStats } from "@/lib/stats/dashboard";
 import { createClient } from "@/lib/supabase/client";
@@ -70,6 +71,40 @@ import { DateTimePicker } from "@/components/ui/datetime-picker";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Area, AreaChart } from 'recharts';
 import { EditTripModal } from "@/components/ui/edit-trip-modal";
 import LiveMapView from "@/components/map/live-map-view";
+import { VehicleDashboardModal } from "@/components/ui/vehicle-dashboard-modal";
+
+const normalizePlate = (value: string | undefined | null) =>
+  String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+
+const plateDistance = (a: string, b: string) => {
+  if (!a || !b || a.length !== b.length) return Number.POSITIVE_INFINITY
+  let diff = 0
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) diff += 1
+  }
+  return diff
+}
+
+const matchVehicleByPlate = (vehicles: any[], plate: string) => {
+  const target = normalizePlate(plate)
+  if (!target) return null
+  const normalized = vehicles
+    .map((v) => ({ v, plate: normalizePlate(v?.plate || v?.Plate || v?.registration_number) }))
+    .filter((x) => x.plate)
+
+  const exact = normalized.find((x) => x.plate === target)
+  if (exact) return exact.v
+
+  const fuzzy = normalized
+    .filter((x) => x.plate.length === target.length)
+    .map((x) => ({ ...x, dist: plateDistance(x.plate, target) }))
+    .filter((x) => x.dist <= 1)
+    .sort((a, b) => a.dist - b.dist)[0]
+
+  return fuzzy?.v || null
+}
 
 // Global vehicle data cache to prevent redundant API calls
 const vehicleDataCache = {
@@ -98,18 +133,45 @@ const vehicleDataCache = {
     this.isLoading = true;
     
     try {
-      const [epsResult, ctrackResult] = await Promise.allSettled([
+      const [waterfordResult, epsResult, ctrackResult] = await Promise.allSettled([
+        fetch('/api/waterford-sites'),
         fetch('/api/eps-vehicles'),
         fetch('/api/ctrack-data')
       ]);
       
       const vehicles: any[] = [];
+
+      // Process Waterford Sites API (primary live locations)
+      if (waterfordResult.status === 'fulfilled') {
+        try {
+          const waterfordData = await waterfordResult.value.json();
+          const waterfordVehicles = Array.isArray(waterfordData)
+            ? waterfordData.map((v: any) => ({
+                ...v,
+                plate: v.Plate || v.plate || '',
+                registration_number: v.Plate || v.plate || '',
+                latitude: v.Latitude ?? null,
+                longitude: v.Longitude ?? null,
+                speed: v.Speed ?? 0,
+                mileage: v.Mileage ?? 0,
+                geozone: v.Geozone || '',
+                address: v.Geozone || 'GPS location available',
+                loc_time: v.LocTime || v.updated_at || null,
+                driver_name: v.DriverName || '',
+              }))
+            : [];
+          vehicles.push(...waterfordVehicles);
+        } catch (e) {}
+      }
       
       // Process EPS API
       if (epsResult.status === 'fulfilled') {
         try {
           const epsData = await epsResult.value.json();
-          vehicles.push(...(epsData.data || []));
+          const epsVehicles = Array.isArray(epsData)
+            ? epsData
+            : (epsData.data || epsData.result?.data || []);
+          vehicles.push(...epsVehicles);
         } catch (e) {}
       }
       
@@ -136,7 +198,7 @@ const vehicleDataCache = {
   
   findVehicle(plate: string): any {
     if (!this.data) return null;
-    return this.data.find((v: any) => v.plate?.toLowerCase() === plate.toLowerCase());
+    return matchVehicleByPlate(this.data, plate);
   }
 };
 
@@ -149,6 +211,7 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
   const [vehicleLocation, setVehicleLocation] = useState<any>(null)
   const [isFlashing, setIsFlashing] = useState(false)
   const [assignment, setAssignment] = useState<any>(null)
+  const [dashboardOpen, setDashboardOpen] = useState(false)
 
   // Check for unauthorized stops and trigger flash animation
   useEffect(() => {
@@ -402,47 +465,30 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
             let vehicleLocationData = vehicleLocation; // Use already fetched vehicle location
 
             // If no vehicle location was found during initialization, try one more time
-            if (!vehicleLocationData && (vehicleInfo?.registration_number || driverName !== 'Unassigned')) {
+            if (!vehicleLocationData && vehicleInfo?.registration_number) {
               try {
                 let vehicleData = null;
                 
-                // First try with vehicle plate
+                // Match by vehicle plate only (waterford-sites format)
                 if (vehicleInfo?.registration_number) {
-                  console.log('Track button: Fetching vehicle location by plate:', vehicleInfo.registration_number);
-                  const plateResponse = await fetch(`/api/eps-vehicles?endpoint=by-plate&plate=${encodeURIComponent(vehicleInfo.registration_number)}`);
-                  if (plateResponse.ok) {
-                    vehicleData = await plateResponse.json();
-                    // Check if we got timeout/error response
-                    if (vehicleData.error === 'Connection timeout') {
-                      console.log('GPS service timeout - will show route only');
-                      vehicleData = null;
-                    }
-                  }
-                }
-                
-                // Fallback: try with driver name if plate fails
-                if (!vehicleData && driverName && driverName !== 'Unassigned') {
-                  console.log('Track button: Plate lookup failed, trying driver name:', driverName);
-                  const driverResponse = await fetch(`/api/eps-vehicles?endpoint=by-driver&driver=${encodeURIComponent(driverName)}`);
-                  if (driverResponse.ok) {
-                    const driverData = await driverResponse.json();
-                    if (driverData.error !== 'Connection timeout') {
-                      vehicleData = driverData;
-                    }
-                  }
+                  console.log('Track button: Fetching vehicle list + local match:', vehicleInfo.registration_number);
+                  const allVehicles = await vehicleDataCache.fetch();
+                  vehicleData = matchVehicleByPlate(allVehicles || [], vehicleInfo.registration_number);
                 }
                 
                 // Process vehicle data if found
-                if (vehicleData && vehicleData.latitude && vehicleData.longitude) {
+                const latitude = vehicleData?.latitude ?? vehicleData?.Latitude
+                const longitude = vehicleData?.longitude ?? vehicleData?.Longitude
+                if (vehicleData && latitude && longitude) {
                   vehicleLocationData = {
-                    latitude: parseFloat(vehicleData.latitude),
-                    longitude: parseFloat(vehicleData.longitude),
-                    plate: vehicleData.plate || vehicleInfo?.registration_number || 'Unknown',
-                    speed: vehicleData.speed || 0,
-                    address: vehicleData.address || 'GPS location available',
-                    loc_time: vehicleData.loc_time || new Date().toISOString(),
-                    mileage: vehicleData.mileage || 0,
-                    geozone: vehicleData.geozone,
+                    latitude: parseFloat(latitude),
+                    longitude: parseFloat(longitude),
+                    plate: vehicleData.plate || vehicleData.Plate || vehicleInfo?.registration_number || 'Unknown',
+                    speed: vehicleData.speed || vehicleData.Speed || 0,
+                    address: vehicleData.address || vehicleData.Geozone || 'GPS location available',
+                    loc_time: vehicleData.loc_time || vehicleData.LocTime || vehicleData.updated_at || new Date().toISOString(),
+                    mileage: vehicleData.mileage || vehicleData.Mileage || 0,
+                    geozone: vehicleData.geozone || vehicleData.Geozone,
                     company: vehicleData.company || 'EPS'
                   };
                   console.log('Track button: Found external vehicle GPS data:', vehicleLocationData);
@@ -725,6 +771,25 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
         <Video className="w-4 h-4 mr-2" />
         View Live Camera Feeds
       </Button>
+
+      <Button
+        size="sm"
+        variant="default"
+        className="h-10 text-sm font-semibold w-full mt-2 bg-gradient-to-r from-slate-700 to-slate-900 hover:from-slate-800 hover:to-black text-white shadow-lg hover:shadow-xl transition-all duration-200 border-0"
+        onClick={() => setDashboardOpen(true)}
+      >
+        <Gauge className="w-4 h-4 mr-2" />
+        Dashboard
+      </Button>
+
+      <VehicleDashboardModal
+        open={dashboardOpen}
+        onOpenChange={setDashboardOpen}
+        trip={trip}
+        driverInfo={driverInfo}
+        vehicleInfo={vehicleInfo}
+        vehicleLocation={vehicleLocation}
+      />
     </div>
   )
 }

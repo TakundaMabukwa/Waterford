@@ -267,10 +267,13 @@ export default function Vehicles() {
     const { data: vehicles, error } = await supabase
       .from("vehiclesc")
       .select("*")
-      .or("type.is.null,type.eq.internal")
-      .neq("department_name", "SOLD");
+      // Keep legacy/internal records regardless of case
+      .or("type.is.null,type.eq.internal,type.eq.Internal")
+      // Exclude SOLD rows but retain rows where department is null/blank
+      .or("department_name.is.null,department_name.eq.,department_name.neq.SOLD");
     if (error) {
       console.error("the error is", error.name, error.message);
+      toast.error(`Failed to load vehicles: ${error.message}`);
     } else {
       // @ts-expect-error
       setVehicles(vehicles || []);
@@ -290,7 +293,7 @@ export default function Vehicles() {
     fetchVehicles();
 
     return () => {
-      vehiclesc.unsubscribe;
+      vehiclesc.unsubscribe();
     };
   }, []);
 

@@ -1,8 +1,7 @@
 'use client'
 
-import Image from 'next/image'
-import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { WaterfordBrand } from '@/components/branding/waterford-brand'
 
 interface AuthLayoutProps {
   children: React.ReactNode
@@ -11,41 +10,31 @@ interface AuthLayoutProps {
 export default function AuthLayout({ children }: AuthLayoutProps) {
   const pathname = usePathname()
   const isLogin = pathname === '/login'
-  const isSignup = pathname === '/signup'
 
   return (
-    <div className="min-h-screen bg-[#F5F6FA] relative overflow-hidden flex items-center justify-center">
-      {/* Background diagonal accents */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[#1A245E]/10 via-white to-[#C7322F]/10"></div>
-      <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-[#1A245E] to-[#C7322F]" />
+    <div className="min-h-screen relative flex items-center justify-center overflow-hidden bg-[#f8f6f2]">
+      <div className="absolute inset-0 bg-gradient-to-br from-[#0C1E3D]/12 via-white to-[#E79B54]/15"></div>
+      <div className="absolute left-0 top-0 h-2 w-full bg-gradient-to-r from-[#0C1E3D] via-[#E79B54] to-[#0C1E3D]" />
 
-      {/* Auth Card */}
-      <div className="relative z-10 w-full max-w-md bg-white rounded-2xl shadow-xl p-8 mx-4 border border-gray-100">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="flex justify-center mb-4">
-            <img
-              src="https://datatim.co.za/wp-content/uploads/2017/05/eps-logo.jpg"
-              alt="EPS Courier Services"
-              width={100}
-              height={100}
-              className="object-contain"
-            />
+      <div className="relative z-10 mx-4 w-full max-w-md rounded-2xl border border-[#0C1E3D]/10 bg-white p-8 shadow-xl">
+        <div className="mb-8 text-center">
+          <div className="mb-3 flex justify-center">
+            <WaterfordBrand showTagline />
           </div>
-          <h1 className="text-3xl font-bold text-[#1A245E] mb-1">EPS Courier Services</h1>
-          <p className="text-gray-600 text-sm">Reliable. Professional. Nationwide.</p>
+          <h1 className="mb-1 text-2xl font-bold text-[#0C1E3D]">
+            {isLogin ? 'Welcome Back' : 'Create Account'}
+          </h1>
+          <p className="text-sm text-gray-600">Fleet operations platform</p>
         </div>
 
         {children}
 
-        {/* Footer */}
         <div className="mt-6 text-center text-xs text-gray-500">
-          © 2025 EPS Courier Services. All rights reserved.
+          &copy; 2026 Waterford Carriers. All rights reserved.
         </div>
       </div>
 
-      {/* Decorative stripes (inspired by truck design) */}
-      <div className="absolute bottom-0 left-0 w-full h-20 bg-gradient-to-r from-[#1A245E] via-[#1A245E]/70 to-[#C7322F]/70 transform -skew-y-3"></div>
+      <div className="absolute bottom-0 left-0 h-20 w-full -skew-y-3 bg-gradient-to-r from-[#0C1E3D] via-[#0C1E3D]/75 to-[#E79B54]/80"></div>
     </div>
   )
 }

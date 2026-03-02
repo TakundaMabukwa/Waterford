@@ -15,12 +15,43 @@ export function TrailerDropdown({
   const dropdownRef = useRef(null)
   const searchInputRef = useRef(null)
 
+  const cleanValue = (value) => {
+    if (value === null || value === undefined) return ''
+    const text = String(value).trim()
+    if (!text || text.toLowerCase() === 'null' || text.toLowerCase() === 'undefined') return ''
+    return text
+  }
+
+  const getTrailerReg = (trailer) => cleanValue(trailer.registration_number)
+  const getTrailerLabel = (trailer) => {
+    const reg = getTrailerReg(trailer)
+    const make = cleanValue(trailer.make)
+    const model = cleanValue(trailer.model)
+    const type = cleanValue(trailer.vehicle_type)
+    const title = [make, model].filter(Boolean).join(' ')
+    if (reg && title && type) return `${reg} - ${title} (${type})`
+    if (reg && title) return `${reg} - ${title}`
+    if (reg && type) return `${reg} (${type})`
+    if (title && type) return `${title} (${type})`
+    if (reg) return reg
+    if (title) return title
+    if (type) return `Trailer (${type})`
+    return `Trailer #${trailer.id}`
+  }
+
+  const cleanTrailers = trailers.filter((trailer) => {
+    const reg = getTrailerReg(trailer)
+    const make = cleanValue(trailer.make)
+    const model = cleanValue(trailer.model)
+    return Boolean(reg || make || model)
+  })
+
   const filteredTrailers = trailers.filter(trailer =>
-    trailer.registration_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    trailer.make?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    trailer.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    trailer.vehicle_type?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+    getTrailerReg(trailer).toLowerCase().includes(searchTerm.toLowerCase()) ||
+    cleanValue(trailer.make).toLowerCase().includes(searchTerm.toLowerCase()) ||
+    cleanValue(trailer.model).toLowerCase().includes(searchTerm.toLowerCase()) ||
+    cleanValue(trailer.vehicle_type).toLowerCase().includes(searchTerm.toLowerCase())
+  ).filter((trailer) => cleanTrailers.some((candidate) => candidate.id === trailer.id))
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -46,8 +77,8 @@ export function TrailerDropdown({
     setSearchTerm('')
   }
 
-  const selectedTrailer = trailers.find(t => t.id.toString() === value)
-  const displayValue = selectedTrailer ? `${selectedTrailer.registration_number} - ${selectedTrailer.make} ${selectedTrailer.model} (${selectedTrailer.vehicle_type})` : ''
+  const selectedTrailer = cleanTrailers.find(t => t.id.toString() === value)
+  const displayValue = selectedTrailer ? getTrailerLabel(selectedTrailer) : ''
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -95,7 +126,7 @@ export function TrailerDropdown({
                 >
                   <div className="flex items-center gap-2">
                     <Truck className="h-4 w-4" />
-                    <span>{trailer.registration_number} - {trailer.make} {trailer.model} ({trailer.vehicle_type})</span>
+                    <span>{getTrailerLabel(trailer)}</span>
                   </div>
                 </div>
               ))

@@ -33,6 +33,7 @@ import { createClient } from "@/lib/supabase/client";
 import { ElevationNotification } from "@/components/ui/elevation-notification";
 import { VideoAlertsProvider } from "@/context/video-alerts-context";
 import AlertBellNotification from "@/components/notifications/alert-bell-notification";
+import { WaterfordBrand } from "@/components/branding/waterford-brand";
 
 interface ProtectedLayoutProps {
   children: React.ReactNode;
@@ -238,17 +239,17 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
       <div className="flex h-screen bg-gray-100 text-gray-900">
         {/* Sidebar */}
         <aside
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col justify-between bg-gradient-to-br from-blue-950 to-blue-800 text-white shadow-2xl transition-width duration-300 ease-in-out overflow-hidden ${sidebarExpanded ? "w-64" : "w-20"
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col justify-between bg-gradient-to-b from-[#0C1E3D] via-[#0b1a34] to-[#122a4f] text-white shadow-2xl transition-width duration-300 ease-in-out overflow-hidden ${sidebarExpanded ? "w-64" : "w-20"
           }`}
       >
         {/* Top: logo + toggle */}
         <div className="px-3 py-4">
-          <div className="flex items-center justify-between">
-            <img
-              src="/Logo.png"
-              alt="EPS Logo"
-              className="h-10 w-10 rounded-lg bg-white p-1 shadow"
-            />
+          <div className={`flex ${sidebarExpanded ? "justify-start" : "justify-center"}`}>
+            {sidebarExpanded ? (
+              <WaterfordBrand showTagline className="w-full" />
+            ) : (
+              <WaterfordBrand compact />
+            )}
             {/* Toggle is duplicated here visually hidden on small but kept for layout */}
             <div className="hidden"></div>
           </div>
@@ -270,8 +271,8 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
                     href={item.href}
                     className={`group flex items-center gap-3 p-2 rounded-xl transition-colors duration-200 w-full
                       ${isActive
-                        ? "bg-white/90 text-blue-900 shadow-md"
-                        : "text-gray-300 hover:text-white hover:bg-blue-900/40"
+                        ? "bg-[#E79B54] text-[#0C1E3D] shadow-md"
+                        : "text-slate-200 hover:text-white hover:bg-white/10"
                       }`}
                   >
                     <span
@@ -282,8 +283,8 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
                       <span
                         className={`p-2 rounded-full flex items-center justify-center transition-colors duration-150
                           ${isActive
-                            ? "bg-white text-blue-900"
-                            : "bg-white/10 text-white group-hover:bg-white/20 group-hover:text-white"
+                            ? "bg-[#0C1E3D] text-[#E79B54]"
+                            : "bg-white/10 text-white group-hover:bg-[#E79B54]/25 group-hover:text-[#ffe3c2]"
                           }`}
                         style={{ width: 36, height: 36 }}
                       >
@@ -306,7 +307,7 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
           <Button
             onClick={handleLogout}
             size="icon"
-            className="bg-red-500 hover:bg-red-600 text-white rounded-full p-2"
+            className="rounded-full bg-[#E79B54] p-2 text-[#0C1E3D] hover:bg-[#d9863b]"
             aria-label="Logout"
           >
             <LogOut className="w-5 h-5" />
@@ -325,7 +326,7 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
             <Button
               size="icon"
               onClick={() => setSidebarExpanded(!sidebarExpanded)}
-              className="text-white bg-blue-700 hover:bg-blue-800"
+              className="bg-[#0C1E3D] text-[#E79B54] hover:bg-[#122a4f]"
               aria-label="Toggle sidebar"
             >
               {sidebarExpanded ? (
@@ -336,8 +337,8 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
             </Button>
             <div className="flex flex-col">
               <span className="text-sm text-gray-500">Welcome back,</span>
-              <span className="text-base font-semibold text-gray-800">
-                EPS Couriers
+              <span className="text-base font-semibold text-[#0C1E3D]">
+                Waterford Carriers
               </span>
             </div>
             <div className="flex items-center gap-4">
@@ -348,7 +349,7 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
         </header>
 
         {/* Content Area */}
-        <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
+        <main className="flex-1 overflow-y-auto bg-[#f8f6f2] p-6">
           <div className="max-w-7xl mx-auto">
             <GlobalProvider>{children}</GlobalProvider>
           </div>

@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
-import { Search, DollarSign, Truck, Calendar, FileText, Eye, MapPin, Route } from 'lucide-react'
+import { Search, DollarSign, Truck, Calendar, FileText, Eye, MapPin, Route, Download, Paperclip } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 
 // Route Map Component
@@ -147,6 +147,11 @@ export default function AuditPage() {
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [routeModalOpen, setRouteModalOpen] = useState(false)
   const [selectedRouteRecord, setSelectedRouteRecord] = useState<any>(null)
+  const [documentsOpen, setDocumentsOpen] = useState(false)
+  const [selectedDocumentRecord, setSelectedDocumentRecord] = useState<any>(null)
+  const [tripDocuments, setTripDocuments] = useState<any[]>([])
+  const [documentsLoading, setDocumentsLoading] = useState(false)
+  const [downloadingId, setDownloadingId] = useState<number | null>(null)
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -177,7 +182,7 @@ export default function AuditPage() {
       if (tripIds.length > 0) {
         const { data: trips, error: tripsError } = await supabase
           .from('trips')
-          .select('trip_id, approximate_fuel_cost, approximated_vehicle_cost, approximated_driver_cost, total_vehicle_cost, estimated_distance, pickuplocations, dropofflocations, fuel_price_per_liter, rate, actual_start_time, actual_end_time')
+          .select('id, trip_id, approximate_fuel_cost, approximated_vehicle_cost, approximated_driver_cost, total_vehicle_cost, estimated_distance, pickuplocations, dropofflocations, fuel_price_per_liter, rate, actual_start_time, actual_end_time')
           .in('trip_id', tripIds)
         
         if (!tripsError) {
@@ -241,7 +246,8 @@ export default function AuditPage() {
             actual_total_cost: Math.round((calculatedFuelCost + parseFloat(auditRecord.actual_vehicle_cost || 0) + parseFloat(auditRecord.actual_driver_cost || 0)) * 100) / 100,
             // Use actual times from trips table if available
             actual_start_time: tripData.actual_start_time || auditRecord.actual_start_time,
-            actual_finish_time: tripData.actual_end_time || auditRecord.actual_finish_time
+            actual_finish_time: tripData.actual_end_time || auditRecord.actual_finish_time,
+            trip_row_id: tripData.id
           }
         }
         
@@ -296,6 +302,77 @@ export default function AuditPage() {
   }
 
   const summary = calculateSummary()
+
+  const openDocuments = async (record: any) => {
+    try {
+      setSelectedDocumentRecord(record)
+      setDocumentsOpen(true)
+      setTripDocuments([])
+      setDocumentsLoading(true)
+
+      const tripRowId = record?.trip_row_id
+      if (!tripRowId) {
+        setTripDocuments([])
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('trip_documents')
+        .select('id, trip_id, doc_type, file_path, created_at, updated_at')
+        .eq('trip_id', tripRowId)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setTripDocuments(data || [])
+    } catch (error) {
+      console.error('Error fetching trip documents:', error)
+      setTripDocuments([])
+    } finally {
+      setDocumentsLoading(false)
+    }
+  }
+
+  const downloadDocument = async (doc: any) => {
+    const filePath = String(doc?.file_path || '').trim()
+    if (!filePath) return
+    setDownloadingId(doc.id)
+
+    try {
+      // Direct URLs can be downloaded immediately.
+      if (/^https?:\/\//i.test(filePath)) {
+        window.open(filePath, '_blank')
+        return
+      }
+
+      // Try "bucket/path/to/file" format first.
+      const parts = filePath.split('/').filter(Boolean)
+      const candidates: Array<{ bucket: string; path: string }> = []
+      if (parts.length > 1) {
+        candidates.push({ bucket: parts[0], path: parts.slice(1).join('/') })
+      }
+      // Fallback common bucket names where files might be stored as raw paths.
+      candidates.push(
+        { bucket: 'trip-documents', path: filePath },
+        { bucket: 'documents', path: filePath },
+        { bucket: 'uploads', path: filePath }
+      )
+
+      for (const candidate of candidates) {
+        const { data } = await supabase.storage.from(candidate.bucket).createSignedUrl(candidate.path, 60)
+        if (data?.signedUrl) {
+          window.open(data.signedUrl, '_blank')
+          return
+        }
+      }
+
+      // Last resort: open whatever path exists.
+      window.open(filePath, '_blank')
+    } catch (error) {
+      console.error('Error downloading document:', error)
+    } finally {
+      setDownloadingId(null)
+    }
+  }
 
   // Check if route points exist and are valid
   const hasRoutePoints = (routePoints: any) => {
@@ -546,6 +623,14 @@ export default function AuditPage() {
                         >
                           <Route className="h-3 w-3" />
                         </SecureButton>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openDocuments(record)}
+                          className="h-7 px-2 text-xs"
+                        >
+                          <Paperclip className="h-3 w-3" />
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -890,6 +975,60 @@ export default function AuditPage() {
           </div>
         </div>
       )}
+
+      <Dialog open={documentsOpen} onOpenChange={setDocumentsOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Trip Documents</DialogTitle>
+            <DialogDescription>
+              {selectedDocumentRecord?.trip_id ? `Files attached to ${selectedDocumentRecord.trip_id}` : 'Files attached to this trip'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="border rounded-md">
+            <div className="grid grid-cols-12 gap-2 px-3 py-2 text-xs font-semibold border-b bg-slate-50">
+              <div className="col-span-3">Type</div>
+              <div className="col-span-5">File Path</div>
+              <div className="col-span-2">Created</div>
+              <div className="col-span-2 text-right">Action</div>
+            </div>
+
+            <ScrollArea className="h-[380px]">
+              {documentsLoading ? (
+                <div className="p-4 text-sm text-slate-600">Loading documents...</div>
+              ) : tripDocuments.length === 0 ? (
+                <div className="p-4 text-sm text-slate-600">No documents attached to this trip.</div>
+              ) : (
+                <div className="divide-y">
+                  {tripDocuments.map((doc) => (
+                    <div key={doc.id} className="grid grid-cols-12 gap-2 px-3 py-2 text-sm items-center">
+                      <div className="col-span-3">
+                        <Badge variant="secondary">{doc.doc_type || 'document'}</Badge>
+                      </div>
+                      <div className="col-span-5 truncate" title={doc.file_path}>{doc.file_path}</div>
+                      <div className="col-span-2 text-xs text-slate-500">
+                        {doc.created_at ? new Date(doc.created_at).toLocaleDateString('en-ZA') : 'N/A'}
+                      </div>
+                      <div className="col-span-2 flex justify-end">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2"
+                          disabled={downloadingId === doc.id}
+                          onClick={() => downloadDocument(doc)}
+                        >
+                          <Download className="h-3.5 w-3.5 mr-1" />
+                          {downloadingId === doc.id ? '...' : 'Download'}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

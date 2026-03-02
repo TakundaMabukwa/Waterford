@@ -94,6 +94,7 @@ export default function LoadPlanPage() {
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [selectedTrailerId, setSelectedTrailerId] = useState('')
   const [selectedVehicleType, setSelectedVehicleType] = useState('')
+  const [handoverAssignments, setHandoverAssignments] = useState([])
   const [selectedDriverLocation, setSelectedDriverLocation] = useState(null)
   
   // Cost calculation state
@@ -113,6 +114,31 @@ export default function LoadPlanPage() {
   const [customStopPoints, setCustomStopPoints] = useState([])
   const [tripDays, setTripDays] = useState(1)
   const [isManuallyOrdered, setIsManuallyOrdered] = useState(false)
+  const [estimatedTravelHours, setEstimatedTravelHours] = useState(0)
+  const [estimatedFuelNeededLiters, setEstimatedFuelNeededLiters] = useState(0)
+  const [estimatedFuelTopUpLiters, setEstimatedFuelTopUpLiters] = useState(0)
+  const [estimatedTankCapacityLiters, setEstimatedTankCapacityLiters] = useState(0)
+  const [currentFuelInTankLiters, setCurrentFuelInTankLiters] = useState(0)
+  const [currentFuelPercentage, setCurrentFuelPercentage] = useState(0)
+  const [activeTruckCount, setActiveTruckCount] = useState(1)
+  const [distancePerTruck, setDistancePerTruck] = useState(0)
+
+  const FUEL_BURN_RATE_BY_TYPE = {
+    'TAUTLINER': 32,
+    'TAUT X-BRDER - BOTSWANA': 34,
+    'TAUT X-BRDER - NAMIBIA': 34,
+    'CITRUS LOAD (+1 DAY STANDING FPT)': 32,
+    '14M/15M COMBO (NEW)': 28,
+    '14M/15M REEFER': 30,
+    '9 METER (NEW)': 20,
+    '8T JHB (NEW - EPS)': 15,
+    '8T JHB (NEW) - X-BRDER - MOZ': 16,
+    '8T JHB (OLD)': 15,
+    '14 TON CURTAIN': 24,
+    '1TON BAKKIE': 9,
+  }
+  const DEFAULT_BURN_RATE_LPH = 18
+  const DEFAULT_BURN_RATE_LPKM = 0.38
 
   // Rate Card System - Complete Costing Model from Excel
   const RATE_CARD_SYSTEM = {
@@ -219,6 +245,68 @@ export default function LoadPlanPage() {
     },
   }
 
+  const toNumber = (value) => {
+    if (value === null || value === undefined || value === '') return null
+    const cleaned = String(value).trim().replace(',', '.')
+    const parsed = Number.parseFloat(cleaned)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  const normalizePlate = (value) =>
+    String(value || '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+
+  const hasValidRegistration = (value) => {
+    const plate = normalizePlate(value)
+    return plate.length > 0
+  }
+
+  const normalizeTrackingVehicle = (vehicle) => ({
+    ...vehicle,
+    registration_number: vehicle?.registration_number || vehicle?.Plate || vehicle?.plate || '',
+    driver_name: vehicle?.driver_name || vehicle?.DriverName || '',
+    latitude: vehicle?.latitude || vehicle?.Latitude || '',
+    longitude: vehicle?.longitude || vehicle?.Longitude || '',
+    fuel_probe_1_level: vehicle?.fuel_probe_1_level ?? null,
+    fuel_probe_1_volume_in_tank: vehicle?.fuel_probe_1_volume_in_tank ?? null,
+    fuel_probe_1_temperature: vehicle?.fuel_probe_1_temperature ?? null,
+    fuel_probe_1_level_percentage: vehicle?.fuel_probe_1_level_percentage ?? null,
+  })
+
+  const mergeTrackingSources = (waterfordSites = [], epsVehicles = []) => {
+    const merged = new Map()
+
+    epsVehicles
+      .map(normalizeTrackingVehicle)
+      .forEach((vehicle) => {
+        const key = normalizePlate(vehicle.registration_number)
+        if (key) merged.set(key, vehicle)
+      })
+
+    waterfordSites
+      .map(normalizeTrackingVehicle)
+      .forEach((vehicle) => {
+        const key = normalizePlate(vehicle.registration_number)
+        if (!key) return
+
+        const existing = merged.get(key) || {}
+        const waterfordDriverName = vehicle.driver_name || ''
+        const preferExistingDriverName =
+          !waterfordDriverName ||
+          waterfordDriverName.toLowerCase() === 'engine on' ||
+          waterfordDriverName.toLowerCase() === 'engine off'
+
+        merged.set(key, {
+          ...existing,
+          ...vehicle,
+          driver_name: preferExistingDriverName ? (existing.driver_name || '') : waterfordDriverName
+        })
+      })
+
+    return Array.from(merged.values())
+  }
+
   // Fetch loads and reference data
   // Fetch stop points with pagination and caching
   const fetchStopPoints = async () => {
@@ -278,13 +366,15 @@ export default function LoadPlanPage() {
         vehiclesData,
         { data: driversData, error: driversError },
         { data: costCentersData, error: costCentersError },
-        trackingResponse
+        waterfordSitesResponse,
+        epsVehiclesResponse
       ] = await Promise.all([
         supabase.from('trips').select('*').order('created_at', { ascending: false }),
         fetch('/api/eps-client-list').then(res => res.json()).then(data => ({ data: data.data, error: null })).catch(error => ({ data: null, error })),
         fetchAllVehicles(),
         supabase.from('drivers').select('*'),
         supabase.from('cost_centers').select('*'),
+        fetch('/api/waterford-sites'),
         fetch('/api/eps-vehicles')
       ])
       
@@ -292,8 +382,15 @@ export default function LoadPlanPage() {
       console.log('Total vehicles fetched:', vehiclesData?.length || 0)
       console.log('Sample vehicles:', vehiclesData?.slice(0, 5).map(v => ({ reg: v.registration_number, type: v.vehicle_type })))
       
-      const trackingData = await trackingResponse.json()
-      const vehicleData = trackingData?.result?.data || trackingData?.data || []
+      const waterfordSitesData = await waterfordSitesResponse.json()
+      const epsVehiclesData = await epsVehiclesResponse.json()
+      const waterfordList = Array.isArray(waterfordSitesData)
+        ? waterfordSitesData
+        : (waterfordSitesData?.result?.data || waterfordSitesData?.data || [])
+      const epsList = Array.isArray(epsVehiclesData)
+        ? epsVehiclesData
+        : (epsVehiclesData?.result?.data || epsVehiclesData?.data || [])
+      const vehicleData = mergeTrackingSources(waterfordList, epsList)
       
       // Format drivers from drivers table
       const formattedDrivers = (driversData || []).map(driver => ({
@@ -376,7 +473,10 @@ export default function LoadPlanPage() {
   // Filter vehicles based on selected type
   const filteredVehicles = useMemo(() => {
     // Exclude 'trailer' type from all results
-    const nonTrailers = vehicles.filter(v => v.vehicle_type !== 'trailer')
+    const nonTrailers = vehicles.filter(v =>
+      (v.vehicle_type || '').toLowerCase() !== 'trailer' &&
+      hasValidRegistration(v.registration_number)
+    )
     console.log('Non-trailer vehicles:', nonTrailers.length)
     console.log('Sample non-trailers:', nonTrailers.slice(0, 5).map(v => ({ reg: v.registration_number, type: v.vehicle_type })))
     
@@ -384,18 +484,18 @@ export default function LoadPlanPage() {
     
     // Map vehicle_type codes to vehicle type categories
     const typeMapping = {
-      'TAUTLINER': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle'],
-      'TAUT X-BRDER - BOTSWANA': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle'],
-      'TAUT X-BRDER - NAMIBIA': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle'],
-      'CITRUS LOAD (+1 DAY STANDING FPT)': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle'],
-      '14M/15M COMBO (NEW)': ['TR14M', 'vehicle'],
-      '14M/15M REEFER': ['TR14M', 'vehicle'],
-      '9 METER (NEW)': ['TRS9M', 'vehicle'],
-      '8T JHB (NEW - EPS)': ['R8T', 'vehicle'],
-      '8T JHB (NEW) - X-BRDER - MOZ': ['R8T', 'vehicle'],
-      '8T JHB (OLD)': ['R8T', 'vehicle'],
-      '14 TON CURTAIN': ['vehicle', 'VFD'],
-      '1TON BAKKIE': ['LDV', 'LPV', 'R5T', 'vehicle']
+      'TAUTLINER': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle', 'truck'],
+      'TAUT X-BRDER - BOTSWANA': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle', 'truck'],
+      'TAUT X-BRDER - NAMIBIA': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle', 'truck'],
+      'CITRUS LOAD (+1 DAY STANDING FPT)': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle', 'truck'],
+      '14M/15M COMBO (NEW)': ['TR14M', 'vehicle', 'truck'],
+      '14M/15M REEFER': ['TR14M', 'vehicle', 'truck'],
+      '9 METER (NEW)': ['TRS9M', 'vehicle', 'truck'],
+      '8T JHB (NEW - EPS)': ['R8T', 'vehicle', 'truck'],
+      '8T JHB (NEW) - X-BRDER - MOZ': ['R8T', 'vehicle', 'truck'],
+      '8T JHB (OLD)': ['R8T', 'vehicle', 'truck'],
+      '14 TON CURTAIN': ['vehicle', 'truck', 'VFD'],
+      '1TON BAKKIE': ['LDV', 'LPV', 'R5T', 'vehicle', 'truck']
     }
     
     const allowedTypes = typeMapping[selectedVehicleType] || []
@@ -415,7 +515,10 @@ export default function LoadPlanPage() {
 
   // Filter trailers - exclude only 'vehicle' type
   const filteredTrailers = useMemo(() => {
-    const trailers = vehicles.filter(v => v.vehicle_type !== 'vehicle')
+    const trailers = vehicles.filter(v =>
+      !['vehicle', 'truck'].includes((v.vehicle_type || '').toLowerCase()) &&
+      hasValidRegistration(v.registration_number)
+    )
     const trfltVehicles = vehicles.filter(v => v.vehicle_type === 'TRFLT')
     console.log('Filtered trailers:', trailers.length)
     console.log('Sample trailers:', trailers.slice(0, 5).map(v => ({ reg: v.registration_number, type: v.vehicle_type })))
@@ -432,6 +535,56 @@ export default function LoadPlanPage() {
   const driverMap = useMemo(() => 
     new Map(drivers.map(d => [d.id, `${d.first_name} ${d.surname}`])), [drivers]
   )
+
+  const selectedVehicleTelemetry = useMemo(() => {
+    if (!selectedVehicleId) return null
+
+    const selectedVehicleRecord = vehicles.find(v => String(v.id) === String(selectedVehicleId))
+    const selectedPlate = normalizePlate(selectedVehicleRecord?.registration_number)
+    if (!selectedPlate) return null
+
+    const trackingList = Array.isArray(vehicleTrackingData) ? vehicleTrackingData : []
+    return trackingList.find((vehicle) => {
+      const plate = normalizePlate(vehicle?.registration_number || vehicle?.Plate || vehicle?.plate)
+      return plate === selectedPlate
+    }) || null
+  }, [selectedVehicleId, vehicles, vehicleTrackingData])
+
+  useEffect(() => {
+    if (!selectedVehicleTelemetry) return
+
+    const lat = toNumber(selectedVehicleTelemetry.latitude)
+    const lng = toNumber(selectedVehicleTelemetry.longitude)
+    if (lat === null || lng === null) return
+
+    const selectedVehicleRecord = vehicles.find(v => String(v.id) === String(selectedVehicleId))
+    const vehiclePlate = selectedVehicleRecord?.registration_number || selectedVehicleTelemetry.registration_number || ''
+    const fallbackName = selectedVehicleTelemetry.driver_name || vehiclePlate || 'Selected vehicle'
+
+    setSelectedDriverLocation({
+      driver: null,
+      vehicle: selectedVehicleTelemetry,
+      latitude: lat,
+      longitude: lng,
+      name: fallbackName
+    })
+
+    if (!loadingLocation) {
+      const vehicleAddress =
+        (typeof selectedVehicleTelemetry.address === 'string' && selectedVehicleTelemetry.address.trim()) ||
+        (typeof selectedVehicleTelemetry.geozone === 'string' && selectedVehicleTelemetry.geozone.trim())
+      if (vehicleAddress) {
+        setLoadingLocation(vehicleAddress)
+      }
+    }
+  }, [selectedVehicleTelemetry, selectedVehicleId, vehicles, loadingLocation])
+
+  const estimatedRouteHours = useMemo(() => {
+    const durationSeconds = optimizedRoute?.route?.duration || optimizedRoute?.duration || 0
+    if (durationSeconds > 0) return durationSeconds / 3600
+    if (estimatedDistance > 0) return estimatedDistance / 55
+    return 0
+  }, [optimizedRoute, estimatedDistance])
 
   // Calculate distance between two coordinates
   const calculateDistance = useCallback((lat1, lon1, lat2, lon2) => {
@@ -668,10 +821,18 @@ export default function LoadPlanPage() {
   useEffect(() => {
     if (loadingLocation) {
       // Refresh vehicle tracking data when location changes
-      fetch('/api/eps-vehicles')
-        .then(response => response.json())
-        .then(trackingData => {
-          const vehicleData = trackingData?.result?.data || trackingData?.data || []
+      Promise.all([
+        fetch('/api/waterford-sites').then(response => response.json()),
+        fetch('/api/eps-vehicles').then(response => response.json())
+      ])
+        .then(([waterfordSitesData, epsVehiclesData]) => {
+          const waterfordList = Array.isArray(waterfordSitesData)
+            ? waterfordSitesData
+            : (waterfordSitesData?.result?.data || waterfordSitesData?.data || [])
+          const epsList = Array.isArray(epsVehiclesData)
+            ? epsVehiclesData
+            : (epsVehiclesData?.result?.data || epsVehiclesData?.data || [])
+          const vehicleData = mergeTrackingSources(waterfordList, epsList)
           setVehicleTrackingData(vehicleData)
           return getSortedDriversByDistance(loadingLocation)
         })
@@ -749,16 +910,24 @@ export default function LoadPlanPage() {
     calculateRouteDistance()
   }, [loadingLocation, dropOffPoint])
 
-  // Rate Card Calculation Function - Matches Excel COSTING Sheet
-  const calculateRateCardCost = useCallback((vehicleType, kms, days) => {
+  // Rate Card Calculation Function - with hour-based fuel usage + live probe calibration
+  const calculateRateCardCost = useCallback((vehicleType, kms, days, fuelInputs = {}) => {
     if (!vehicleType || !RATE_CARD_SYSTEM[vehicleType]) {
       return {
         fuel_cost: 0, base_cost: 0, transport_cost: 0, profit_amount: 0, total_transport: 0,
-        total_fixed: 0, total_variable: 0
+        total_fixed: 0, total_variable: 0, fuel_needed_liters: 0, fuel_top_up_liters: 0,
+        tank_capacity_liters: 0, travel_hours: 0, liters_per_hour: 0, current_fuel_liters: 0, current_fuel_percentage: 0
       }
     }
 
     const rc = RATE_CARD_SYSTEM[vehicleType]
+    const {
+      travelHours = 0,
+      currentFuelVolumeLiters = null,
+      currentFuelPercentageValue = null,
+      fallbackFuelPrice = null,
+      truckAssignments = []
+    } = fuelInputs
     
     // FIXED COSTS (prorated by days)
     const fixed_truck = (rc.hp_depr + rc.tracking + rc.licence + rc.insurance) / 30 * days
@@ -770,7 +939,111 @@ export default function LoadPlanPage() {
     // VARIABLE COSTS (distance-based)
     const rm_cost = kms * rc.rm_per_km
     const breakdowns_cost = kms * rc.breakdowns_per_km
-    const diesel_cost = kms * rc.diesel_per_litre
+    const litersPerHour = FUEL_BURN_RATE_BY_TYPE[vehicleType] || DEFAULT_BURN_RATE_LPH
+    const routeHours = travelHours > 0 ? travelHours : (kms > 0 ? kms / 55 : 0)
+    const validTruckAssignments = Array.isArray(truckAssignments)
+      ? truckAssignments.filter((assignment) => assignment?.vehicle?.id || assignment?.vehicle?.name)
+      : []
+
+    const dedupedTruckAssignments = (() => {
+      const seen = new Set<string>()
+      const list: any[] = []
+      validTruckAssignments.forEach((assignment) => {
+        const vehicleId = assignment?.vehicle?.id ? String(assignment.vehicle.id) : ''
+        const vehicleName = assignment?.vehicle?.name ? String(assignment.vehicle.name) : ''
+        const key = `${vehicleId}|${normalizePlate(vehicleName)}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          list.push(assignment)
+        }
+      })
+      return list
+    })()
+
+    const truckCount = Math.max(1, dedupedTruckAssignments.length || 1)
+    const segmentKms = kms > 0 ? kms / truckCount : 0
+    const segmentHours = routeHours > 0 ? routeHours / truckCount : 0
+
+    const getAssignmentTelemetry = (assignment) => {
+      const assignmentVehicleId = assignment?.vehicle?.id
+      const assignmentVehicleName = assignment?.vehicle?.name
+      const assignmentVehicleRecord = assignmentVehicleId
+        ? vehicles.find((vehicle) => String(vehicle.id) === String(assignmentVehicleId))
+        : null
+      const assignmentPlate = normalizePlate(
+        assignmentVehicleName || assignmentVehicleRecord?.registration_number
+      )
+      if (!assignmentPlate) return null
+      const trackingList = Array.isArray(vehicleTrackingData) ? vehicleTrackingData : []
+      return trackingList.find((vehicle) =>
+        normalizePlate(vehicle?.registration_number || vehicle?.plate || vehicle?.Plate) === assignmentPlate
+      ) || null
+    }
+
+    let fuelNeededLiters = 0
+    let fuelTopUpLiters = 0
+    let tankCapacityLiters = 0
+    let currentFuelLitersTotal = 0
+    let currentFuelPercentageTotal = 0
+    let fuelPercentageSamples = 0
+
+    const getPlannedFuelNeeded = () => {
+      const byHours = segmentHours > 0 ? segmentHours * litersPerHour : 0
+      const byDistance = segmentKms > 0 ? segmentKms * DEFAULT_BURN_RATE_LPKM : 0
+      return Math.max(byHours, byDistance)
+    }
+
+    if (dedupedTruckAssignments.length > 0) {
+      dedupedTruckAssignments.forEach((assignment) => {
+        const telemetry = getAssignmentTelemetry(assignment)
+        const rawFuelVolume = toNumber(telemetry?.fuel_probe_1_volume_in_tank)
+        const rawFuelPercentage = toNumber(telemetry?.fuel_probe_1_level_percentage)
+        const hasUsableFuelProbe =
+          (rawFuelVolume !== null && rawFuelVolume > 0) ||
+          (rawFuelPercentage !== null && rawFuelPercentage > 0)
+        const truckFuelVolume = hasUsableFuelProbe ? rawFuelVolume : null
+        const truckFuelPercentage = hasUsableFuelProbe ? rawFuelPercentage : null
+        const truckFuelNeeded = getPlannedFuelNeeded()
+
+        fuelNeededLiters += truckFuelNeeded
+        fuelTopUpLiters += truckFuelVolume !== null
+          ? Math.max(truckFuelNeeded - truckFuelVolume, 0)
+          : truckFuelNeeded
+
+        if (truckFuelVolume !== null) currentFuelLitersTotal += truckFuelVolume
+        if (truckFuelPercentage !== null && truckFuelPercentage > 0) {
+          currentFuelPercentageTotal += truckFuelPercentage
+          fuelPercentageSamples += 1
+        }
+        if (truckFuelVolume !== null && truckFuelPercentage !== null && truckFuelPercentage > 0) {
+          tankCapacityLiters += truckFuelVolume / (truckFuelPercentage / 100)
+        }
+      })
+    } else {
+      const byHours = routeHours > 0 ? routeHours * litersPerHour : 0
+      const byDistance = kms > 0 ? kms * DEFAULT_BURN_RATE_LPKM : 0
+      fuelNeededLiters = Math.max(byHours, byDistance)
+      fuelTopUpLiters = currentFuelVolumeLiters !== null
+        ? Math.max(fuelNeededLiters - currentFuelVolumeLiters, 0)
+        : fuelNeededLiters
+      tankCapacityLiters =
+        currentFuelVolumeLiters !== null &&
+        currentFuelPercentageValue !== null &&
+        currentFuelPercentageValue > 0
+          ? currentFuelVolumeLiters / (currentFuelPercentageValue / 100)
+          : 0
+      currentFuelLitersTotal = currentFuelVolumeLiters || 0
+      currentFuelPercentageTotal = currentFuelPercentageValue || 0
+      fuelPercentageSamples = currentFuelPercentageValue ? 1 : 0
+    }
+
+    const effectiveFuelPrice =
+      fallbackFuelPrice !== null && fallbackFuelPrice > 0
+        ? fallbackFuelPrice
+        : (parseFloat(fuelPricePerLiter) || rc.diesel_per_litre)
+
+    // Cost should represent trip consumption, not only immediate refill needed.
+    const diesel_cost = fuelNeededLiters * effectiveFuelPrice
     const tolls_cost = kms * rc.tolls_per_km
     const overtime_cost = kms * rc.overtime_allow
     const total_variable = rm_cost + breakdowns_cost + diesel_cost + tolls_cost + overtime_cost
@@ -791,19 +1064,51 @@ export default function LoadPlanPage() {
       profit_amount,
       total_transport,
       total_fixed,
-      total_variable
+      total_variable,
+      fuel_needed_liters: fuelNeededLiters,
+      fuel_top_up_liters: fuelTopUpLiters,
+      tank_capacity_liters: tankCapacityLiters,
+      travel_hours: routeHours,
+      liters_per_hour: litersPerHour,
+      current_fuel_liters: currentFuelLitersTotal,
+      current_fuel_percentage: fuelPercentageSamples > 0 ? (currentFuelPercentageTotal / fuelPercentageSamples) : 0,
+      truck_count: truckCount,
+      distance_per_truck: segmentKms
     }
-  }, [RATE_CARD_SYSTEM])
+  }, [RATE_CARD_SYSTEM, fuelPricePerLiter, vehicleTrackingData, vehicles])
 
   // Calculate costs when relevant values change
   useEffect(() => {
     if (selectedVehicleType && estimatedDistance > 0) {
-      const costBreakdown = calculateRateCardCost(selectedVehicleType, estimatedDistance, tripDays)
+      const currentAssignment = buildCurrentAssignment()
+      const futureAssignments = buildHandoverAssignments()
+      const truckAssignments = [currentAssignment, ...futureAssignments]
+        .filter((assignment) => assignment?.vehicle?.id || assignment?.vehicle?.name)
+
+      const selectedFuelVolume = toNumber(selectedVehicleTelemetry?.fuel_probe_1_volume_in_tank)
+      const selectedFuelPercentage = toNumber(selectedVehicleTelemetry?.fuel_probe_1_level_percentage)
+      const manualFuelPrice = toNumber(fuelPricePerLiter)
+
+      const costBreakdown = calculateRateCardCost(selectedVehicleType, estimatedDistance, tripDays, {
+        travelHours: estimatedRouteHours,
+        currentFuelVolumeLiters: selectedFuelVolume,
+        currentFuelPercentageValue: selectedFuelPercentage,
+        fallbackFuelPrice: manualFuelPrice,
+        truckAssignments
+      })
       
       // Display breakdown components
       setApproximateFuelCost(costBreakdown.fuel_cost)
       setApproximatedVehicleCost(costBreakdown.total_fixed)
       setApproximatedDriverCost(costBreakdown.total_variable - costBreakdown.fuel_cost)
+      setEstimatedTravelHours(costBreakdown.travel_hours)
+      setEstimatedFuelNeededLiters(costBreakdown.fuel_needed_liters)
+      setEstimatedFuelTopUpLiters(costBreakdown.fuel_top_up_liters)
+      setEstimatedTankCapacityLiters(costBreakdown.tank_capacity_liters)
+      setCurrentFuelInTankLiters(costBreakdown.current_fuel_liters)
+      setCurrentFuelPercentage(costBreakdown.current_fuel_percentage)
+      setActiveTruckCount(costBreakdown.truck_count || 1)
+      setDistancePerTruck(costBreakdown.distance_per_truck || estimatedDistance)
       
       // Total = Rate Card Total + Goods in Transit Premium
       const total = costBreakdown.total_transport + (parseFloat(goodsInTransitPremium) || 0)
@@ -819,8 +1124,16 @@ export default function LoadPlanPage() {
       setApproximatedDriverCost(0)
       setTotalVehicleCost(0)
       setApproximatedCPK(0)
+      setEstimatedTravelHours(0)
+      setEstimatedFuelNeededLiters(0)
+      setEstimatedFuelTopUpLiters(0)
+      setEstimatedTankCapacityLiters(0)
+      setCurrentFuelInTankLiters(0)
+      setCurrentFuelPercentage(0)
+      setActiveTruckCount(1)
+      setDistancePerTruck(0)
     }
-  }, [selectedVehicleType, estimatedDistance, tripDays, goodsInTransitPremium, fuelPricePerLiter, calculateRateCardCost])
+  }, [selectedVehicleType, estimatedDistance, tripDays, goodsInTransitPremium, fuelPricePerLiter, calculateRateCardCost, selectedVehicleTelemetry, estimatedRouteHours, selectedVehicleId, selectedTrailerId, driverAssignments, handoverAssignments])
 
   // Note: Vehicle and driver costs are now handled by the rate card system
   // Legacy cost calculations removed to prevent conflicts with rate card system
@@ -1041,7 +1354,8 @@ export default function LoadPlanPage() {
           driver: selectedDriver,
           vehicle: matchingVehicle,
           latitude: parseFloat(matchingVehicle.latitude),
-          longitude: parseFloat(matchingVehicle.longitude)
+          longitude: parseFloat(matchingVehicle.longitude),
+          name: `${selectedDriver.first_name} ${selectedDriver.surname}`.trim()
         })
         // Force route recalculation when driver changes
         setOptimizedRoute(null)
@@ -1065,15 +1379,18 @@ export default function LoadPlanPage() {
     setIsCalculatingDistance(true)
     try {
       console.log('Fetching vehicle tracking data from API...')
-      const trackingResponse = await fetch('/api/eps-vehicles')
-      const trackingData = await trackingResponse.json()
-      console.log('API response:', trackingData)
-      console.log('Has result?', !!trackingData?.result)
-      console.log('Has result.data?', !!trackingData?.result?.data)
-      console.log('Has data?', !!trackingData?.data)
-      console.log('Has error?', !!trackingData?.error)
+      const [waterfordSitesData, epsVehiclesData] = await Promise.all([
+        fetch('/api/waterford-sites').then((response) => response.json()),
+        fetch('/api/eps-vehicles').then((response) => response.json())
+      ])
       
-      const vehicleData = trackingData?.result?.data || trackingData?.data || []
+      const waterfordList = Array.isArray(waterfordSitesData)
+        ? waterfordSitesData
+        : (waterfordSitesData?.result?.data || waterfordSitesData?.data || [])
+      const epsList = Array.isArray(epsVehiclesData)
+        ? epsVehiclesData
+        : (epsVehiclesData?.result?.data || epsVehiclesData?.data || [])
+      const vehicleData = mergeTrackingSources(waterfordList, epsList)
       console.log('Vehicle data extracted:', vehicleData.length, 'vehicles')
       if (vehicleData.length > 0) {
         console.log('First 3 drivers:', vehicleData.slice(0, 3).map(v => v.driver_name))
@@ -1116,6 +1433,95 @@ export default function LoadPlanPage() {
     } catch {
       return []
     }
+  }
+
+  const getVehicleNameById = (id) => {
+    if (!id) return ''
+    const vehicle = vehicles.find(v => v.id.toString() === id.toString())
+    return hasValidRegistration(vehicle?.registration_number) ? vehicle.registration_number : ''
+  }
+
+  const buildCurrentAssignment = () => ({
+    drivers: driverAssignments,
+    vehicle: {
+      id: selectedVehicleId,
+      name: getVehicleNameById(selectedVehicleId)
+    },
+    trailer: {
+      id: selectedTrailerId,
+      name: getVehicleNameById(selectedTrailerId)
+    }
+  })
+
+  const addHandoverAssignmentSet = () => {
+    setHandoverAssignments(prev => [
+      ...prev,
+      {
+        vehicleId: '',
+        trailerId: '',
+        drivers: [{ id: '', name: '', first_name: '', surname: '' }]
+      }
+    ])
+  }
+
+  const removeHandoverAssignmentSet = (setIndex) => {
+    setHandoverAssignments(prev => prev.filter((_, idx) => idx !== setIndex))
+  }
+
+  const handleHandoverVehicleChange = (setIndex, field, value) => {
+    setHandoverAssignments(prev => prev.map((set, idx) =>
+      idx === setIndex ? { ...set, [field]: value } : set
+    ))
+  }
+
+  const addHandoverDriver = (setIndex) => {
+    setHandoverAssignments(prev => prev.map((set, idx) =>
+      idx === setIndex
+        ? { ...set, drivers: [...(set.drivers || []), { id: '', name: '', first_name: '', surname: '' }] }
+        : set
+    ))
+  }
+
+  const removeHandoverDriver = (setIndex, driverIndex) => {
+    setHandoverAssignments(prev => prev.map((set, idx) => {
+      if (idx !== setIndex) return set
+      const nextDrivers = (set.drivers || []).filter((_, dIdx) => dIdx !== driverIndex)
+      return {
+        ...set,
+        drivers: nextDrivers.length > 0 ? nextDrivers : [{ id: '', name: '', first_name: '', surname: '' }]
+      }
+    }))
+  }
+
+  const handleHandoverDriverChange = (setIndex, driverIndex, driverId) => {
+    const selectedDriver = drivers.find(d => String(d.id) === String(driverId))
+    setHandoverAssignments(prev => prev.map((set, idx) => {
+      if (idx !== setIndex) return set
+      const nextDrivers = [...(set.drivers || [])]
+      nextDrivers[driverIndex] = {
+        id: driverId,
+        name: selectedDriver ? `${selectedDriver.first_name} ${selectedDriver.surname}`.trim() : '',
+        first_name: selectedDriver?.first_name || '',
+        surname: selectedDriver?.surname || ''
+      }
+      return { ...set, drivers: nextDrivers }
+    }))
+  }
+
+  const buildHandoverAssignments = () => {
+    return handoverAssignments
+      .map((set) => ({
+        drivers: (set.drivers || []).filter((driver) => driver?.id),
+        vehicle: {
+          id: set.vehicleId || '',
+          name: getVehicleNameById(set.vehicleId)
+        },
+        trailer: {
+          id: set.trailerId || '',
+          name: getVehicleNameById(set.trailerId)
+        }
+      }))
+      .filter((set) => set.vehicle.id || set.trailer.id || set.drivers.length > 0)
   }
 
   const [summaryOpen, setSummaryOpen] = useState(false)
@@ -1265,6 +1671,12 @@ export default function LoadPlanPage() {
   const handleUpdate = async () => {
     setIsSubmitting(true)
     try {
+      const currentAssignment = buildCurrentAssignment()
+      const existingTrip = loads.find(trip => trip.id?.toString() === editTripId?.toString())
+      const existingHandedAssignments = parseJsonField(existingTrip?.handed_vehicleassignments)
+      const nextHandedAssignments = buildHandoverAssignments()
+      const handedVehicleAssignments = nextHandedAssignments.length > 0 ? nextHandedAssignments : existingHandedAssignments
+
       const tripData = {
         ordernumber: orderNumber,
         rate: rate,
@@ -1301,17 +1713,8 @@ export default function LoadPlanPage() {
           scheduled_time: etaDropoff || ''
         }],
         
-        vehicleassignments: [{
-          drivers: driverAssignments,
-          vehicle: { 
-            id: selectedVehicleId, 
-            name: selectedVehicleId ? vehicles.find(v => v.id.toString() === selectedVehicleId)?.registration_number || '' : ''
-          },
-          trailer: {
-            id: selectedTrailerId,
-            name: selectedTrailerId ? vehicles.find(v => v.id.toString() === selectedTrailerId)?.registration_number || '' : ''
-          }
-        }],
+        vehicleassignments: [currentAssignment],
+        handed_vehicleassignments: handedVehicleAssignments,
         
         trip_type: tripType,
         selected_stop_points: stopPoints,
@@ -1379,6 +1782,9 @@ export default function LoadPlanPage() {
         }
       }
       
+      const currentAssignment = buildCurrentAssignment()
+      const handedVehicleAssignments = buildHandoverAssignments()
+
       const tripData = {
         trip_id: `LOAD-${Date.now()}`,
         ordernumber: orderNumber,
@@ -1417,17 +1823,8 @@ export default function LoadPlanPage() {
           address: dropOffPoint || '',
           scheduled_time: etaDropoff || ''
         }],
-        vehicleassignments: [{
-          drivers: driverAssignments,
-          vehicle: { 
-            id: selectedVehicleId, 
-            name: selectedVehicleId ? vehicles.find(v => v.id.toString() === selectedVehicleId)?.registration_number || '' : ''
-          },
-          trailer: {
-            id: selectedTrailerId,
-            name: selectedTrailerId ? vehicles.find(v => v.id.toString() === selectedTrailerId)?.registration_number || '' : ''
-          }
-        }],
+        vehicleassignments: [currentAssignment],
+        handed_vehicleassignments: handedVehicleAssignments,
         trip_type: tripType,
         selected_stop_points: stopPoints.map((pointId, index) => {
           if (customStopPoints[index]) {
@@ -1483,6 +1880,7 @@ export default function LoadPlanPage() {
       setDriverAssignments([{ id: '', name: '' }])
       setSelectedVehicleId('')
       setSelectedTrailerId('')
+      setHandoverAssignments([])
       setTripType('local')
       setStopPoints([]) // Reset stop points for both trip types
       setCustomStopPoints([])
@@ -1886,7 +2284,10 @@ export default function LoadPlanPage() {
                           driverLocation={selectedDriverLocation ? {
                             lat: selectedDriverLocation.latitude,
                             lng: selectedDriverLocation.longitude,
-                            name: `${selectedDriverLocation.driver.first_name} ${selectedDriverLocation.driver.surname}`
+                            name: selectedDriverLocation.name ||
+                              `${selectedDriverLocation.driver?.first_name || ''} ${selectedDriverLocation.driver?.surname || ''}`.trim() ||
+                              selectedDriverLocation.vehicle?.registration_number ||
+                              'Vehicle'
                           } : undefined}
                           clientLocation={selectedClient?.coordinates ? (() => {
                             try {
@@ -2030,7 +2431,7 @@ export default function LoadPlanPage() {
                       value={selectedVehicleId}
                       onChange={setSelectedVehicleId}
                       vehicles={filteredVehicles}
-                      placeholder="Select horse (vehicle)"
+                      placeholder="Select horse (vehicle/truck)"
                     />
                   </div>
 
@@ -2044,6 +2445,100 @@ export default function LoadPlanPage() {
                       placeholder="Select trailer"
                     />
                   </div>
+                </div>
+
+                {/* Future Handover Assignments */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-lg font-medium">Future Handovers</Label>
+                    <Button type="button" size="sm" onClick={addHandoverAssignmentSet}>
+                      <Plus className="h-4 w-4 mr-1" /> Add Handover Set
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    Stored in <span className="font-semibold">handed_vehicleassignments</span> as ordered sets of
+                    <span className="font-semibold"> drivers + vehicle + trailer</span>.
+                  </p>
+
+                  {handoverAssignments.length === 0 && (
+                    <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-600">
+                      No handover sets added yet.
+                    </div>
+                  )}
+
+                  {handoverAssignments.map((set, setIndex) => (
+                    <div key={`handover-${setIndex}`} className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-slate-800">Handover #{setIndex + 1}</p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => removeHandoverAssignmentSet(setIndex)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium text-slate-700">Horse (Vehicle/Truck)</Label>
+                          <VehicleDropdown
+                            value={set.vehicleId}
+                            onChange={(value) => handleHandoverVehicleChange(setIndex, 'vehicleId', value)}
+                            vehicles={filteredVehicles}
+                            placeholder="Select handover horse"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium text-slate-700">Trailer</Label>
+                          <TrailerDropdown
+                            value={set.trailerId}
+                            onChange={(value) => handleHandoverVehicleChange(setIndex, 'trailerId', value)}
+                            trailers={filteredTrailers}
+                            placeholder="Select handover trailer"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm font-medium text-slate-700">Drivers</Label>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => addHandoverDriver(setIndex)}
+                          >
+                            <Plus className="h-4 w-4 mr-1" /> Add Driver
+                          </Button>
+                        </div>
+                        {(set.drivers || []).map((driver, driverIndex) => (
+                          <div key={`handover-${setIndex}-driver-${driverIndex}`} className="flex gap-2 items-center">
+                            <div className="flex-1">
+                              <DriverDropdown
+                                value={driver.id}
+                                onChange={(value) => handleHandoverDriverChange(setIndex, driverIndex, value)}
+                                drivers={availableDrivers}
+                                placeholder={`Select driver #${driverIndex + 1}`}
+                                showDistance={false}
+                              />
+                            </div>
+                            {(set.drivers || []).length > 1 && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => removeHandoverDriver(setIndex, driverIndex)}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
 
@@ -2117,11 +2612,36 @@ export default function LoadPlanPage() {
                             <p className="text-xs text-slate-600">kilometers</p>
                           </div>
                           <div className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
+                            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Trucks Used</p>
+                            <p className="text-2xl font-bold text-slate-800 mt-2">{activeTruckCount}</p>
+                            <p className="text-xs text-slate-600">{distancePerTruck.toFixed(1)} km per truck</p>
+                          </div>
+                          <div className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
+                            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Travel Time</p>
+                            <p className="text-2xl font-bold text-slate-800 mt-2">{estimatedTravelHours.toFixed(1)}h</p>
+                            <p className="text-xs text-slate-600">estimated</p>
+                          </div>
+                          <div className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
                             <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">CPK</p>
                             <p className="text-2xl font-bold text-slate-800 mt-2">R{approximatedCPK.toFixed(2)}</p>
                             <p className="text-xs text-slate-600">per km</p>
                           </div>
+                          <div className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
+                            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Fuel Top-up</p>
+                            <p className="text-2xl font-bold text-slate-800 mt-2">{estimatedFuelTopUpLiters.toFixed(1)}L</p>
+                            <p className="text-xs text-slate-600">
+                              in tank {currentFuelInTankLiters.toFixed(1)}L ({currentFuelPercentage.toFixed(0)}%)
+                            </p>
+                          </div>
                         </div>
+                        {estimatedTankCapacityLiters > 0 && (
+                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                            <p className="text-sm text-amber-800">
+                              Estimated tank capacity: <span className="font-semibold">{estimatedTankCapacityLiters.toFixed(1)}L</span>
+                              {' '} | Planned fuel use: <span className="font-semibold">{estimatedFuelNeededLiters.toFixed(1)}L</span>
+                            </p>
+                          </div>
+                        )}
                       </div>
                       
                       {/* Total Cost - Bottom Aligned */}

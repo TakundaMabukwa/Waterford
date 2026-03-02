@@ -88,12 +88,42 @@ export default function LiveMapView() {
   const fetchVehicles = async () => {
     try {
       setLoading(true);
-      const [epsResult, ctrackResult] = await Promise.allSettled([
+      const [waterfordResult, epsResult, ctrackResult] = await Promise.allSettled([
+        fetch('/api/waterford-sites'),
         fetch('/api/eps-vehicles'),
         fetch('/api/ctrack-data')
       ]);
 
       let allVehicles: Vehicle[] = [];
+
+      // Process Waterford Sites API data (primary live source)
+      if (waterfordResult.status === 'fulfilled') {
+        try {
+          const waterfordData = await waterfordResult.value.json();
+          const waterfordVehicles = (Array.isArray(waterfordData) ? waterfordData : []).map((v: any) => ({
+            id: String(v.Id || v.Plate || v.plate || `${Date.now()}-${Math.random()}`),
+            plate: v.Plate || v.plate || 'Unknown',
+            driver: v.DriverName || v.driver_name || 'UNKNOWN',
+            status: parseFloat(v.Speed) > 0 ? 'online' : 'idle',
+            location: v.Latitude && v.Longitude ? {
+              lat: parseFloat(v.Latitude),
+              lng: parseFloat(v.Longitude),
+              address: v.Geozone || 'Unknown location'
+            } : undefined,
+            speed: parseFloat(v.Speed) || 0,
+            lastUpdate: v.LocTime || v.updated_at,
+            latitude: v.Latitude ? parseFloat(v.Latitude) : undefined,
+            longitude: v.Longitude ? parseFloat(v.Longitude) : undefined,
+            address: v.Geozone,
+            mileage: v.Mileage ? parseFloat(v.Mileage) : null,
+            geozone: v.Geozone,
+            timestamp: v.updated_at || v.LocTime
+          }));
+          allVehicles = [...allVehicles, ...waterfordVehicles];
+        } catch (e) {
+          console.error('Error parsing Waterford data:', e);
+        }
+      }
 
       // Process EPS API data
       if (epsResult.status === 'fulfilled') {
@@ -158,7 +188,8 @@ export default function LiveMapView() {
       // Filter out vehicles without location data and ensure unique plates
       const vehiclesWithLocation = allVehicles.filter(v => v.location);
       
-      // Remove duplicates by keeping the most recent entry for each plate
+      // Remove duplicates by keeping the most recent entry for each plate.
+      // If same timestamp, prefer source with richer geozone/address (typically Waterford).
       // Normalize plates to handle case sensitivity and whitespace
       const uniqueVehicles = vehiclesWithLocation.reduce((acc, vehicle) => {
         const normalizedPlate = vehicle.plate?.trim().toUpperCase() || 'UNKNOWN';
@@ -172,7 +203,9 @@ export default function LiveMapView() {
           // Keep the one with more recent timestamp
           const existingTime = acc[existingIndex].timestamp ? new Date(acc[existingIndex].timestamp).getTime() : 0;
           const newTime = vehicle.timestamp ? new Date(vehicle.timestamp).getTime() : 0;
-          if (newTime > existingTime) {
+          const existingHasAddress = Boolean(acc[existingIndex].address);
+          const newHasAddress = Boolean(vehicle.address);
+          if (newTime > existingTime || (newTime === existingTime && newHasAddress && !existingHasAddress)) {
             acc[existingIndex] = vehicle;
           }
         }
@@ -192,7 +225,7 @@ export default function LiveMapView() {
         };
       });
       
-      console.log(`Loaded ${filteredVehicles.length} vehicles with 8-char plates from ${allVehicles.length} total records`);
+      console.log(`Loaded ${filteredVehicles.length} vehicles with 8-char plates from ${allVehicles.length} total records (including waterford-sites)`);
       setVehicles(filteredVehicles);
       setLoading(false);
     } catch (error) {

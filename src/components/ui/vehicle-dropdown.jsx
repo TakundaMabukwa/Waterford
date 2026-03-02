@@ -15,12 +15,41 @@ export function VehicleDropdown({
   const dropdownRef = useRef(null)
   const searchInputRef = useRef(null)
 
-  const filteredVehicles = vehicles.filter(vehicle => {
-    const searchMatch = vehicle.make?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      vehicle.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (vehicle.regNumber || vehicle.registration_number)?.toLowerCase().includes(searchTerm.toLowerCase())
-    return searchMatch
+  const cleanValue = (value) => {
+    if (value === null || value === undefined) return ''
+    const text = String(value).trim()
+    if (!text || text.toLowerCase() === 'null' || text.toLowerCase() === 'undefined') return ''
+    return text
+  }
+
+  const getVehicleReg = (vehicle) => cleanValue(vehicle.regNumber || vehicle.registration_number)
+  const getVehicleLabel = (vehicle) => {
+    const reg = getVehicleReg(vehicle)
+    const make = cleanValue(vehicle.make)
+    const model = cleanValue(vehicle.model)
+    const type = cleanValue(vehicle.vehicle_type)
+    const title = [make, model].filter(Boolean).join(' ')
+    if (title && reg) return `${title} (${reg})`
+    if (title) return title
+    if (reg) return reg
+    if (type) return `Vehicle (${type})`
+    return `Vehicle #${vehicle.id}`
+  }
+
+  const cleanVehicles = vehicles.filter((vehicle) => {
+    const reg = getVehicleReg(vehicle)
+    const make = cleanValue(vehicle.make)
+    const model = cleanValue(vehicle.model)
+    return Boolean(reg || make || model)
   })
+
+  const filteredVehicles = vehicles.filter(vehicle => {
+    const searchMatch = cleanValue(vehicle.make).toLowerCase().includes(searchTerm.toLowerCase()) ||
+      cleanValue(vehicle.model).toLowerCase().includes(searchTerm.toLowerCase()) ||
+      cleanValue(vehicle.vehicle_type).toLowerCase().includes(searchTerm.toLowerCase()) ||
+      getVehicleReg(vehicle).toLowerCase().includes(searchTerm.toLowerCase())
+    return searchMatch
+  }).filter((vehicle) => cleanVehicles.some((candidate) => candidate.id === vehicle.id))
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -46,8 +75,8 @@ export function VehicleDropdown({
     setSearchTerm('')
   }
 
-  const selectedVehicle = vehicles.find(v => v.id === value)
-  const displayValue = selectedVehicle ? `${selectedVehicle.make} ${selectedVehicle.model} (${selectedVehicle.regNumber || selectedVehicle.registration_number})` : ''
+  const selectedVehicle = cleanVehicles.find(v => String(v.id) === String(value))
+  const displayValue = selectedVehicle ? getVehicleLabel(selectedVehicle) : ''
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -73,7 +102,7 @@ export function VehicleDropdown({
             <input
               ref={searchInputRef}
               className="flex h-8 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              placeholder="Search vehicles..."
+              placeholder="Search vehicles or trucks..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -95,7 +124,7 @@ export function VehicleDropdown({
                 >
                   <div className="flex items-center gap-2">
                     <Truck className="h-4 w-4" />
-                    <span>{vehicle.make} {vehicle.model} ({vehicle.regNumber || vehicle.registration_number})</span>
+                    <span>{getVehicleLabel(vehicle)}</span>
                   </div>
                 </div>
               ))

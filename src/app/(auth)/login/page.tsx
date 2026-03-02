@@ -3,8 +3,6 @@
 import React, { FormEvent, useState, useTransition } from "react";
 import {
   Card,
-  CardHeader,
-  CardTitle,
   CardContent,
   CardFooter,
 } from "@/components/ui/card";
@@ -113,15 +111,6 @@ export default function LoginPage() {
     //   </form >
     // </>
     <>
-      <CardHeader className="text-center space-y-2">
-        <CardTitle className="text-2xl font-bold text-[#1A245E]">
-          Welcome Back
-        </CardTitle>
-        <p className="text-gray-600 text-sm">
-          Sign in to access your EPS Dashboard
-        </p>
-      </CardHeader>
-
       <form action={handleSubmit}>
         <CardContent className="space-y-5">
           <div>
@@ -139,7 +128,7 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full border-gray-300 focus:ring-2 focus:ring-[#1A245E] focus:border-[#1A245E] rounded-md"
+              className="w-full rounded-md border-gray-300 focus:border-[#0C1E3D] focus:ring-2 focus:ring-[#0C1E3D]"
             />
           </div>
 
@@ -158,7 +147,7 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full border-gray-300 focus:ring-2 focus:ring-[#1A245E] focus:border-[#1A245E] rounded-md"
+              className="w-full rounded-md border-gray-300 focus:border-[#0C1E3D] focus:ring-2 focus:ring-[#0C1E3D]"
             />
           </div>
 
@@ -169,7 +158,7 @@ export default function LoginPage() {
           <Button
             type="submit"
             disabled={isPending}
-            className={`w-full py-2 font-semibold text-white rounded-md transition-all duration-300 bg-blue-500 hover:opacity-90 ${
+            className={`w-full rounded-md bg-[#E79B54] py-2 font-semibold text-white transition-all duration-300 hover:bg-[#d9863b] ${
               isPending ? "opacity-50 cursor-not-allowed" : ""
             }`}
           >
