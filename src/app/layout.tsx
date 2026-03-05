@@ -18,9 +18,9 @@ export const metadata: Metadata = {
   description: "Waterford Dashboard",
   authors: [{ name: "Vik & Mukelani", url: "" }],
   icons: {
-    icon: "/Logo.png",
-    shortcut: "/Logo.png",
-    apple: "/Logo.png",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/favicon.ico",
   },
 };
 
