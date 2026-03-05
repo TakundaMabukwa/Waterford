@@ -7,7 +7,6 @@
     "build": "set NODE_OPTIONS=--max-old-space-size=1536 && set UV_THREADPOOL_SIZE=1 && next build",
     "start": "set NODE_OPTIONS=--max-old-space-size=1536 && next start",
     "lint": "next lint",
-    "postbuild": "next-sitemap",
     "database:pull": "npx supabase gen types --lang=typescript --project-id jbactgkcijnkjpyqqzxv > src/lib/supabase/database.types.ts",
     "import:eps-clients": "node scripts/import-eps-clients-xero.js"
   },

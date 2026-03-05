@@ -11,7 +11,6 @@ const nextConfig = {
     cpus: 1
   },
   compress: false,
-  swcMinify: false,
   productionBrowserSourceMaps: false,
   webpack: (config) => {
     config.optimization.minimize = false
