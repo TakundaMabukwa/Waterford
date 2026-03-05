@@ -1,43 +1,4 @@
-t fetch origin
-
-# Force push (overwrites remote with your local changes)
-git push origin main --force
-Enumerating objects: 1105, done.
-Counting objects: 100% (1105/1105), done.
-Delta compression using up to 8 threads
-Compressing objects: 100% (972/972), done.
-Writing objects: 100% (1105/1105), 4.14 MiB | 3.47 MiB/s, done.
-Total 1105 (delta 402), reused 0 (delta 0), pack-reused 0 (from 0)
-remote: Resolving deltas: 100% (402/402), done.
-remote: error: GH013: Repository rule violations found for refs/heads/main.
-remote: 
-remote: - GITHUB PUSH PROTECTION
-remote:   —————————————————————————————————————————
-remote:     Resolve the following violations before pushing again
-remote:
-remote:     - Push cannot contain secrets
-remote:
-remote:
-remote:      (?) Learn how to resolve a blocked push
-remote:      https://docs.github.com/code-security/secret-scanning/working-with-secret-scanning-and-push-protection/working-with-push-protection-from-the-command-line#resolving-a-blocked-push
-remote:
-remote:
-remote:       —— Mapbox Secret Access Token ————————————————————————
-remote:        locations:
-remote:          - commit: 617bb0228e6cde92e9e24980e25760bb095e30b9
-remote:            path: src/lib/mapbox-geocoding.js:2
-remote:
-remote:        (?) To push, remove secret from commit(s) or follow this URL to allow the secret.       
-remote:        https://github.com/TakundaMabukwa/Waterford/security/secret-scanning/unblock-secret/3ANeTYSAdKr9eXgJaVqdVkfYzxB
-remote:
-remote:
-remote:
-To https://github.com/TakundaMabukwa/Waterford.git
- ! [remote rejected] main -> main (push declined due to repository rule violations)
-error: failed to push some refs to 'https://github.com/TakundaMabukwa/Waterford.git'
-
-mabuk@Latitude MINGW64 ~/Desktop/Systems/eps - Copy/breakdownDashboard (main)
-$const MAPBOX_ACCESS_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+const MAPBOX_ACCESS_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
 
 /**
  * Geocode an address to get coordinates using Mapbox Geocoding API
