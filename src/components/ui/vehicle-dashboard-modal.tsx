@@ -76,6 +76,17 @@ const findBestPlateMatch = (list: any[], targetPlateRaw: string | string[]) => {
   return best.score <= 3 ? best.item : null
 }
 
+const isSameLiveVehicleData = (prev: any, next: any) => {
+  if (!prev && !next) return true
+  if (!prev || !next) return false
+  return (
+    String(prev?.Id ?? "") === String(next?.Id ?? "") &&
+    String(prev?.updated_at ?? "") === String(next?.updated_at ?? "") &&
+    String(prev?.LocTime ?? "") === String(next?.LocTime ?? "") &&
+    String(prev?.Plate ?? prev?.plate ?? "") === String(next?.Plate ?? next?.plate ?? "")
+  )
+}
+
 function MiniGauge({
   value,
   max,
@@ -268,8 +279,13 @@ function LiveMapPanel({
         markerRef.current = new mapboxgl.Marker({ color: "#f97316" })
           .setLngLat([location.lng, location.lat])
           .setPopup(
-            new mapboxgl.Popup({ offset: 14 }).setHTML(
-              `<div style="font-size:12px"><strong>${plate || "Vehicle"}</strong><br/>Speed: ${Math.round(speed)} km/h<br/>Fuel: ${Math.round(fuelPercent)}%<br/>${geozone || "Live position"}</div>`
+            new mapboxgl.Popup({ offset: 14, className: "vehicle-dashboard-popup" }).setHTML(
+              `<div style="min-width:220px;max-width:280px;padding:10px 12px;border-radius:10px;background:#060c1a;color:#e2e8f0;border:1px solid #334155;box-shadow:0 8px 24px rgba(0,0,0,0.45);font-size:12px;line-height:1.45;">
+                <div style="font-size:13px;font-weight:700;color:#f8fafc;margin-bottom:6px;">${plate || "Vehicle"}</div>
+                <div style="color:#cbd5e1;">Speed: <span style="color:#7dd3fc;font-weight:600;">${Math.round(speed)} km/h</span></div>
+                <div style="color:#cbd5e1;">Fuel: <span style="color:#6ee7b7;font-weight:600;">${Math.round(fuelPercent)}%</span></div>
+                <div style="margin-top:6px;color:#94a3b8;">${geozone || "Live position"}</div>
+              </div>`
             )
           )
           .addTo(mapRef.current)
@@ -371,8 +387,9 @@ function DashboardContent({
           epsMatch = findBestPlateMatch(list, plateCandidates)
         }
 
+        const nextData = waterfordMatch || epsMatch || null
         if (active) {
-          setLiveVehicleData(waterfordMatch || epsMatch || null)
+          setLiveVehicleData((prev: any) => (isSameLiveVehicleData(prev, nextData) ? prev : nextData))
         }
       } catch {
         if (active) setLiveVehicleData(null)
@@ -389,7 +406,8 @@ function DashboardContent({
 
   const speed = toNumber(liveVehicleData?.Speed ?? liveVehicleData?.speed ?? vehicleLocation?.speed ?? trip?.current_speed) ?? 0
   const rpmRaw = toNumber(liveVehicleData?.rpm ?? liveVehicleData?.engine_rpm ?? trip?.rpm)
-  const rpm = rpmRaw !== null ? Math.max(0, Math.min(9, rpmRaw / (rpmRaw > 20 ? 1000 : 1))) : (speed > 0 ? Math.max(0.8, Math.min(4, speed / 29)) : 0)
+  const rpm = rpmRaw !== null ? Math.max(0, Math.min(9, rpmRaw / (rpmRaw > 20 ? 1000 : 1))) : null
+  const rpmGaugeValue = rpm ?? 0
   const mileage = toNumber(liveVehicleData?.Mileage ?? liveVehicleData?.mileage ?? vehicleLocation?.mileage)
   const fuelLevel = toNumber(liveVehicleData?.fuel_probe_1_level ?? vehicleLocation?.fuel_probe_1_level) ?? 0
   const fuelPct = toNumber(liveVehicleData?.fuel_probe_1_level_percentage ?? vehicleLocation?.fuel_probe_1_level_percentage) ?? 0
@@ -503,9 +521,9 @@ function DashboardContent({
 
           <div className="flex min-h-0 flex-col gap-3">
             <div className="relative flex h-[48%] items-center justify-center rounded-xl border border-orange-900/70 bg-[#060b17]">
-              <AnalogGauge value={rpm} min={0} max={8} startAngle={135} endAngle={405} majorTicks={[0, 1, 2, 3, 4, 5, 6, 7, 8]} color="#f97316" size={300} />
+              <AnalogGauge value={rpmGaugeValue} min={0} max={8} startAngle={135} endAngle={405} majorTicks={[0, 1, 2, 3, 4, 5, 6, 7, 8]} color="#f97316" size={300} />
               <div className="pointer-events-none absolute text-center">
-                <div className="text-5xl font-black tabular-nums text-orange-200">{rpm.toFixed(1)}</div>
+                <div className="text-5xl font-black tabular-nums text-orange-200">{rpm !== null ? rpm.toFixed(1) : "--"}</div>
                 <div className="text-sm uppercase tracking-[0.2em] text-slate-400">x1000 r/min</div>
               </div>
             </div>

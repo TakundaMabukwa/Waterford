@@ -14,9 +14,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EPS Breakdown Dashboard",
-  description: "Breakdown Dashboard for EPS Courier Services",
-  authors: [{ name: "Kilig Mukelani", url: "" }],
+  title: "Waterford Dashboard",
+  description: "Waterford Dashboard",
+  authors: [{ name: "Vik & Mukelani", url: "" }],
+  icons: {
+    icon: "/Logo.png",
+    shortcut: "/Logo.png",
+    apple: "/Logo.png",
+  },
 };
 
 export default function RootLayout({
