@@ -93,6 +93,7 @@ export default function LoadPlanPage() {
   const [driverAssignments, setDriverAssignments] = useState([{ id: '', name: '' }])
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [selectedTrailerId, setSelectedTrailerId] = useState('')
+  const [selectedTrailer2Id, setSelectedTrailer2Id] = useState('') // Second trailer (local only)
   const [selectedVehicleType, setSelectedVehicleType] = useState('')
   const [handoverAssignments, setHandoverAssignments] = useState([])
   const [selectedDriverLocation, setSelectedDriverLocation] = useState(null)
@@ -1955,6 +1956,7 @@ export default function LoadPlanPage() {
       setDriverAssignments([{ id: '', name: '' }])
       setSelectedVehicleId('')
       setSelectedTrailerId('')
+      setSelectedTrailer2Id('') // Reset second trailer
       setHandoverAssignments([])
       setTripType('local')
       setStopPoints([]) // Reset stop points for both trip types
@@ -2510,15 +2512,35 @@ export default function LoadPlanPage() {
                     />
                   </div>
 
-                  {/* Trailer Dropdown - Only trailers */}
+                  {/* Trailer 1 Dropdown - Only trailers */}
                   <div className="space-y-2">
-                    <Label htmlFor="trailer" className="text-sm font-medium text-slate-700">Select Trailer</Label>
+                    <Label htmlFor="trailer" className="text-sm font-medium text-slate-700">Select Trailer 1</Label>
                     <TrailerDropdown
                       value={selectedTrailerId}
                       onChange={setSelectedTrailerId}
                       trailers={trailersForDropdown}
-                      placeholder="Select trailer"
+                      placeholder="Select first trailer"
                     />
+                  </div>
+
+                  {/* Trailer 2 Dropdown - Only trailers (Local storage only) */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="trailer2" className="text-sm font-medium text-slate-700">Select Trailer 2 (Optional)</Label>
+                      <span className="text-xs text-slate-500 italic">- Local reference only</span>
+                    </div>
+                    <TrailerDropdown
+                      value={selectedTrailer2Id}
+                      onChange={setSelectedTrailer2Id}
+                      trailers={filteredTrailers}
+                      placeholder="Select second trailer (optional)"
+                    />
+                    {selectedTrailer2Id && (
+                      <p className="text-xs text-amber-600 flex items-center gap-1">
+                        <span>⚠️</span>
+                        <span>This trailer is for reference only and won't be saved to the trip</span>
+                      </p>
+                    )}
                   </div>
                 </div>
 
