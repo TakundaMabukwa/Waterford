@@ -10,8 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { TopNavigation } from '@/components/layout/TopNavigation';
 import { UserPlus, RefreshCw, Users, Mail, Shield, Building, Loader2, Zap, ArrowLeft } from 'lucide-react';
-import { useUser } from '@/contexts/UserContext';
-import { useApp } from '@/contexts/AppContext';
+import { useUser } from '@/components/fuel-system/contexts/UserContext';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
 import { useToast } from '@/hooks/use-toast';
 import { HierarchicalTable } from '@/components/ui/hierarchical-table';
 
@@ -708,3 +708,4 @@ export function UsersView({ onBack }: UsersViewProps) {
     </div>
   );
 }
+

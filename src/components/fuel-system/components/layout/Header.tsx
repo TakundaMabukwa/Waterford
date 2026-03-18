@@ -1,21 +1,17 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Bell, Menu, LogOut, History } from 'lucide-react';
-import { NotesHistoryModal } from '@/components/ui/notes-history-modal';
+import { Bell, LogOut } from 'lucide-react';
+import { NotesHistoryModal } from '@/components/fuel-system/components/ui/notes-history-modal';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { LogoutButton } from '@/components/logout-button';
-import { useUser } from '@/contexts/UserContext';
-import { useApp } from '@/contexts/AppContext';
+import { LogoutButton } from '@/components/fuel-system/components/logout-button';
+import { useUser } from '@/components/fuel-system/contexts/UserContext';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-interface HeaderProps {
-  onMenuClick?: () => void;
-}
-
-export function Header({ onMenuClick }: HeaderProps) {
-  const { user, signOut } = useUser();
+export function Header() {
+  const { user } = useUser();
   const { costCenters, selectedRoute, setSelectedRoute } = useApp();
   const { isAdmin, userCostCode } = useUser();
   const [isMounted, setIsMounted] = React.useState(false);
@@ -64,20 +60,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   };
 
   return (
-    <header className="flex justify-between items-center gap-2 bg-[#1e3a5f] px-2 sm:px-6 border-gray-700 border-b min-h-14 sm:min-h-16">
-      {/* Left Section */}
-      <div className="flex items-center gap-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="md:hidden hover:bg-white/10 text-white"
-          onClick={onMenuClick}
-          aria-label="Open navigation menu"
-        >
-          <Menu className="w-5 h-5" />
-        </Button>
-      </div>
-
+    <header className="flex justify-end items-center gap-2 bg-[#1e3a5f] px-2 sm:px-6 border-gray-700 border-b min-h-14 sm:min-h-16">
       {/* Right Section */}
       <div className="flex items-center gap-1 sm:gap-4">
         <div className="w-32 sm:w-48">
@@ -174,3 +157,4 @@ export function Header({ onMenuClick }: HeaderProps) {
     </header>
   );
 }
+

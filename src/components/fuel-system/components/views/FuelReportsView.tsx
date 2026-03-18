@@ -6,8 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 import { Download, Fuel, RefreshCw, FileX, Plus, Calendar, FileText } from 'lucide-react';
-import { useApp } from '@/contexts/AppContext';
-import { useUser } from '@/contexts/UserContext';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
+import { useUser } from '@/components/fuel-system/contexts/UserContext';
 import { useToast } from '@/hooks/use-toast';
 import { ActivityReportView } from './ActivityReportView';
 import { getReportsApiUrl } from '@/lib/utils/api-url';
@@ -489,3 +489,4 @@ export function FuelReportsView({ onBack }: FuelReportsViewProps) {
     </div>
   );
 }
+

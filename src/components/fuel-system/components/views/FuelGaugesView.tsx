@@ -1,17 +1,17 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { FuelGauge } from '@/components/ui/fuel-gauge';
-import { useApp } from '@/contexts/AppContext';
+import { FuelGauge } from '@/components/fuel-system/components/ui/fuel-gauge';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
 import { Button } from '@/components/ui/button';
 
 
 import { RefreshCw, Fuel } from 'lucide-react';
-import { ColorPicker } from '@/components/ui/color-picker';
+import { ColorPicker } from '@/components/fuel-system/components/ui/color-picker';
 import { getLastFuelFill, FuelFill } from '@/lib/fuel-fill-detector';
 import { formatForDisplay } from '@/lib/utils/date-formatter';
 import { useToast } from '@/hooks/use-toast';
-import { useUser } from '@/contexts/UserContext';
+import { useUser } from '@/components/fuel-system/contexts/UserContext';
 import { getApiUrl } from '@/lib/utils/api-url';
 
 interface FuelGaugesViewProps {
@@ -443,9 +443,9 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
       <div className="p-3 sm:p-4">
         {activeSitesCount > 0 ? (
           <div className="gap-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 xl:grid-cols-5">
-            {fuelGaugeData.map((data) => (
+            {fuelGaugeData.map((data, index) => (
               <FuelGauge
-                key={data.id}
+                key={data.id ?? `${data.location}-${index}`}
                 id={data.id}
                 location={data.location}
                 fuelLevel={data.fuelLevel}
@@ -481,3 +481,4 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
     </div>
   );
 }
+

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { costCenterService, HierarchicalCostCenter } from '@/lib/supabase/cost-centers';
 import { getLastFuelFill } from '@/lib/fuel-fill-detector';
 import { useUser } from './UserContext';
-import { getApiUrl } from '@/lib/utils/api-url';
+import { getApiUrl, getReportsApiUrl } from '@/lib/utils/api-url';
 
 // Transform API response with capitalized keys to lowercase
 function transformVehicleData(vehicle: any): any {
@@ -146,12 +146,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const tab = searchParams.get('tab');
     const route = searchParams.get('route');
-    const view = searchParams.get('view');
-    
-    if (tab && ['dashboard', 'store', 'cost-centres'].includes(tab)) {
+    const allowedTabs = ['dashboard', 'reports', 'activity', 'executive'];
+
+    if (tab && allowedTabs.includes(tab)) {
       setActiveTab(tab);
     }
-    
+
     if (route) {
       const foundRoute = routes.find(r => r.id === route);
       if (foundRoute) {
@@ -162,9 +162,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Update URL when activeTab changes
   const updateActiveTab = (tab: string) => {
-    setActiveTab(tab);
+    const allowedTabs = ['dashboard', 'reports', 'activity', 'executive'];
+    const nextTab = allowedTabs.includes(tab) ? tab : 'dashboard';
+    setActiveTab(nextTab);
     const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', tab);
+    params.set('tab', nextTab);
     router.push(`?${params.toString()}`, { scroll: false });
   };
 
@@ -195,7 +197,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setCostCenters(costCentersData);
         
         // Load all vehicles from internal route (not proxied by nginx)
-        const resp = await fetch(getApiUrl('/api/internal/dashboard-vehicles'));
+        const resp = await fetch(getApiUrl('/api/energy-rite/vehicles'));
         console.log('🔍 Fetch response status:', resp.status, resp.ok);
         if (resp.ok) {
           const json = await resp.json();
@@ -231,7 +233,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setCostCenters(scopedCostCenters);
 
         // Load vehicles once, then restrict to scoped cost centers.
-        const resp = await fetch(getApiUrl('/api/internal/dashboard-vehicles'));
+        const resp = await fetch(getApiUrl('/api/energy-rite/vehicles'));
         if (resp.ok) {
           const json = await resp.json();
           const transformedData = Array.isArray(json) ? json.map(transformVehicleData) :
@@ -314,7 +316,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Fetch activity report data to detect fuel fills
         try {
           const today = new Date().toISOString().split('T')[0];
-          const activityUrl = `http://${process.env.NEXT_PUBLIC_SERVER_URL}/api/energy-rite/reports/activity-report?date=${today}&cost_code=${costCode}`;
+          const activityUrl = `${getReportsApiUrl('/api/energy-rite/reports/activity-report')}?date=${today}&cost_code=${costCode}`;
           
           console.log('🔍 Fetching activity report for fuel fill detection:', activityUrl);
           const activityResponse = await fetch(activityUrl);
@@ -375,7 +377,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if ((!filteredVehicles || filteredVehicles.length === 0) && (!vehicles || vehicles.length === 0)) {
         // Load vehicles once if not present, then filter
         try {
-          const resp = await fetch(`http://${process.env.NEXT_PUBLIC_SERVER_URL}/api/energy-rite/vehicles`);
+          const resp = await fetch(getApiUrl('/api/energy-rite/vehicles'));
           if (resp.ok) {
             const json = await resp.json();
             if (json?.success && Array.isArray(json.data)) {
@@ -411,7 +413,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Fetch activity report data to detect fuel fills
         try {
           const today = new Date().toISOString().split('T')[0];
-          const activityUrl = `http://${process.env.NEXT_PUBLIC_SERVER_URL}/api/energy-rite/reports/activity-report?date=${today}&cost_code=${costCenter.costCode}`;
+          const activityUrl = `${getReportsApiUrl('/api/energy-rite/reports/activity-report')}?date=${today}&cost_code=${costCenter.costCode}`;
           
           console.log('🔍 Fetching activity report for fuel fill detection:', activityUrl);
           const activityResponse = await fetch(activityUrl);
@@ -449,7 +451,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.log('✅ Updated fuel data from SSE/context vehicles:', formattedFuelData.length, 'vehicles');
       } else {
         console.log('⚠️ No vehicle data found for cost code in context:', costCenter.costCode, '→ fetching vehicles from external once');
-        const resp = await fetch(`http://${process.env.NEXT_PUBLIC_SERVER_URL}/api/energy-rite/vehicles`);
+        const resp = await fetch(getApiUrl('/api/energy-rite/vehicles'));
         if (resp.ok) {
           const json = await resp.json();
           if (json?.success && Array.isArray(json.data)) {
@@ -470,7 +472,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             // Fetch activity report data to detect fuel fills
             try {
               const today = new Date().toISOString().split('T')[0];
-              const activityUrl = `http://${process.env.NEXT_PUBLIC_SERVER_URL}/api/energy-rite/reports/activity-report?date=${today}&cost_code=${costCenter.costCode}`;
+              const activityUrl = `${getReportsApiUrl('/api/energy-rite/reports/activity-report')}?date=${today}&cost_code=${costCenter.costCode}`;
               
               console.log('🔍 Fetching activity report for fuel fill detection (fallback):', activityUrl);
               const activityResponse = await fetch(activityUrl);

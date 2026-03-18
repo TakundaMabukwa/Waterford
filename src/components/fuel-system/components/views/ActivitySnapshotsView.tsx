@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { TopNavigation } from '@/components/layout/TopNavigation';
 import { RefreshCw, Calendar, Clock, Fuel, TrendingUp } from 'lucide-react';
-import { useApp } from '@/contexts/AppContext';
-import { useUser } from '@/contexts/UserContext';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
+import { useUser } from '@/components/fuel-system/contexts/UserContext';
 import { useToast } from '@/hooks/use-toast';
 import { formatForDisplay } from '@/lib/utils/date-formatter';
 

@@ -4,8 +4,8 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { ButtonProps } from "@/components/ui/button";
-import { useUser } from "@/contexts/UserContext";
-import { useApp } from "@/contexts/AppContext";
+import { useUser } from "@/components/fuel-system/contexts/UserContext";
+import { useApp } from "@/components/fuel-system/contexts/AppContext";
 
 let isLoggingOut = false;
 
@@ -61,3 +61,4 @@ export function LogoutButton({ children, ...props }: ButtonProps) {
 
   return <Button onClick={logout} {...props}>{children || "Logout"}</Button>;
 }
+

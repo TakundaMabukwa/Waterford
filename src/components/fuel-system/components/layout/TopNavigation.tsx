@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { useApp } from '@/contexts/AppContext';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
 import { BarChart3, FileText, Activity, TrendingUp } from 'lucide-react';
 
 const topNavItems = [
@@ -42,3 +42,4 @@ export function TopNavigation() {
     </div>
   );
 }
+

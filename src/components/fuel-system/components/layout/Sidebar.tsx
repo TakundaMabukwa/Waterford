@@ -11,9 +11,8 @@ import {
   Clock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useApp } from '@/contexts/AppContext';
-import { useUser } from '@/contexts/UserContext';
-import Image from 'next/image';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
+import { useUser } from '@/components/fuel-system/contexts/UserContext';
 
 interface SidebarProps {
   mobile?: boolean;
@@ -60,25 +59,6 @@ export function Sidebar({ mobile = false, onNavigate, className }: SidebarProps)
       mobile ? "w-full" : (isCollapsed ? "w-16" : "w-64"),
       className
     )}>
-      {/* Logo Section */}
-      <div className="p-4 border-gray-200 border-b">
-        <div className="flex justify-center items-center">
-          {!isCollapsed ? (
-            <Image
-              src="/energyease_logo_green_orange_1m.png"
-              alt="Energyease Logo"
-              width={150}
-              height={40}
-              className="w-auto h-8"
-            />
-          ) : (
-            <div className="flex justify-center items-center bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg w-8 h-8">
-              <span className="font-bold text-white text-sm">E</span>
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* Navigation Items */}
       <nav className="flex-1 space-y-2 p-4">
         {sidebarItems.map((item) => {
@@ -144,3 +124,4 @@ export function Sidebar({ mobile = false, onNavigate, className }: SidebarProps)
     </div>
   );
 }
+

@@ -257,6 +257,12 @@ export default function LoadPlanPage() {
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, '')
 
+  const normalizeCategory = (value) =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+
   const hasValidRegistration = (value) => {
     const plate = normalizePlate(value)
     return plate.length > 0
@@ -346,7 +352,7 @@ export default function LoadPlanPage() {
         while (hasMore) {
           const { data, error } = await supabase
             .from('vehiclesc')
-            .select('id, registration_number, engine_number, vin_number, make, model, sub_model, manufactured_year, vehicle_type, veh_dormant_flag')
+            .select('id, registration_number, engine_number, vin_number, make, model, sub_model, manufactured_year, vehicle_type, veh_dormant_flag, trailer_no, trailer_no2, trailer_name, trailer_name2')
             .range(from, from + batchSize - 1)
           
           if (error) throw error
@@ -457,61 +463,30 @@ export default function LoadPlanPage() {
   // Vehicle type options
   const vehicleTypeOptions = [
     'TAUTLINER',
-    'TAUT X-BRDER - BOTSWANA',
-    'TAUT X-BRDER - NAMIBIA', 
-    'CITRUS LOAD (+1 DAY STANDING FPT)',
-    '14M/15M COMBO (NEW)',
-    '14M/15M REEFER',
-    '9 METER (NEW)',
-    '8T JHB (NEW - EPS)',
-    '8T JHB (NEW) - X-BRDER - MOZ',
-    '8T JHB (OLD)',
-    '14 TON CURTAIN',
-    '1TON BAKKIE'
+    'FLATDECKS',
+    'REFRIGERATED',
+    '12M FLATDECKS',
+    '6M SKELETALS'
   ]
 
   // Filter vehicles based on selected type
   const filteredVehicles = useMemo(() => {
-    // Exclude 'trailer' type from all results
     const nonTrailers = vehicles.filter(v =>
       (v.vehicle_type || '').toLowerCase() !== 'trailer' &&
       hasValidRegistration(v.registration_number)
     )
-    console.log('Non-trailer vehicles:', nonTrailers.length)
-    console.log('Sample non-trailers:', nonTrailers.slice(0, 5).map(v => ({ reg: v.registration_number, type: v.vehicle_type })))
-    
-    if (!selectedVehicleType) return nonTrailers
-    
-    // Map vehicle_type codes to vehicle type categories
-    const typeMapping = {
-      'TAUTLINER': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle', 'truck'],
-      'TAUT X-BRDER - BOTSWANA': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle', 'truck'],
-      'TAUT X-BRDER - NAMIBIA': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle', 'truck'],
-      'CITRUS LOAD (+1 DAY STANDING FPT)': ['TRTR', 'TRFLT', 'TRRLT', 'TRTRS', 'vehicle', 'truck'],
-      '14M/15M COMBO (NEW)': ['TR14M', 'vehicle', 'truck'],
-      '14M/15M REEFER': ['TR14M', 'vehicle', 'truck'],
-      '9 METER (NEW)': ['TRS9M', 'vehicle', 'truck'],
-      '8T JHB (NEW - EPS)': ['R8T', 'vehicle', 'truck'],
-      '8T JHB (NEW) - X-BRDER - MOZ': ['R8T', 'vehicle', 'truck'],
-      '8T JHB (OLD)': ['R8T', 'vehicle', 'truck'],
-      '14 TON CURTAIN': ['vehicle', 'truck', 'VFD'],
-      '1TON BAKKIE': ['LDV', 'LPV', 'R5T', 'vehicle', 'truck']
-    }
-    
-    const allowedTypes = typeMapping[selectedVehicleType] || []
-    console.log('Selected vehicle type:', selectedVehicleType)
-    console.log('Allowed types:', allowedTypes)
-    
-    if (allowedTypes.length === 0) return nonTrailers
-    
-    const filtered = nonTrailers.filter(vehicle => 
-      allowedTypes.includes(vehicle.vehicle_type)
-    )
-    console.log('Filtered vehicles:', filtered.length)
-    console.log('Sample filtered:', filtered.slice(0, 5).map(v => ({ reg: v.registration_number, type: v.vehicle_type })))
-    
-    return filtered
-  }, [vehicles, selectedVehicleType])
+    const sorted = [...nonTrailers].sort((a, b) => {
+      const aHasLink = Boolean(a.trailer_no || a.trailer_no2 || a.trailer_name || a.trailer_name2)
+      const bHasLink = Boolean(b.trailer_no || b.trailer_no2 || b.trailer_name || b.trailer_name2)
+      if (aHasLink !== bHasLink) return aHasLink ? -1 : 1
+      const aReg = String(a.registration_number || '')
+      const bReg = String(b.registration_number || '')
+      return aReg.localeCompare(bReg)
+    })
+    console.log('Non-trailer vehicles:', sorted.length)
+    console.log('Sample non-trailers:', sorted.slice(0, 5).map(v => ({ reg: v.registration_number, type: v.vehicle_type })))
+    return sorted
+  }, [vehicles])
 
   // Filter trailers - exclude only 'vehicle' type
   const filteredTrailers = useMemo(() => {
@@ -519,13 +494,81 @@ export default function LoadPlanPage() {
       !['vehicle', 'truck'].includes((v.vehicle_type || '').toLowerCase()) &&
       hasValidRegistration(v.registration_number)
     )
+    if (!selectedVehicleType) {
+      console.log('Filtered trailers:', trailers.length)
+      console.log('Sample trailers:', trailers.slice(0, 5).map(v => ({ reg: v.registration_number, type: v.vehicle_type })))
+      return trailers
+    }
+
+    const typeKeywords = {
+      'TAUTLINER': ['tautliner'],
+      'FLATDECKS': ['flat deck', 'flatdeck'],
+      'REFRIGERATED': ['refrigerated', 'refridgerated', 'reefer'],
+      '12M FLATDECKS': ['12m flat', '12 m flat', '12m flat deck', '12m flatdeck'],
+      '6M SKELETALS': ['6m skeletal', '6 m skeletal', 'skeletal']
+    }
+    const keywords = typeKeywords[selectedVehicleType] || []
+    const filtered = trailers.filter(v => {
+      const categoryRaw = v.vehicle_category || v.vehicle_type_descrip || ''
+      const category = normalizeCategory(categoryRaw)
+      return keywords.some(keyword => category.includes(normalizeCategory(keyword)))
+    })
     const trfltVehicles = vehicles.filter(v => v.vehicle_type === 'TRFLT')
-    console.log('Filtered trailers:', trailers.length)
-    console.log('Sample trailers:', trailers.slice(0, 5).map(v => ({ reg: v.registration_number, type: v.vehicle_type })))
+    console.log('Filtered trailers:', filtered.length)
+    console.log('Sample trailers:', filtered.slice(0, 5).map(v => ({ reg: v.registration_number, type: v.vehicle_type })))
     console.log('TRFLT vehicles found:', trfltVehicles.length)
     console.log('TRFLT samples:', trfltVehicles.slice(0, 3).map(v => ({ reg: v.registration_number, type: v.vehicle_type })))
-    return trailers
+    return filtered
+  }, [vehicles, selectedVehicleType])
+
+  const allTrailers = useMemo(() => {
+    return vehicles.filter(v =>
+      !['vehicle', 'truck'].includes((v.vehicle_type || '').toLowerCase()) &&
+      hasValidRegistration(v.registration_number)
+    )
   }, [vehicles])
+
+  const selectedTrailerRecord = useMemo(() => {
+    if (!selectedTrailerId) return null
+    return allTrailers.find(t => String(t.id) === String(selectedTrailerId)) || null
+  }, [selectedTrailerId, allTrailers])
+
+  const trailersForDropdown = useMemo(() => {
+    if (!selectedTrailerRecord) return filteredTrailers
+    const exists = filteredTrailers.some(t => String(t.id) === String(selectedTrailerRecord.id))
+    if (exists) return filteredTrailers
+    return [selectedTrailerRecord, ...filteredTrailers]
+  }, [filteredTrailers, selectedTrailerRecord])
+
+  useEffect(() => {
+    if (!selectedVehicleId) {
+      setSelectedTrailerId('')
+      return
+    }
+
+    const selectedVehicleRecord = vehicles.find(v => String(v.id) === String(selectedVehicleId))
+    if (!selectedVehicleRecord) return
+
+    const trailerCandidates = [
+      selectedVehicleRecord.trailer_no,
+      selectedVehicleRecord.trailer_no2,
+      selectedVehicleRecord.trailer_name,
+      selectedVehicleRecord.trailer_name2
+    ].filter(Boolean)
+
+    if (trailerCandidates.length === 0) return
+
+    const candidatePlates = trailerCandidates.map(normalizePlate).filter(Boolean)
+    if (candidatePlates.length === 0) return
+
+    const match = allTrailers.find(trailer =>
+      candidatePlates.includes(normalizePlate(trailer.registration_number))
+    )
+
+    if (match) {
+      setSelectedTrailerId(String(match.id))
+    }
+  }, [selectedVehicleId, vehicles, allTrailers])
 
   // Memoized vehicle and driver lookups
   const vehicleMap = useMemo(() => 
@@ -980,6 +1023,19 @@ export default function LoadPlanPage() {
       ) || null
     }
 
+    const getAssignmentVehicleRecord = (assignment) => {
+      const assignmentVehicleId = assignment?.vehicle?.id
+      const assignmentVehicleName = assignment?.vehicle?.name
+      if (assignmentVehicleId) {
+        return vehicles.find((vehicle) => String(vehicle.id) === String(assignmentVehicleId)) || null
+      }
+      const assignmentPlate = normalizePlate(assignmentVehicleName)
+      if (!assignmentPlate) return null
+      return vehicles.find((vehicle) =>
+        normalizePlate(vehicle?.registration_number) === assignmentPlate
+      ) || null
+    }
+
     let fuelNeededLiters = 0
     let fuelTopUpLiters = 0
     let tankCapacityLiters = 0
@@ -996,6 +1052,8 @@ export default function LoadPlanPage() {
     if (dedupedTruckAssignments.length > 0) {
       dedupedTruckAssignments.forEach((assignment) => {
         const telemetry = getAssignmentTelemetry(assignment)
+        const assignmentRecord = getAssignmentVehicleRecord(assignment)
+        const declaredTankCapacity = toNumber(assignmentRecord?.tank_capacity)
         const rawFuelVolume = toNumber(telemetry?.fuel_probe_1_volume_in_tank)
         const rawFuelPercentage = toNumber(telemetry?.fuel_probe_1_level_percentage)
         const hasUsableFuelProbe =
@@ -1015,7 +1073,9 @@ export default function LoadPlanPage() {
           currentFuelPercentageTotal += truckFuelPercentage
           fuelPercentageSamples += 1
         }
-        if (truckFuelVolume !== null && truckFuelPercentage !== null && truckFuelPercentage > 0) {
+        if (declaredTankCapacity !== null && declaredTankCapacity > 0) {
+          tankCapacityLiters += declaredTankCapacity
+        } else if (truckFuelVolume !== null && truckFuelPercentage !== null && truckFuelPercentage > 0) {
           tankCapacityLiters += truckFuelVolume / (truckFuelPercentage / 100)
         }
       })
@@ -1026,12 +1086,20 @@ export default function LoadPlanPage() {
       fuelTopUpLiters = currentFuelVolumeLiters !== null
         ? Math.max(fuelNeededLiters - currentFuelVolumeLiters, 0)
         : fuelNeededLiters
+      const selectedVehicleRecord = selectedVehicleId
+        ? vehicles.find((vehicle) => String(vehicle.id) === String(selectedVehicleId))
+        : null
+      const declaredTankCapacity = toNumber(selectedVehicleRecord?.tank_capacity)
       tankCapacityLiters =
-        currentFuelVolumeLiters !== null &&
-        currentFuelPercentageValue !== null &&
-        currentFuelPercentageValue > 0
-          ? currentFuelVolumeLiters / (currentFuelPercentageValue / 100)
-          : 0
+        declaredTankCapacity !== null && declaredTankCapacity > 0
+          ? declaredTankCapacity
+          : (
+              currentFuelVolumeLiters !== null &&
+              currentFuelPercentageValue !== null &&
+              currentFuelPercentageValue > 0
+                ? currentFuelVolumeLiters / (currentFuelPercentageValue / 100)
+                : 0
+            )
       currentFuelLitersTotal = currentFuelVolumeLiters || 0
       currentFuelPercentageTotal = currentFuelPercentageValue || 0
       fuelPercentageSamples = currentFuelPercentageValue ? 1 : 0
@@ -2441,7 +2509,7 @@ export default function LoadPlanPage() {
                     <TrailerDropdown
                       value={selectedTrailerId}
                       onChange={setSelectedTrailerId}
-                      trailers={filteredTrailers}
+                      trailers={trailersForDropdown}
                       placeholder="Select trailer"
                     />
                   </div>

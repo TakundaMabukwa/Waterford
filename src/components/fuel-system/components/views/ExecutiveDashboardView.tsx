@@ -4,10 +4,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 
 import { RefreshCw } from 'lucide-react';
-import { useApp } from '@/contexts/AppContext';
-import { useUser } from '@/contexts/UserContext';
-import { ScoreCard } from '@/components/ui/score-card';
-import { ChartCard } from '@/components/ui/chart-card';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
+import { useUser } from '@/components/fuel-system/contexts/UserContext';
+import { ScoreCard } from '@/components/fuel-system/components/ui/score-card';
+import { ChartCard } from '@/components/fuel-system/components/ui/chart-card';
 import { PieChart } from '@mui/x-charts/PieChart';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { useToast } from '@/hooks/use-toast';
@@ -636,3 +636,4 @@ export function ExecutiveDashboardView({ onBack }: ExecutiveDashboardViewProps) 
     </div>
   );
 }
+

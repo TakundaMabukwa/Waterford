@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { History, User, Clock, FileText, X, MapPin } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { formatForDisplay } from '@/lib/utils/date-formatter';
-import { useApp } from '@/contexts/AppContext';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
 
 interface NoteLog {
   id: string;

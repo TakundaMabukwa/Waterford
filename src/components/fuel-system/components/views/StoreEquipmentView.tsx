@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { HierarchicalTable } from '@/components/ui/hierarchical-table';
 import { TopNavigation } from '@/components/layout/TopNavigation';
-import { useApp } from '@/contexts/AppContext';
-import { useUser } from '@/contexts/UserContext';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
+import { useUser } from '@/components/fuel-system/contexts/UserContext';
 import { Badge } from '@/components/ui/badge';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -259,7 +259,7 @@ export function StoreEquipmentView() {
       setEquipmentLoading(true);
       setError(null);
       
-      const response = await fetch(getApiUrl('/api/internal/dashboard-vehicles'));
+      const response = await fetch(getApiUrl('/api/energy-rite/vehicles'));
       
       if (!response.ok) {
         throw new Error(`Failed to fetch vehicles: ${response.status}`);
@@ -1383,3 +1383,4 @@ export function StoreEquipmentView() {
     </div>
   );
 }
+

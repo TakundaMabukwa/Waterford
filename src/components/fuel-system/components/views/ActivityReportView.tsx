@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { RefreshCw, Calendar, Download } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useApp } from '@/contexts/AppContext';
-import { useUser } from '@/contexts/UserContext';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
+import { useUser } from '@/components/fuel-system/contexts/UserContext';
 import { useToast } from '@/hooks/use-toast';
 import { getReportsApiUrl } from '@/lib/utils/api-url';
 
@@ -645,4 +645,5 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
     </div>
   );
 }
+
 

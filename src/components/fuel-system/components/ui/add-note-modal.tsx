@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { NotebookPen, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { createClient } from '@/lib/supabase/client';
-import { useUser } from '@/contexts/UserContext';
+import { useUser } from '@/components/fuel-system/contexts/UserContext';
 
 interface AddNoteModalProps {
   isOpen: boolean;
@@ -195,3 +195,4 @@ export function AddNoteModal({
     </Dialog>
   );
 }
+

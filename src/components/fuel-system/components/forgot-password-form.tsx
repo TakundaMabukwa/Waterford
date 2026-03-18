@@ -14,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useState } from "react";
-import Image from "next/image";
 
 export function ForgotPasswordForm({
   className,
@@ -47,17 +46,6 @@ export function ForgotPasswordForm({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      {/* Logo above the form */}
-      <div className="flex justify-center mb-6">
-        <Image
-          src="https://energyrite.co.za/wp-content/uploads/energyrite_logo.svg"
-          alt="Energyrite Logo"
-          width={200}
-          height={50}
-          className="w-auto h-12"
-        />
-      </div>
-      
       {success ? (
         <Card>
           <CardHeader>

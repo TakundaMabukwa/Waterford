@@ -8,9 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ChevronLeft, Search, Building2, RefreshCw, Eye, Folder, FolderOpen, ChevronRight } from 'lucide-react';
-import { useApp } from '@/contexts/AppContext';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
 import { HierarchicalCostCenter } from '@/lib/supabase/cost-centers';
-import { CostCenterTree } from '@/components/ui/cost-center-tree';
+import { CostCenterTree } from '@/components/fuel-system/components/ui/cost-center-tree';
 
 interface CostCentersViewProps {
   onBack?: () => void;
