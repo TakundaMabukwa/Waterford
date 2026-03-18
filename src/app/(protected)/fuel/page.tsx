@@ -1,16 +1,16 @@
-"use client";
+// import { FetchDataSteps } from "@/components/tutorial/fetch-data-steps";
+import { MainLayout } from '@/components/fuel-system/components/layout/MainLayout';
+import { AppProvider } from '@/components/fuel-system/contexts/AppContext';
+import { UserProvider } from '@/components/fuel-system/contexts/UserContext';
+//src\components\fuel-system\contexts\UserContext.tsx
 
-import FuelCanBusDisplay from "@/components/FuelCanBusDisplay";
+export default async function FuelPage() {
 
-export default function FuelPage() {
   return (
-    <div className="flex-1 space-y-4 p-4 pt-6">
-      <div className="mb-4">
-        <h2 className="text-3xl font-bold tracking-tight">Fuel Can Bus</h2>
-        <p className="text-muted-foreground">Monitor fuel levels and consumption across your fleet</p>
-      </div>
-      
-      <FuelCanBusDisplay />
-    </div>
+    <UserProvider>
+      <AppProvider>
+        <MainLayout />
+      </AppProvider>
+    </UserProvider>
   );
 }
