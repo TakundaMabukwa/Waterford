@@ -862,36 +862,43 @@ export default function LoadPlanPage() {
 
   // Update sorted drivers when pickup location changes
   useEffect(() => {
-    if (loadingLocation) {
-      // Refresh vehicle tracking data when location changes
-      Promise.all([
-        fetch('/api/waterford-sites').then(response => response.json()),
-        fetch('/api/eps-vehicles').then(response => response.json())
-      ])
-        .then(([waterfordSitesData, epsVehiclesData]) => {
-          const waterfordList = Array.isArray(waterfordSitesData)
-            ? waterfordSitesData
-            : (waterfordSitesData?.result?.data || waterfordSitesData?.data || [])
-          const epsList = Array.isArray(epsVehiclesData)
-            ? epsVehiclesData
-            : (epsVehiclesData?.result?.data || epsVehiclesData?.data || [])
-          const vehicleData = mergeTrackingSources(waterfordList, epsList)
-          setVehicleTrackingData(vehicleData)
-          return getSortedDriversByDistance(loadingLocation)
-        })
-        .then((sorted) => {
-          setSortedDrivers(sorted)
-          const availableWithDistance = sorted.filter(d => d.available === true)
-          setAvailableDrivers(availableWithDistance)
-        })
-        .catch(error => {
-          console.error('Error updating driver distances:', error)
-        })
-    } else {
+    if (!loadingLocation) {
       setSortedDrivers(drivers)
-      setAvailableDrivers(drivers.filter(d => d.available === true))
+      return
     }
-  }, [loadingLocation])
+
+    let isMounted = true
+    
+    // Refresh vehicle tracking data when location changes
+    Promise.all([
+      fetch('/api/waterford-sites').then(response => response.json()),
+      fetch('/api/eps-vehicles').then(response => response.json())
+    ])
+      .then(([waterfordSitesData, epsVehiclesData]) => {
+        if (!isMounted) return null
+        
+        const waterfordList = Array.isArray(waterfordSitesData)
+          ? waterfordSitesData
+          : (waterfordSitesData?.result?.data || waterfordSitesData?.data || [])
+        const epsList = Array.isArray(epsVehiclesData)
+          ? epsVehiclesData
+          : (epsVehiclesData?.result?.data || epsVehiclesData?.data || [])
+        const vehicleData = mergeTrackingSources(waterfordList, epsList)
+        setVehicleTrackingData(vehicleData)
+        return getSortedDriversByDistance(loadingLocation)
+      })
+      .then((sorted) => {
+        if (!isMounted || !sorted) return
+        setSortedDrivers(sorted)
+      })
+      .catch(error => {
+        console.error('Error updating driver distances:', error)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [loadingLocation, drivers, getSortedDriversByDistance])
 
   // Calculate estimated distance when locations change
   useEffect(() => {
