@@ -4,6 +4,37 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MapPin, Route } from 'lucide-react';
 
+const pickBestFeature = (query: string, features: any[] = []) => {
+  if (!Array.isArray(features) || features.length === 0) return null;
+
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  const queryParts = normalizedQuery
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const scored = features.map((feature) => {
+    const text = String(feature?.text || '').toLowerCase();
+    const placeName = String(feature?.place_name || '').toLowerCase();
+    let score = 0;
+
+    if (placeName === normalizedQuery) score += 200;
+    if (text === normalizedQuery) score += 150;
+    if (placeName.includes(normalizedQuery)) score += 80;
+    if (text.includes(normalizedQuery)) score += 60;
+
+    queryParts.forEach((part) => {
+      if (placeName.includes(part)) score += 40;
+      if (text.includes(part)) score += 25;
+    });
+
+    return { feature, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.feature || features[0];
+};
+
 interface RoutePreviewMapProps {
   origin: string;
   destination: string;
@@ -50,8 +81,8 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
       map.current = new mapboxgl.Map({
         container,
         style: 'mapbox://styles/mapbox/streets-v12',
-        center: [28.0473, -26.2041],
-        zoom: 6
+        center: [20, 0],
+        zoom: 1.8
       });
 
       map.current.on('load', () => {
@@ -373,57 +404,41 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
           }
           mainRoute = await getRoute(originCoords, destCoords, routeStopPoints);
           console.log('Calculated optimized route:', mainRoute);
-        } else if (originCoords && destCoords) {
-          // Always recalculate with optimization when coordinates change
-          console.log('Recalculating optimized route');
-          let routeStopPoints = [];
-          if (stopPoints === 'async' && getStopPointsData) {
-            routeStopPoints = await getStopPointsData();
-          } else if (Array.isArray(stopPoints)) {
-            routeStopPoints = stopPoints;
-          }
-          mainRoute = await getRoute(originCoords, destCoords, routeStopPoints);
-          console.log('Recalculated optimized route:', mainRoute);
         }
         
         if (mainRoute) {
           console.log('Adding main route to map:', mainRoute);
-          // Remove existing route
-          if (map.current && map.current.getSource('main-route')) {
-            map.current.removeLayer('main-route');
-            map.current.removeSource('main-route');
-          }
-
           // Add route immediately if map is ready
           if (map.current && map.current.isStyleLoaded()) {
             try {
-              if (map.current.getSource('main-route')) {
-                map.current.removeLayer('main-route');
-                map.current.removeSource('main-route');
-              }
-              
-              map.current.addSource('main-route', {
-                type: 'geojson',
-                data: {
-                  type: 'Feature',
-                  properties: {},
-                  geometry: mainRoute
-                }
-              });
+              const routeFeature = {
+                type: 'Feature',
+                properties: {},
+                geometry: mainRoute
+              };
 
-              map.current.addLayer({
-                id: 'main-route',
-                type: 'line',
-                source: 'main-route',
-                layout: {
-                  'line-join': 'round',
-                  'line-cap': 'round'
-                },
-                paint: {
-                  'line-color': '#10b981',
-                  'line-width': 6
-                }
-              });
+              if (map.current.getSource('main-route')) {
+                map.current.getSource('main-route').setData(routeFeature);
+              } else {
+                map.current.addSource('main-route', {
+                  type: 'geojson',
+                  data: routeFeature
+                });
+
+                map.current.addLayer({
+                  id: 'main-route',
+                  type: 'line',
+                  source: 'main-route',
+                  layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                  },
+                  paint: {
+                    'line-color': '#10b981',
+                    'line-width': 6
+                  }
+                });
+              }
               
               console.log('Route layer added successfully');
               console.log('Map has source:', !!map.current.getSource('main-route'));
@@ -480,7 +495,12 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
               bounds.extend([clientLocation.lng, clientLocation.lat]);
             }
 
-            map.current.fitBounds(bounds, { padding: 50 });
+            map.current.fitBounds(bounds, {
+              padding: 60,
+              duration: 1200,
+              essential: true,
+              maxZoom: 12
+            });
           } else if (selectedClient?.coordinates && map.current) {
             // Fit to client coordinates if no main route
             const coords = selectedClient.coordinates.split(' ')
@@ -496,7 +516,12 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
                 return bounds.extend(coord);
               }, new (await import('mapbox-gl')).default.LngLatBounds(coords[0], coords[0]));
               
-              map.current.fitBounds(bounds, { padding: 50 });
+              map.current.fitBounds(bounds, {
+                padding: 60,
+                duration: 1200,
+                essential: true,
+                maxZoom: 12
+              });
             }
           }
         }
@@ -626,12 +651,13 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
     
     try {
       const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location)}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}&country=za&limit=1`
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location)}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`
       );
       const data = await response.json();
       
-      if (data.features && data.features.length > 0) {
-        const [lng, lat] = data.features[0].center;
+      const bestFeature = pickBestFeature(location, data.features);
+      if (bestFeature?.center) {
+        const [lng, lat] = bestFeature.center;
         const result = { lat, lng };
         cacheRef.current.set(cacheKey, result);
         return result;

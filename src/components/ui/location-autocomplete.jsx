@@ -159,7 +159,36 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { MapPin } from 'lucide-react'
 
-const AFRICA_BBOX = '-17.625,-34.833,51.5,37.35'
+const pickBestFeature = (query, features = []) => {
+  if (!Array.isArray(features) || features.length === 0) return null
+
+  const normalizedQuery = String(query || '').trim().toLowerCase()
+  const queryParts = normalizedQuery
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  const scored = features.map((feature) => {
+    const text = String(feature?.text || '').toLowerCase()
+    const placeName = String(feature?.place_name || '').toLowerCase()
+    let score = 0
+
+    if (placeName === normalizedQuery) score += 200
+    if (text === normalizedQuery) score += 150
+    if (placeName.includes(normalizedQuery)) score += 80
+    if (text.includes(normalizedQuery)) score += 60
+
+    queryParts.forEach((part) => {
+      if (placeName.includes(part)) score += 40
+      if (text.includes(part)) score += 25
+    })
+
+    return { feature, score }
+  })
+
+  scored.sort((a, b) => b.score - a.score)
+  return scored[0]?.feature || features[0]
+}
 
 export function LocationAutocomplete({
   value,
@@ -206,7 +235,7 @@ export function LocationAutocomplete({
           const response = await fetch(
             `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
               value,
-            )}.json?access_token=${mapboxToken}&bbox=${AFRICA_BBOX}&limit=5&autocomplete=true`,
+            )}.json?access_token=${mapboxToken}&limit=8&autocomplete=true&types=country,region,postcode,district,place,locality,neighborhood,address,poi`,
           )
 
           if (!response.ok) {
@@ -215,8 +244,14 @@ export function LocationAutocomplete({
 
           const data = await response.json()
 
+          const features = Array.isArray(data.features) ? data.features : []
+          const bestFeature = pickBestFeature(value, features)
+          const orderedFeatures = bestFeature
+            ? [bestFeature, ...features.filter((feature) => feature?.id !== bestFeature?.id)]
+            : features
+
           mapboxPlaces =
-            data.features?.map((feature, index) => ({
+            orderedFeatures.map((feature, index) => ({
               id: feature.id || `mapbox_${index}`,
               name: feature.text,
               address: feature.place_name,

@@ -18,6 +18,13 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -35,6 +42,8 @@ type SplitRow = {
   baseRate: number
   splitType: SplitType
   allocationValue: number
+  assignmentGroup?: 'vehicleassignments' | 'handed_vehicleassignments'
+  assignmentIndex?: number
   distance?: number
   cap?: number
 }
@@ -56,8 +65,16 @@ type TripAuditStudioProps = {
   record: any
   initialSplits?: SplitRow[]
   handoverLogs?: HandoverLog[]
+  initialAmountToSplit?: number
   onExport?: () => void
   onFinalAudit?: () => void
+  onSaveAllocation?: (payload: {
+    amountToSplit: number
+    actualRate: number
+    invoiceRate: number
+    splitRows: SplitRow[]
+    handoverLogs: HandoverLog[]
+  }) => Promise<void> | void
 }
 
 const currency = (value: number | null | undefined) =>
@@ -128,47 +145,6 @@ const getClientName = (record: any) => {
   }
 }
 
-const buildFallbackSplits = (record: any): SplitRow[] => {
-  const total = Number(record?.actual_total_cost || record?.planned_total_cost || 0)
-  const driverCost = Number(record?.actual_driver_cost || record?.planned_driver_cost || 0)
-  const vehicleCost = Number(record?.actual_vehicle_cost || record?.planned_vehicle_cost || 0)
-  const fuelCost = Number(record?.actual_fuel_cost || record?.planned_fuel_cost || 0)
-  const distance = Number(record?.actual_distance || record?.planned_distance || 0)
-
-  return [
-    {
-      id: 'primary-driver',
-      driverName: record?.driver_name || 'Primary Driver',
-      vehicleLabel: record?.vehicle_registration || record?.truck_registration || 'Assigned Vehicle',
-      role: 'Primary',
-      baseRate: driverCost || total * 0.35,
-      splitType: 'percentage',
-      allocationValue: 65,
-      distance: distance ? distance * 0.6 : undefined,
-    },
-    {
-      id: 'vehicle-cost',
-      driverName: 'Vehicle Allocation',
-      vehicleLabel: record?.truck_type || 'Fleet Unit',
-      role: 'Handover',
-      baseRate: vehicleCost || total * 0.25,
-      splitType: 'flat_fee',
-      allocationValue: vehicleCost || total * 0.25,
-      distance: distance ? distance * 0.25 : undefined,
-    },
-    {
-      id: 'fuel-cost',
-      driverName: 'Fuel / Ops',
-      vehicleLabel: 'Operational Reserve',
-      role: 'Primary',
-      baseRate: fuelCost || total * 0.15,
-      splitType: 'flat_fee',
-      allocationValue: fuelCost || total * 0.15,
-      distance: distance ? distance * 0.15 : undefined,
-    },
-  ]
-}
-
 const buildFallbackHandoverLogs = (splits: SplitRow[]): HandoverLog[] => {
   return splits
     .filter((row) => row.role === 'Handover')
@@ -185,6 +161,25 @@ const buildFallbackHandoverLogs = (splits: SplitRow[]): HandoverLog[] => {
         status: 'Complete',
       }
     })
+}
+
+const mergeHandoverLogs = (splits: SplitRow[], savedLogs?: HandoverLog[]) => {
+  const derivedLogs = buildFallbackHandoverLogs(splits)
+  if (!savedLogs?.length) return derivedLogs
+
+  return derivedLogs.map((log) => {
+    const saved = savedLogs.find(
+      (item) => item.id === log.id || item.segmentId === log.segmentId || item.company === log.company
+    )
+
+    return saved
+      ? {
+          ...log,
+          tolls: saved.tolls ?? log.tolls,
+          status: saved.status ?? log.status,
+        }
+      : log
+  })
 }
 
 function StudioTabButton({
@@ -228,43 +223,119 @@ export default function TripAuditStudio({
   record,
   initialSplits,
   handoverLogs,
+  initialAmountToSplit,
   onExport,
   onFinalAudit,
+  onSaveAllocation,
 }: TripAuditStudioProps) {
   const [activeTab, setActiveTab] = useState<'summary' | 'primary' | 'handover'>('summary')
   const [splitRows, setSplitRows] = useState<SplitRow[]>([])
-  
+  const [amountToSplit, setAmountToSplit] = useState(0)
+  const [actualRate, setActualRate] = useState(0)
+  const [invoiceRate, setInvoiceRate] = useState(0)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [initialRows, setInitialRows] = useState<SplitRow[]>([])
 
   useEffect(() => {
     if (!record) return
-    setSplitRows(initialSplits?.length ? initialSplits : buildFallbackSplits(record))
-  }, [record, initialSplits])
+    const nextRows = initialSplits?.length ? initialSplits : []
+    setInitialRows(nextRows)
+    setSplitRows(nextRows)
+    const nextActualRate = Number(record?.actual_rate ?? record?.amount_to_split ?? 0)
+    const nextInvoiceRate = Number(record?.invoice_rate ?? record?.rate ?? record?.planned_total_cost ?? 0)
+    setActualRate(nextActualRate)
+    setInvoiceRate(nextInvoiceRate)
+    setAmountToSplit(nextActualRate)
+    setSaveError(null)
+  }, [record, initialSplits, initialAmountToSplit])
 
-  const handovers = useMemo(
-    () => (handoverLogs?.length ? handoverLogs : buildFallbackHandoverLogs(splitRows)),
-    [handoverLogs, splitRows]
-  )
+  const handovers = useMemo(() => mergeHandoverLogs(splitRows, handoverLogs), [handoverLogs, splitRows])
 
   const revenue = Number(record?.actual_total_cost || record?.planned_total_cost || 0)
+  const plannedRate = Number(record?.planned_rate ?? record?.rate ?? record?.planned_total_cost ?? 0)
+  const plannedFuelCost = Number(record?.planned_fuel_cost || 0)
   const fuelExpense = Number(record?.actual_fuel_cost || record?.planned_fuel_cost || 0)
+  const plannedVehicleCost = Number(record?.planned_vehicle_cost || 0)
+  const plannedDriverCost = Number(record?.planned_driver_cost || 0)
   const overhead =
     Number(record?.actual_driver_cost || record?.planned_driver_cost || 0) +
     Number(record?.actual_vehicle_cost || record?.planned_vehicle_cost || 0)
+  const actualVehicleCost = Number(record?.actual_vehicle_cost || 0)
+  const actualDriverCost = Number(record?.actual_driver_cost || 0)
+  const fuelUsedLiters = Number(record?.fuel_used_liters || 0)
+  const fuelFilledLiters = Number(record?.fuel_filled_liters || 0)
+  const fuelOperatingHours = Number(record?.fuel_operating_hours || 0)
+  const fuelLitersPerHour = Number(record?.fuel_liters_per_hour || 0)
+  const fuelLitersPerKm = Number(record?.fuel_liters_per_km || 0)
+  const fuelCostTotal = Number(record?.fuel_cost_total || fuelExpense || 0)
+  const fuelBreakdown = Array.isArray(record?.fuel_breakdown) ? record.fuel_breakdown : []
 
   const net = revenue - fuelExpense - overhead
+  const myRate = invoiceRate - actualRate
   const operatingRatio = revenue > 0 ? (fuelExpense + overhead) / revenue : 0
   const allocatedTotal = splitRows.reduce((sum, row) => sum + calcSplitTotal(row), 0)
-  const unallocated = revenue - allocatedTotal
+  const unallocated = amountToSplit - allocatedTotal
+  const canSave = splitRows.length > 0 && Math.abs(unallocated) < 0.01
+  const hasAssignments = splitRows.length > 0
 
-//   if (!open || !record) return null
+  const handleDistributeEvenly = () => {
+    if (!splitRows.length) return
+    const evenShare = amountToSplit / splitRows.length
+    setSplitRows((prev) =>
+      prev.map((row) => ({
+        ...row,
+        splitType: 'flat_fee',
+        baseRate: evenShare,
+        allocationValue: evenShare,
+      }))
+    )
+    setSaveError(null)
+  }
+
+  const handleResetAllocation = () => {
+    setSplitRows(initialRows)
+    setSaveError(null)
+  }
+
+  const handleSaveAllocation = async () => {
+    if (!onSaveAllocation) return
+    if (!canSave) {
+      setSaveError('Split must balance exactly before saving.')
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setSaveError(null)
+      await onSaveAllocation({
+        amountToSplit,
+        actualRate,
+        invoiceRate,
+        splitRows,
+        handoverLogs: handovers,
+      })
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Failed to save allocation')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  if (!open || !record) return null
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50">
-      <div className="flex h-full w-full items-center justify-center p-4">
-        <div className="relative h-[95vh] w-[98vw] overflow-hidden rounded-2xl bg-[#f8f9fb] shadow-2xl">
-
-          <div className="h-full overflow-y-auto">
-            <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200/70 bg-[#f8f9fb]/95 px-6 backdrop-blur">
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <DialogContent
+        className="h-[92vh] max-w-[96vw] overflow-hidden border-slate-200 bg-slate-50 p-0 shadow-2xl sm:max-w-[96vw]"
+        showCloseButton={false}
+      >
+        <DialogHeader className="sr-only">
+          <DialogTitle>{record?.trip_id || 'Trip Audit'}</DialogTitle>
+          <DialogDescription>Trip audit summary and split allocation.</DialogDescription>
+        </DialogHeader>
+        <div className="h-full overflow-y-auto">
+            <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200/70 bg-white/95 px-6 backdrop-blur">
               <div className="flex items-center gap-6">
                 <div>
                   <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
@@ -365,12 +436,22 @@ export default function TripAuditStudio({
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-6 border-t border-slate-100 pt-6 md:grid-cols-3">
+                      <div className="grid grid-cols-1 gap-6 border-t border-slate-100 pt-6 md:grid-cols-4">
                         <div>
                           <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                            Gross Revenue
+                            Planned Rate
                           </p>
-                          <p className="text-lg font-bold">{currency(revenue)}</p>
+                          <p className="text-lg font-bold text-slate-900">{currency(plannedRate)}</p>
+                          <div className="mt-2 h-1 w-full overflow-hidden bg-slate-100">
+                            <div className="h-full w-full bg-slate-400" />
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                            Invoice Rate
+                          </p>
+                          <p className="text-lg font-bold">{currency(invoiceRate || revenue)}</p>
                           <div className="mt-2 h-1 w-full overflow-hidden bg-slate-100">
                             <div className="h-full w-full bg-[#001e42]" />
                           </div>
@@ -378,14 +459,14 @@ export default function TripAuditStudio({
 
                         <div>
                           <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                            Fuel Expenses
+                            Actual Rate
                           </p>
-                          <p className="text-lg font-bold text-rose-700">{currency(fuelExpense)}</p>
+                          <p className="text-lg font-bold text-amber-700">{currency(actualRate)}</p>
                           <div className="mt-2 h-1 w-full overflow-hidden bg-slate-100">
                             <div
-                              className="h-full bg-rose-500"
+                              className="h-full bg-amber-500"
                               style={{
-                                width: `${Math.min(100, revenue > 0 ? (fuelExpense / revenue) * 100 : 0)}%`,
+                                width: `${Math.min(100, invoiceRate > 0 ? (actualRate / invoiceRate) * 100 : 0)}%`,
                               }}
                             />
                           </div>
@@ -393,14 +474,16 @@ export default function TripAuditStudio({
 
                         <div>
                           <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                            Operational Overhead
+                            My Rate
                           </p>
-                          <p className="text-lg font-bold text-slate-700">{currency(overhead)}</p>
+                          <p className={`text-lg font-bold ${myRate >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            {currency(myRate)}
+                          </p>
                           <div className="mt-2 h-1 w-full overflow-hidden bg-slate-100">
                             <div
-                              className="h-full bg-slate-400"
+                              className="h-full bg-emerald-500"
                               style={{
-                                width: `${Math.min(100, revenue > 0 ? (overhead / revenue) * 100 : 0)}%`,
+                                width: `${Math.min(100, invoiceRate > 0 ? (Math.max(myRate, 0) / invoiceRate) * 100 : 0)}%`,
                               }}
                             />
                           </div>
@@ -455,6 +538,165 @@ export default function TripAuditStudio({
                       </div>
                     </div>
                   </div>
+
+                  <section className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-headline text-xl font-black tracking-tight text-[#001e42]">
+                        Cost And Fuel Breakdown
+                      </h3>
+                      <div className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                        Planned vs Actual
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fuel Cost</div>
+                        <div className="mt-3 text-sm text-slate-500">Planned</div>
+                        <div className="text-xl font-black text-slate-900">{currency(plannedFuelCost)}</div>
+                        <div className="mt-3 text-sm text-slate-500">Actual</div>
+                        <div className="text-xl font-black text-rose-700">{currency(fuelCostTotal)}</div>
+                      </div>
+
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Vehicle Cost</div>
+                        <div className="mt-3 text-sm text-slate-500">Planned</div>
+                        <div className="text-xl font-black text-slate-900">{currency(plannedVehicleCost)}</div>
+                        <div className="mt-3 text-sm text-slate-500">Actual</div>
+                        <div className="text-xl font-black text-sky-700">{currency(actualVehicleCost)}</div>
+                      </div>
+
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Driver Cost</div>
+                        <div className="mt-3 text-sm text-slate-500">Planned</div>
+                        <div className="text-xl font-black text-slate-900">{currency(plannedDriverCost)}</div>
+                        <div className="mt-3 text-sm text-slate-500">Actual</div>
+                        <div className="text-xl font-black text-emerald-700">{currency(actualDriverCost)}</div>
+                      </div>
+
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Trip Total</div>
+                        <div className="mt-3 text-sm text-slate-500">Planned</div>
+                        <div className="text-xl font-black text-slate-900">{currency(Number(record?.planned_total_cost || 0))}</div>
+                        <div className="mt-3 text-sm text-slate-500">Actual</div>
+                        <div className="text-xl font-black text-[#001e42]">{currency(Number(record?.actual_total_cost || 0))}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Planned Fuel</div>
+                        <div className="mt-3 text-2xl font-black text-slate-900">{currency(plannedFuelCost)}</div>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual Fuel Used</div>
+                        <div className="mt-3 text-2xl font-black text-rose-700">{numberFmt(fuelUsedLiters, ' L')}</div>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fuel Filled</div>
+                        <div className="mt-3 text-2xl font-black text-emerald-700">{numberFmt(fuelFilledLiters, ' L')}</div>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Burn Rate</div>
+                        <div className="mt-3 text-2xl font-black text-[#001e42]">{numberFmt(fuelLitersPerHour, ' L/h')}</div>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fuel Per KM</div>
+                        <div className="mt-3 text-2xl font-black text-[#001e42]">{numberFmt(fuelLitersPerKm, ' L/km')}</div>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto border border-slate-200 bg-white shadow-sm">
+                      <table className="w-full border-collapse text-left">
+                        <thead>
+                          <tr className="bg-slate-50 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
+                            <th className="px-6 py-4">Fuel Metric</th>
+                            <th className="px-6 py-4">Planned</th>
+                            <th className="px-6 py-4">Actual</th>
+                          </tr>
+                        </thead>
+                        <tbody className="text-sm">
+                          <tr className="border-t border-slate-100">
+                            <td className="px-6 py-4 font-medium">Fuel Cost</td>
+                            <td className="px-6 py-4">{currency(plannedFuelCost)}</td>
+                            <td className="px-6 py-4">{currency(fuelCostTotal)}</td>
+                          </tr>
+                          <tr className="border-t border-slate-100">
+                            <td className="px-6 py-4 font-medium">Fuel Used</td>
+                            <td className="px-6 py-4">N/A</td>
+                            <td className="px-6 py-4">{numberFmt(fuelUsedLiters, ' L')}</td>
+                          </tr>
+                          <tr className="border-t border-slate-100">
+                            <td className="px-6 py-4 font-medium">Fuel Filled</td>
+                            <td className="px-6 py-4">N/A</td>
+                            <td className="px-6 py-4">{numberFmt(fuelFilledLiters, ' L')}</td>
+                          </tr>
+                          <tr className="border-t border-slate-100">
+                            <td className="px-6 py-4 font-medium">Operating Hours</td>
+                            <td className="px-6 py-4">{minutesToText(record?.planned_duration_minutes)}</td>
+                            <td className="px-6 py-4">{numberFmt(fuelOperatingHours, ' h')}</td>
+                          </tr>
+                          <tr className="border-t border-slate-100">
+                            <td className="px-6 py-4 font-medium">Fuel Burn Rate</td>
+                            <td className="px-6 py-4">N/A</td>
+                            <td className="px-6 py-4">{numberFmt(fuelLitersPerHour, ' L/h')}</td>
+                          </tr>
+                          <tr className="border-t border-slate-100">
+                            <td className="px-6 py-4 font-medium">Fuel Per KM</td>
+                            <td className="px-6 py-4">N/A</td>
+                            <td className="px-6 py-4">{numberFmt(fuelLitersPerKm, ' L/km')}</td>
+                          </tr>
+                          <tr className="border-t border-slate-100">
+                            <td className="px-6 py-4 font-medium">Fuel Source</td>
+                            <td className="px-6 py-4">Load Plan</td>
+                            <td className="px-6 py-4">{record?.fuel_source || 'N/A'}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+                      <div className="mb-4 flex items-center justify-between">
+                        <h4 className="font-headline text-lg font-black text-[#001e42]">Per Vehicle Fuel Breakdown</h4>
+                        <div className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                          {record?.fuel_window_start_at ? `${fmtDateTime(record.fuel_window_start_at)} to ${fmtDateTime(record.fuel_window_end_at)}` : 'No trip fuel window yet'}
+                        </div>
+                      </div>
+
+                      {fuelBreakdown.length ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse text-left">
+                            <thead>
+                              <tr className="bg-slate-50 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
+                                <th className="px-4 py-3">Vehicle</th>
+                                <th className="px-4 py-3 text-right">Used</th>
+                                <th className="px-4 py-3 text-right">Filled</th>
+                                <th className="px-4 py-3 text-right">Hours</th>
+                                <th className="px-4 py-3 text-right">L/H</th>
+                                <th className="px-4 py-3 text-right">L/KM</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-sm">
+                              {fuelBreakdown.map((entry: any, index: number) => (
+                                <tr key={`${entry?.plate || 'vehicle'}-${index}`}>
+                                  <td className="px-4 py-3 font-medium text-slate-900">{entry?.plate || 'N/A'}</td>
+                                  <td className="px-4 py-3 text-right">{numberFmt(entry?.fuel_used_liters, ' L')}</td>
+                                  <td className="px-4 py-3 text-right">{numberFmt(entry?.fuel_filled_liters, ' L')}</td>
+                                  <td className="px-4 py-3 text-right">{numberFmt(entry?.operating_hours, ' h')}</td>
+                                  <td className="px-4 py-3 text-right">{numberFmt(entry?.liters_per_hour, ' L/h')}</td>
+                                  <td className="px-4 py-3 text-right">{numberFmt(entry?.liters_per_km, ' L/km')}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
+                          No actual trip fuel sessions have been linked into this trip window yet.
+                        </div>
+                      )}
+                    </div>
+                  </section>
 
                   <section className="space-y-6">
                     <div className="flex items-center justify-between">
@@ -549,125 +791,227 @@ export default function TripAuditStudio({
                     </p>
                   </div>
 
-                  <div className="overflow-x-auto rounded-sm bg-white border border-slate-200">
-                    <table className="w-full border-collapse text-left">
-                      <thead className="border-b border-slate-200 bg-slate-50">
-                        <tr>
-                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                            Driver / Vehicle
-                          </th>
-                          <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-slate-500">
-                            Role
-                          </th>
-                          <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">
-                            Base Rate
-                          </th>
-                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                            Split Type
-                          </th>
-                          <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">
-                            Allocation Value
-                          </th>
-                          <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">
-                            Calculated Total
-                          </th>
-                        </tr>
-                      </thead>
-
-                      <tbody className="divide-y divide-slate-100">
-                        {splitRows.map((row, index) => {
-                          const total = calcSplitTotal(row)
-                          const overCap = row.cap != null && total > row.cap
-
-                          return (
-                            <tr
-                              key={row.id}
-                              className={overCap ? 'bg-rose-50/70' : 'hover:bg-slate-50'}
-                            >
-                              <td className="px-6 py-4">
-                                <div className="flex items-center gap-3">
-                                  <div className="flex h-8 w-8 items-center justify-center rounded-sm bg-blue-100">
-                                    <User className="h-4 w-4 text-[#001e42]" />
-                                  </div>
-                                  <div>
-                                    <div className="text-sm font-bold text-[#001e42]">
-                                      {row.driverName}
-                                    </div>
-                                    <div className="text-[10px] tabular-nums text-slate-400">
-                                      {row.vehicleLabel}
-                                    </div>
-                                  </div>
-                                </div>
-                              </td>
-
-                              <td className="px-6 py-4 text-center">
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                                    row.role === 'Primary'
-                                      ? 'bg-emerald-100 text-emerald-700'
-                                      : 'bg-blue-100 text-blue-700'
-                                  }`}
-                                >
-                                  {row.role}
-                                </span>
-                              </td>
-
-                              <td className="px-6 py-4 text-right text-sm font-medium tabular-nums">
-                                {currency(row.baseRate)}
-                              </td>
-
-                              <td className="px-6 py-4">
-                                <Select
-                                  value={row.splitType}
-                                  onValueChange={(value: SplitType) => {
-                                    setSplitRows((prev) =>
-                                      prev.map((item, i) =>
-                                        i === index ? { ...item, splitType: value } : item
-                                      )
-                                    )
-                                  }}
-                                >
-                                  <SelectTrigger className="border-0 bg-transparent text-xs font-bold text-[#001e42] shadow-none focus:ring-0">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="percentage">Percentage (%)</SelectItem>
-                                    <SelectItem value="flat_fee">Flat Fee (R)</SelectItem>
-                                    <SelectItem value="mileage_bonus">Mileage Bonus</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </td>
-
-                              <td className="px-6 py-4 text-right">
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  value={row.allocationValue}
-                                  onChange={(e) => {
-                                    const next = Number(e.target.value || 0)
-                                    setSplitRows((prev) =>
-                                      prev.map((item, i) =>
-                                        i === index ? { ...item, allocationValue: next } : item
-                                      )
-                                    )
-                                  }}
-                                  className="ml-auto w-28 border-0 bg-transparent text-right font-headline text-sm font-bold shadow-none focus-visible:ring-1 focus-visible:ring-[#001e42]"
-                                />
-                              </td>
-
-                              <td
-                                className={`px-6 py-4 text-right text-sm font-bold tabular-nums ${
-                                  overCap ? 'text-rose-700' : 'text-[#001e42]'
-                                }`}
-                              >
-                                {overCap ? 'Exceeds Cap' : currency(total)}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
+                  <div className="grid grid-cols-1 gap-6 rounded-sm border border-slate-200 bg-white p-6 md:grid-cols-4">
+                    <div className="rounded-sm bg-slate-50 p-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Planned Rate
+                      </div>
+                      <div className="mt-2 font-headline text-2xl font-black text-slate-900">
+                        {currency(plannedRate)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Actual Rate
+                      </div>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={actualRate}
+                        onChange={(e) => {
+                          const next = Number(e.target.value || 0)
+                          setActualRate(next)
+                          setAmountToSplit(next)
+                        }}
+                        className="h-12 text-lg font-bold"
+                      />
+                    </div>
+                    <div>
+                      <div className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Invoice Rate
+                      </div>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={invoiceRate}
+                        onChange={(e) => setInvoiceRate(Number(e.target.value || 0))}
+                        className="h-12 text-lg font-bold"
+                      />
+                    </div>
+                    <div className="rounded-sm bg-slate-50 p-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        My Rate
+                      </div>
+                      <div className={`mt-2 font-headline text-2xl font-black ${myRate >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {currency(myRate)}
+                      </div>
+                    </div>
                   </div>
+
+                  <div className="grid grid-cols-1 gap-6 rounded-sm border border-slate-200 bg-white p-6 md:grid-cols-2">
+                    <div className="rounded-sm bg-slate-50 p-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Allocated
+                      </div>
+                      <div className="mt-2 font-headline text-2xl font-black text-[#001e42]">
+                        {currency(allocatedTotal)}
+                      </div>
+                    </div>
+                    <div className="rounded-sm bg-slate-50 p-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Remaining
+                      </div>
+                      <div
+                        className={`mt-2 font-headline text-2xl font-black ${
+                          unallocated >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                        }`}
+                      >
+                        {currency(unallocated)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-sm border border-slate-200 bg-white px-6 py-4 text-sm text-slate-600">
+                    Planned and actual values are shown together here. The split rows are built from the trip&apos;s primary and handover assignment sets, and the
+                    actual split must balance to exactly <span className="font-bold text-slate-900">{currency(amountToSplit)}</span>{' '}
+                    before it can be saved.
+                  </div>
+
+                  {hasAssignments ? (
+                    <>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button variant="outline" onClick={handleDistributeEvenly}>
+                          Distribute Evenly
+                        </Button>
+                        <Button variant="outline" onClick={handleResetAllocation}>
+                          Reset Saved Values
+                        </Button>
+                      </div>
+
+                      <div className="overflow-x-auto rounded-sm border border-slate-200 bg-white">
+                        <table className="w-full border-collapse text-left">
+                          <thead className="border-b border-slate-200 bg-slate-50">
+                            <tr>
+                              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                Driver / Vehicle Set
+                              </th>
+                              <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                Role
+                              </th>
+                              <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                Base Rate
+                              </th>
+                              <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                Split Type
+                              </th>
+                              <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                Allocation Value
+                              </th>
+                              <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                Calculated Total
+                              </th>
+                            </tr>
+                          </thead>
+
+                          <tbody className="divide-y divide-slate-100">
+                            {splitRows.map((row, index) => {
+                              const total = calcSplitTotal(row)
+                              const overCap = row.cap != null && total > row.cap
+
+                              return (
+                                <tr
+                                  key={row.id}
+                                  className={overCap ? 'bg-rose-50/70' : 'hover:bg-slate-50'}
+                                >
+                                  <td className="px-6 py-4">
+                                    <div className="flex items-center gap-3">
+                                      <div className="flex h-8 w-8 items-center justify-center rounded-sm bg-blue-100">
+                                        <User className="h-4 w-4 text-[#001e42]" />
+                                      </div>
+                                      <div>
+                                        <div className="text-sm font-bold text-[#001e42]">
+                                          {row.driverName}
+                                        </div>
+                                        <div className="text-[10px] tabular-nums text-slate-400">
+                                          {row.vehicleLabel}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  <td className="px-6 py-4 text-center">
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                                        row.role === 'Primary'
+                                          ? 'bg-emerald-100 text-emerald-700'
+                                          : 'bg-blue-100 text-blue-700'
+                                      }`}
+                                    >
+                                      {row.role}
+                                    </span>
+                                  </td>
+
+                                  <td className="px-6 py-4 text-right text-sm font-medium tabular-nums">
+                                    {currency(row.baseRate)}
+                                  </td>
+
+                                  <td className="px-6 py-4">
+                                    <Select
+                                      value={row.splitType}
+                                      onValueChange={(value: SplitType) => {
+                                        setSplitRows((prev) =>
+                                          prev.map((item, i) =>
+                                            i === index ? { ...item, splitType: value } : item
+                                          )
+                                        )
+                                      }}
+                                    >
+                                      <SelectTrigger className="border-0 bg-transparent text-xs font-bold text-[#001e42] shadow-none focus:ring-0">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="flat_fee">Flat Fee (R)</SelectItem>
+                                        <SelectItem value="percentage">Percentage (%)</SelectItem>
+                                        <SelectItem value="mileage_bonus">Mileage Bonus</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </td>
+
+                                  <td className="px-6 py-4 text-right">
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      value={row.allocationValue}
+                                      onChange={(e) => {
+                                        const next = Number(e.target.value || 0)
+                                        setSplitRows((prev) =>
+                                          prev.map((item, i) =>
+                                            i === index ? { ...item, allocationValue: next } : item
+                                          )
+                                        )
+                                      }}
+                                      className="ml-auto w-28 border-0 bg-transparent text-right font-headline text-sm font-bold shadow-none focus-visible:ring-1 focus-visible:ring-[#001e42]"
+                                    />
+                                  </td>
+
+                                  <td
+                                    className={`px-6 py-4 text-right text-sm font-bold tabular-nums ${
+                                      overCap ? 'text-rose-700' : 'text-[#001e42]'
+                                    }`}
+                                  >
+                                    {overCap ? 'Exceeds Cap' : currency(total)}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-sm border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+                      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
+                        <Truck className="h-5 w-5 text-slate-500" />
+                      </div>
+                      <div className="text-base font-semibold text-[#001e42]">
+                        No trip assignment sets available
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">
+                        Add the primary and handover vehicle assignments on the trip first, then the
+                        money split can be allocated here.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-12 gap-6">
                     <div className="col-span-12 rounded-sm bg-slate-100 p-6 md:col-span-4">
@@ -675,12 +1019,12 @@ export default function TripAuditStudio({
                         Allocation Health
                       </h3>
                       <div className="mb-1 text-3xl font-extrabold text-[#001e42]">
-                        {revenue > 0
-                          ? `${Math.max(0, Math.min(100, (allocatedTotal / revenue) * 100)).toFixed(1)}%`
+                        {amountToSplit > 0
+                          ? `${Math.max(0, Math.min(100, (allocatedTotal / amountToSplit) * 100)).toFixed(1)}%`
                           : '0.0%'}
                       </div>
                       <p className="text-xs font-medium text-slate-600">
-                        Funds allocated correctly vs audited route value.
+                        Funds allocated against the entered split value.
                       </p>
                     </div>
 
@@ -691,9 +1035,9 @@ export default function TripAuditStudio({
                         </h3>
                         <div className="mt-4 flex flex-wrap gap-8">
                           <div>
-                            <div className="font-headline text-2xl font-bold">{currency(revenue)}</div>
+                            <div className="font-headline text-2xl font-bold">{currency(amountToSplit)}</div>
                             <div className="text-[10px] font-bold uppercase text-white/50">
-                              Total Route Revenue
+                              Amount To Split
                             </div>
                           </div>
                           <div>
@@ -828,7 +1172,7 @@ export default function TripAuditStudio({
               )}
             </div>
 
-            <footer className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/90 px-6 py-4 backdrop-blur xl:left-64">
+            <footer className="sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur">
               <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-8">
                   <div>
@@ -857,21 +1201,35 @@ export default function TripAuditStudio({
                 </div>
 
                 <div className="flex gap-3">
+                  {saveError ? (
+                    <div className="self-center text-sm font-medium text-rose-700">{saveError}</div>
+                  ) : !hasAssignments ? (
+                    <div className="self-center text-sm font-medium text-amber-700">
+                      This trip needs a saved primary or handover assignment before the split can be saved.
+                    </div>
+                  ) : !canSave ? (
+                    <div className="self-center text-sm font-medium text-amber-700">
+                      Remaining must be {currency(0)} before saving.
+                    </div>
+                  ) : null}
                   <Button variant="outline" onClick={() => setActiveTab('summary')}>
                     Trip Summary
                   </Button>
                   <Button variant="outline" onClick={() => setActiveTab('primary')}>
                     Primary Split
                   </Button>
-                  <Button className="bg-[#001e42] text-white hover:bg-[#0b2955]">
-                    Save Allocation
+                  <Button
+                    className="bg-[#001e42] text-white hover:bg-[#0b2955]"
+                    onClick={handleSaveAllocation}
+                    disabled={isSaving || !onSaveAllocation || !canSave}
+                  >
+                    {isSaving ? 'Saving...' : 'Save Allocation'}
                   </Button>
                 </div>
               </div>
             </footer>
           </div>
-        </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

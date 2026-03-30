@@ -35,6 +35,7 @@ import { VehicleTypeDropdown } from '@/components/ui/vehicle-type-dropdown'
 import { TrailerDropdown } from '@/components/ui/trailer-dropdown'
 import { StopPointDropdown } from '@/components/ui/stop-point-dropdown'
 import { markDriversUnavailable } from '@/lib/utils/driver-availability'
+import { getDeclaredTankCapacity } from '@/lib/vehicle-tank-capacities'
 
 
 export default function LoadPlanPage() {
@@ -123,6 +124,8 @@ export default function LoadPlanPage() {
   const [currentFuelPercentage, setCurrentFuelPercentage] = useState(0)
   const [activeTruckCount, setActiveTruckCount] = useState(1)
   const [distancePerTruck, setDistancePerTruck] = useState(0)
+  const lastAutoEtaDropoffRef = useRef('')
+  const STOP_DWELL_HOURS = 0.25
 
   const FUEL_BURN_RATE_BY_TYPE = {
     'TAUTLINER': 32,
@@ -264,6 +267,37 @@ export default function LoadPlanPage() {
       .replace(/[^a-z0-9]+/g, ' ')
       .trim()
 
+  const pickBestGeocodeFeature = (query, features = []) => {
+    if (!Array.isArray(features) || features.length === 0) return null
+
+    const normalizedQuery = String(query || '').trim().toLowerCase()
+    const queryParts = normalizedQuery
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+
+    const scored = features.map((feature) => {
+      const text = String(feature?.text || '').toLowerCase()
+      const placeName = String(feature?.place_name || '').toLowerCase()
+      let score = 0
+
+      if (placeName === normalizedQuery) score += 200
+      if (text === normalizedQuery) score += 150
+      if (placeName.includes(normalizedQuery)) score += 80
+      if (text.includes(normalizedQuery)) score += 60
+
+      queryParts.forEach((part) => {
+        if (placeName.includes(part)) score += 40
+        if (text.includes(part)) score += 25
+      })
+
+      return { feature, score }
+    })
+
+    scored.sort((a, b) => b.score - a.score)
+    return scored[0]?.feature || features[0]
+  }
+
   const hasValidRegistration = (value) => {
     const plate = normalizePlate(value)
     return plate.length > 0
@@ -281,37 +315,20 @@ export default function LoadPlanPage() {
     fuel_probe_1_level_percentage: vehicle?.fuel_probe_1_level_percentage ?? null,
   })
 
-  const mergeTrackingSources = (waterfordSites = [], epsVehicles = []) => {
-    const merged = new Map()
+  const extractTrackingVehicles = (trackingPayload) => {
+    const rawVehicles = Array.isArray(trackingPayload)
+      ? trackingPayload
+      : (trackingPayload?.result?.data || trackingPayload?.data || trackingPayload?.vehicles || [])
 
-    epsVehicles
-      .map(normalizeTrackingVehicle)
-      .forEach((vehicle) => {
-        const key = normalizePlate(vehicle.registration_number)
-        if (key) merged.set(key, vehicle)
-      })
+    return Array.isArray(rawVehicles)
+      ? rawVehicles.map(normalizeTrackingVehicle)
+      : []
+  }
 
-    waterfordSites
-      .map(normalizeTrackingVehicle)
-      .forEach((vehicle) => {
-        const key = normalizePlate(vehicle.registration_number)
-        if (!key) return
-
-        const existing = merged.get(key) || {}
-        const waterfordDriverName = vehicle.driver_name || ''
-        const preferExistingDriverName =
-          !waterfordDriverName ||
-          waterfordDriverName.toLowerCase() === 'engine on' ||
-          waterfordDriverName.toLowerCase() === 'engine off'
-
-        merged.set(key, {
-          ...existing,
-          ...vehicle,
-          driver_name: preferExistingDriverName ? (existing.driver_name || '') : waterfordDriverName
-        })
-      })
-
-    return Array.from(merged.values())
+  const fetchTrackingVehicles = async () => {
+    const trackingResponse = await fetch('/api/eps-vehicles')
+    const trackingData = await trackingResponse.json()
+    return extractTrackingVehicles(trackingData)
   }
 
   // Fetch loads and reference data
@@ -353,7 +370,7 @@ export default function LoadPlanPage() {
         while (hasMore) {
           const { data, error } = await supabase
             .from('vehiclesc')
-            .select('id, registration_number, engine_number, vin_number, make, model, sub_model, manufactured_year, vehicle_type, veh_dormant_flag, trailer_no, trailer_no2, trailer_name, trailer_name2')
+            .select('id, registration_number, engine_number, vin_number, make, model, sub_model, manufactured_year, vehicle_type, veh_dormant_flag, trailer_no, trailer_no2, trailer_name, trailer_name2, tank_capacity')
             .range(from, from + batchSize - 1)
           
           if (error) throw error
@@ -373,31 +390,19 @@ export default function LoadPlanPage() {
         vehiclesData,
         { data: driversData, error: driversError },
         { data: costCentersData, error: costCentersError },
-        waterfordSitesResponse,
-        epsVehiclesResponse
+        trackingVehicles
       ] = await Promise.all([
         supabase.from('trips').select('*').order('created_at', { ascending: false }),
         fetch('/api/eps-client-list').then(res => res.json()).then(data => ({ data: data.data, error: null })).catch(error => ({ data: null, error })),
         fetchAllVehicles(),
         supabase.from('drivers').select('*'),
         supabase.from('cost_centers').select('*'),
-        fetch('/api/waterford-sites'),
-        fetch('/api/eps-vehicles')
+        fetchTrackingVehicles()
       ])
       
       console.log('Supabase errors:', { loadsError, clientsError, driversError, costCentersError })
       console.log('Total vehicles fetched:', vehiclesData?.length || 0)
       console.log('Sample vehicles:', vehiclesData?.slice(0, 5).map(v => ({ reg: v.registration_number, type: v.vehicle_type })))
-      
-      const waterfordSitesData = await waterfordSitesResponse.json()
-      const epsVehiclesData = await epsVehiclesResponse.json()
-      const waterfordList = Array.isArray(waterfordSitesData)
-        ? waterfordSitesData
-        : (waterfordSitesData?.result?.data || waterfordSitesData?.data || [])
-      const epsList = Array.isArray(epsVehiclesData)
-        ? epsVehiclesData
-        : (epsVehiclesData?.result?.data || epsVehiclesData?.data || [])
-      const vehicleData = mergeTrackingSources(waterfordList, epsList)
       
       // Format drivers from drivers table
       const formattedDrivers = (driversData || []).map(driver => ({
@@ -449,7 +454,7 @@ export default function LoadPlanPage() {
       setVehicles(vehiclesData || [])
       setDrivers(formattedDrivers)
       setAvailableDrivers(availableDriversList)
-      setVehicleTrackingData(vehicleData)
+      setVehicleTrackingData(trackingVehicles)
       setCostCenters(costCentersData || [])
       setAvailableStopPoints([])
     } catch (err) {
@@ -630,6 +635,31 @@ export default function LoadPlanPage() {
     return 0
   }, [optimizedRoute, estimatedDistance])
 
+  const stopCountForEstimate = useMemo(() => {
+    const selectedCount = stopPoints.filter(Boolean).length
+    const customCount = customStopPoints.filter((point) => String(point || '').trim().length > 0).length
+    return Math.max(selectedCount, customCount)
+  }, [stopPoints, customStopPoints])
+
+  const estimatedStopBufferHours = useMemo(
+    () => stopCountForEstimate * STOP_DWELL_HOURS,
+    [stopCountForEstimate]
+  )
+
+  const estimatedTotalTripHours = useMemo(
+    () => estimatedRouteHours + estimatedStopBufferHours,
+    [estimatedRouteHours, estimatedStopBufferHours]
+  )
+
+  const handleEtaPickupChange = useCallback((value: string) => {
+    setEtaPickup(value)
+  }, [])
+
+  const handleEtaDropoffChange = useCallback((value: string) => {
+    lastAutoEtaDropoffRef.current = ''
+    setEtaDropoff(value)
+  }, [])
+
   // Calculate distance between two coordinates
   const calculateDistance = useCallback((lat1, lon1, lat2, lon2) => {
     const R = 6371 // Earth's radius in km
@@ -650,11 +680,12 @@ export default function LoadPlanPage() {
       if (!mapboxToken) return null
       
       const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location)}.json?access_token=${mapboxToken}&country=za&limit=1`
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location)}.json?access_token=${mapboxToken}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`
       )
       const data = await response.json()
-      if (data.features?.[0]?.center) {
-        const [lon, lat] = data.features[0].center
+      const bestFeature = pickBestGeocodeFeature(location, data.features)
+      if (bestFeature?.center) {
+        const [lon, lat] = bestFeature.center
         return { lat, lon }
       }
     } catch (error) {
@@ -768,8 +799,8 @@ export default function LoadPlanPage() {
         
         // Geocode loading and drop-off locations
         const [loadingResponse, dropOffResponse] = await Promise.all([
-          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(loadingLocation)}.json?access_token=${mapboxToken}&country=za&limit=1`),
-          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(dropOffPoint)}.json?access_token=${mapboxToken}&country=za&limit=1`)
+          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(loadingLocation)}.json?access_token=${mapboxToken}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`),
+          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(dropOffPoint)}.json?access_token=${mapboxToken}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`)
         ])
         
         const [loadingData, dropOffData] = await Promise.all([
@@ -777,9 +808,12 @@ export default function LoadPlanPage() {
           dropOffResponse.json()
         ])
         
-        if (loadingData.features?.[0] && dropOffData.features?.[0]) {
-          const loadingCoords = loadingData.features[0].center
-          const dropOffCoords = dropOffData.features[0].center
+        const loadingFeature = pickBestGeocodeFeature(loadingLocation, loadingData.features)
+        const dropOffFeature = pickBestGeocodeFeature(dropOffPoint, dropOffData.features)
+
+        if (loadingFeature?.center && dropOffFeature?.center) {
+          const loadingCoords = loadingFeature.center
+          const dropOffCoords = dropOffFeature.center
           
           // Build waypoints string including stop points
           let waypoints = `${loadingCoords[0]},${loadingCoords[1]}`
@@ -832,6 +866,7 @@ export default function LoadPlanPage() {
           
           const route = directionsData.routes?.[0]
           if (route) {
+            const routeDistanceKm = Math.round(route.distance / 1000)
             const routeInfo = {
               route: route,
               distance: route.distance,
@@ -842,14 +877,17 @@ export default function LoadPlanPage() {
             }
             console.log('Setting optimized route:', routeInfo)
             setOptimizedRoute(routeInfo)
+            setEstimatedDistance(routeDistanceKm)
           } else {
             console.error('No routes found:', directionsData)
             setOptimizedRoute(null)
+            setEstimatedDistance(0)
           }
         }
       } catch (error) {
         console.error('Route preview failed:', error)
         setOptimizedRoute(null)
+        setEstimatedDistance(0)
       }
       setIsOptimizing(false)
     }
@@ -871,20 +909,9 @@ export default function LoadPlanPage() {
     let isMounted = true
     
     // Refresh vehicle tracking data when location changes
-    Promise.all([
-      fetch('/api/waterford-sites').then(response => response.json()),
-      fetch('/api/eps-vehicles').then(response => response.json())
-    ])
-      .then(([waterfordSitesData, epsVehiclesData]) => {
+    fetchTrackingVehicles()
+      .then((vehicleData) => {
         if (!isMounted) return null
-        
-        const waterfordList = Array.isArray(waterfordSitesData)
-          ? waterfordSitesData
-          : (waterfordSitesData?.result?.data || waterfordSitesData?.data || [])
-        const epsList = Array.isArray(epsVehiclesData)
-          ? epsVehiclesData
-          : (epsVehiclesData?.result?.data || epsVehiclesData?.data || [])
-        const vehicleData = mergeTrackingSources(waterfordList, epsList)
         setVehicleTrackingData(vehicleData)
         return getSortedDriversByDistance(loadingLocation)
       })
@@ -901,65 +928,31 @@ export default function LoadPlanPage() {
     }
   }, [loadingLocation, drivers, getSortedDriversByDistance])
 
-  // Calculate estimated distance when locations change
+  // Keep drop-off ETA aligned with the selected pickup time and the current routed duration.
   useEffect(() => {
-    const calculateRouteDistance = async () => {
-      if (!loadingLocation || !dropOffPoint) {
-        console.log('Missing locations for distance calc:', { loadingLocation, dropOffPoint })
-        setEstimatedDistance(0)
-        return
-      }
-      
-      try {
-        const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-        if (!mapboxToken) {
-          console.log('No Mapbox token available')
-          return
-        }
-        
-        console.log('Calculating distance between:', loadingLocation, 'and', dropOffPoint)
-        
-        // First geocode the locations to get coordinates
-        const [originResponse, destResponse] = await Promise.all([
-          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(loadingLocation)}.json?access_token=${mapboxToken}&country=za&limit=1`),
-          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(dropOffPoint)}.json?access_token=${mapboxToken}&country=za&limit=1`)
-        ])
-        
-        const [originData, destData] = await Promise.all([
-          originResponse.json(),
-          destResponse.json()
-        ])
-        
-        if (!originData.features?.[0] || !destData.features?.[0]) {
-          console.log('Could not geocode locations')
-          return
-        }
-        
-        const originCoords = originData.features[0].center
-        const destCoords = destData.features[0].center
-        
-        console.log('Origin coords:', originCoords, 'Dest coords:', destCoords)
-        
-        const response = await fetch(
-          `https://api.mapbox.com/directions/v5/mapbox/driving/${originCoords[0]},${originCoords[1]};${destCoords[0]},${destCoords[1]}?access_token=${mapboxToken}&geometries=geojson`
-        )
-        const data = await response.json()
-        console.log('Mapbox response:', data)
-        
-        if (data.routes?.[0]?.distance) {
-          const distanceKm = Math.round(data.routes[0].distance / 1000)
-          console.log('Distance calculated:', distanceKm, 'km')
-          setEstimatedDistance(distanceKm)
-        } else {
-          console.log('No route found in response')
-        }
-      } catch (error) {
-        console.error('Error calculating distance:', error)
-      }
+    if (!etaPickup || !optimizedRoute) return
+
+    const pickupDate = new Date(etaPickup)
+    const routeDurationSeconds = (estimatedTotalTripHours || 0) * 3600
+    if (Number.isNaN(pickupDate.getTime()) || routeDurationSeconds <= 0) return
+
+    const autoDropoffDate = new Date(pickupDate.getTime() + routeDurationSeconds * 1000)
+    const autoDropoffValue = autoDropoffDate.toISOString()
+    const shouldSyncDropoff =
+      !etaDropoff ||
+      etaDropoff === lastAutoEtaDropoffRef.current
+
+    if (shouldSyncDropoff && etaDropoff !== autoDropoffValue) {
+      lastAutoEtaDropoffRef.current = autoDropoffValue
+      setEtaDropoff(autoDropoffValue)
     }
-    
-    calculateRouteDistance()
-  }, [loadingLocation, dropOffPoint])
+
+    const tripLengthDays = Math.max(
+      1,
+      Number.parseFloat((routeDurationSeconds / 86400).toFixed(2))
+    )
+    setTripDays(tripLengthDays)
+  }, [etaPickup, etaDropoff, estimatedTotalTripHours, optimizedRoute])
 
   // Rate Card Calculation Function - with hour-based fuel usage + live probe calibration
   const calculateRateCardCost = useCallback((vehicleType, kms, days, fuelInputs = {}) => {
@@ -977,12 +970,32 @@ export default function LoadPlanPage() {
       currentFuelVolumeLiters = null,
       currentFuelPercentageValue = null,
       fallbackFuelPrice = null,
-      truckAssignments = []
+      truckAssignments = [],
+      trailerAssignments = []
     } = fuelInputs
     
     // FIXED COSTS (prorated by days)
     const fixed_truck = (rc.hp_depr + rc.tracking + rc.licence + rc.insurance) / 30 * days
-    const fixed_trailer = (rc.trailer_hp_depr + rc.trailer_licence + rc.trailer_insurance) / 30 * days
+    const validTrailerAssignments = Array.isArray(trailerAssignments)
+      ? trailerAssignments.filter((assignment) => assignment?.id || assignment?.name)
+      : []
+    const dedupedTrailerAssignments = (() => {
+      const seen = new Set<string>()
+      const list: Array<{ id?: string; name?: string }> = []
+      validTrailerAssignments.forEach((assignment) => {
+        const trailerId = assignment?.id ? String(assignment.id) : ''
+        const trailerName = assignment?.name ? String(assignment.name) : ''
+        const key = `${trailerId}|${normalizePlate(trailerName)}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          list.push(assignment)
+        }
+      })
+      return list
+    })()
+    const trailerCount = dedupedTrailerAssignments.length
+    const trailerFixedUnit = (rc.trailer_hp_depr + rc.trailer_licence + rc.trailer_insurance) / 30 * days
+    const fixed_trailer = trailerFixedUnit * trailerCount
     const fixed_overheads = (rc.admin + rc.driver_basic) / 30 * days
     const fixed_xbrdr = (rc.xbrdr || 0)
     const total_fixed = fixed_truck + fixed_trailer + fixed_overheads + fixed_xbrdr
@@ -1061,7 +1074,15 @@ export default function LoadPlanPage() {
       dedupedTruckAssignments.forEach((assignment) => {
         const telemetry = getAssignmentTelemetry(assignment)
         const assignmentRecord = getAssignmentVehicleRecord(assignment)
-        const declaredTankCapacity = toNumber(assignmentRecord?.tank_capacity)
+        const assignmentPlate =
+          assignmentRecord?.registration_number ||
+          assignment?.vehicle?.name ||
+          telemetry?.registration_number ||
+          telemetry?.plate ||
+          telemetry?.Plate
+        const declaredTankCapacity =
+          toNumber(assignmentRecord?.tank_capacity) ??
+          getDeclaredTankCapacity(assignmentPlate)
         const rawFuelVolume = toNumber(telemetry?.fuel_probe_1_volume_in_tank)
         const rawFuelPercentage = toNumber(telemetry?.fuel_probe_1_level_percentage)
         const hasUsableFuelProbe =
@@ -1097,7 +1118,14 @@ export default function LoadPlanPage() {
       const selectedVehicleRecord = selectedVehicleId
         ? vehicles.find((vehicle) => String(vehicle.id) === String(selectedVehicleId))
         : null
-      const declaredTankCapacity = toNumber(selectedVehicleRecord?.tank_capacity)
+      const declaredTankCapacity =
+        toNumber(selectedVehicleRecord?.tank_capacity) ??
+        getDeclaredTankCapacity(
+          selectedVehicleRecord?.registration_number,
+          selectedVehicleTelemetry?.registration_number,
+          selectedVehicleTelemetry?.plate,
+          selectedVehicleTelemetry?.Plate
+        )
       tankCapacityLiters =
         declaredTankCapacity !== null && declaredTankCapacity > 0
           ? declaredTankCapacity
@@ -1149,9 +1177,10 @@ export default function LoadPlanPage() {
       current_fuel_liters: currentFuelLitersTotal,
       current_fuel_percentage: fuelPercentageSamples > 0 ? (currentFuelPercentageTotal / fuelPercentageSamples) : 0,
       truck_count: truckCount,
+      trailer_count: trailerCount,
       distance_per_truck: segmentKms
     }
-  }, [RATE_CARD_SYSTEM, fuelPricePerLiter, vehicleTrackingData, vehicles])
+  }, [RATE_CARD_SYSTEM, fuelPricePerLiter, selectedVehicleTelemetry, vehicleTrackingData, vehicles])
 
   // Calculate costs when relevant values change
   useEffect(() => {
@@ -1160,17 +1189,29 @@ export default function LoadPlanPage() {
       const futureAssignments = buildHandoverAssignments()
       const truckAssignments = [currentAssignment, ...futureAssignments]
         .filter((assignment) => assignment?.vehicle?.id || assignment?.vehicle?.name)
+      const trailerAssignments = [
+        {
+          id: selectedTrailerId,
+          name: getVehicleNameById(selectedTrailerId)
+        },
+        {
+          id: selectedTrailer2Id,
+          name: getVehicleNameById(selectedTrailer2Id)
+        },
+        ...futureAssignments.map((assignment) => assignment?.trailer || null)
+      ].filter((assignment) => assignment?.id || assignment?.name)
 
       const selectedFuelVolume = toNumber(selectedVehicleTelemetry?.fuel_probe_1_volume_in_tank)
       const selectedFuelPercentage = toNumber(selectedVehicleTelemetry?.fuel_probe_1_level_percentage)
       const manualFuelPrice = toNumber(fuelPricePerLiter)
 
       const costBreakdown = calculateRateCardCost(selectedVehicleType, estimatedDistance, tripDays, {
-        travelHours: estimatedRouteHours,
+        travelHours: estimatedTotalTripHours,
         currentFuelVolumeLiters: selectedFuelVolume,
         currentFuelPercentageValue: selectedFuelPercentage,
         fallbackFuelPrice: manualFuelPrice,
-        truckAssignments
+        truckAssignments,
+        trailerAssignments
       })
       
       // Display breakdown components
@@ -1209,7 +1250,7 @@ export default function LoadPlanPage() {
       setActiveTruckCount(1)
       setDistancePerTruck(0)
     }
-  }, [selectedVehicleType, estimatedDistance, tripDays, goodsInTransitPremium, fuelPricePerLiter, calculateRateCardCost, selectedVehicleTelemetry, estimatedRouteHours, selectedVehicleId, selectedTrailerId, driverAssignments, handoverAssignments])
+  }, [selectedVehicleType, estimatedDistance, tripDays, goodsInTransitPremium, fuelPricePerLiter, calculateRateCardCost, selectedVehicleTelemetry, estimatedTotalTripHours, selectedVehicleId, selectedTrailerId, selectedTrailer2Id, driverAssignments, handoverAssignments, vehicles])
 
   // Note: Vehicle and driver costs are now handled by the rate card system
   // Legacy cost calculations removed to prevent conflicts with rate card system
@@ -1334,11 +1375,12 @@ export default function LoadPlanPage() {
         // Geocode custom location
         try {
           const response = await fetch(
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(customLocation)}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}&country=za&limit=1`
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(customLocation)}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`
           )
           const data = await response.json()
-          if (data.features?.[0]) {
-            const [lng, lat] = data.features[0].center
+          const bestFeature = pickBestGeocodeFeature(customLocation, data.features)
+          if (bestFeature?.center) {
+            const [lng, lat] = bestFeature.center
             results.push({
               id: `custom_${i}`,
               name: customLocation,
@@ -1455,18 +1497,7 @@ export default function LoadPlanPage() {
     setIsCalculatingDistance(true)
     try {
       console.log('Fetching vehicle tracking data from API...')
-      const [waterfordSitesData, epsVehiclesData] = await Promise.all([
-        fetch('/api/waterford-sites').then((response) => response.json()),
-        fetch('/api/eps-vehicles').then((response) => response.json())
-      ])
-      
-      const waterfordList = Array.isArray(waterfordSitesData)
-        ? waterfordSitesData
-        : (waterfordSitesData?.result?.data || waterfordSitesData?.data || [])
-      const epsList = Array.isArray(epsVehiclesData)
-        ? epsVehiclesData
-        : (epsVehiclesData?.result?.data || epsVehiclesData?.data || [])
-      const vehicleData = mergeTrackingSources(waterfordList, epsList)
+      const vehicleData = await fetchTrackingVehicles()
       console.log('Vehicle data extracted:', vehicleData.length, 'vehicles')
       if (vehicleData.length > 0) {
         console.log('First 3 drivers:', vehicleData.slice(0, 3).map(v => v.driver_name))
@@ -1526,7 +1557,17 @@ export default function LoadPlanPage() {
     trailer: {
       id: selectedTrailerId,
       name: getVehicleNameById(selectedTrailerId)
-    }
+    },
+    trailers: [
+      {
+        id: selectedTrailerId,
+        name: getVehicleNameById(selectedTrailerId)
+      },
+      {
+        id: selectedTrailer2Id,
+        name: getVehicleNameById(selectedTrailer2Id)
+      }
+    ].filter((trailer) => trailer.id || trailer.name)
   })
 
   const addHandoverAssignmentSet = () => {
@@ -1535,6 +1576,7 @@ export default function LoadPlanPage() {
       {
         vehicleId: '',
         trailerId: '',
+        trailer2Id: '',
         drivers: [{ id: '', name: '', first_name: '', surname: '' }]
       }
     ])
@@ -1595,7 +1637,17 @@ export default function LoadPlanPage() {
         trailer: {
           id: set.trailerId || '',
           name: getVehicleNameById(set.trailerId)
-        }
+        },
+        trailers: [
+          {
+            id: set.trailerId || '',
+            name: getVehicleNameById(set.trailerId)
+          },
+          {
+            id: set.trailer2Id || '',
+            name: getVehicleNameById(set.trailer2Id)
+          }
+        ].filter((trailer) => trailer.id || trailer.name)
       }))
       .filter((set) => set.vehicle.id || set.trailer.id || set.drivers.length > 0)
   }
@@ -1639,15 +1691,16 @@ export default function LoadPlanPage() {
           const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
           if (mapboxToken) {
             const response = await fetch(
-              `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(clientData.address)}.json?access_token=${mapboxToken}&country=za&limit=1`
+              `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(clientData.address)}.json?access_token=${mapboxToken}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`
             )
             const data = await response.json()
-            if (data.features?.[0]) {
-              const [lng, lat] = data.features[0].center
+            const bestFeature = pickBestGeocodeFeature(clientData.address, data.features)
+            if (bestFeature?.center) {
+              const [lng, lat] = bestFeature.center
               const geocodedClient = {
                 ...clientData,
                 geocoded_coordinates: `${lng},${lat}`,
-                geocoded_address: data.features[0].place_name
+                geocoded_address: bestFeature.place_name
               }
               setSelectedClient(geocodedClient)
               console.log(`✓ Geocoded client address: ${clientData.address} -> ${lng},${lat}`)
@@ -1981,7 +2034,13 @@ export default function LoadPlanPage() {
 
   return (
     <div className="p-6 space-y-6 w-full">
-      <h1 className="text-2xl font-bold mb-6">Load Plan</h1>
+      <div className="mb-6 flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold">Load Plan</h1>
+        <Button type="button" variant="outline" onClick={() => router.push('/load-plan/fuel-stations/new')}>
+          <MapPin className="mr-2 h-4 w-4" />
+          Fuel Stations
+        </Button>
+      </div>
       
       <Tabs defaultValue="loads" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
@@ -2158,7 +2217,7 @@ export default function LoadPlanPage() {
                     <Label htmlFor="etaPickup">ETA Pick Up</Label>
                     <DateTimePicker
                       value={etaPickup}
-                      onChange={setEtaPickup}
+                      onChange={handleEtaPickupChange}
                       placeholder="Select pickup date and time"
                     />
                   </div>
@@ -2188,7 +2247,7 @@ export default function LoadPlanPage() {
                     <Label htmlFor="etaDropoff">ETA Drop Off</Label>
                     <DateTimePicker
                       value={etaDropoff}
-                      onChange={setEtaDropoff}
+                      onChange={handleEtaDropoffChange}
                       placeholder="Select drop-off date and time"
                     />
                   </div>
@@ -2554,7 +2613,7 @@ export default function LoadPlanPage() {
                   </div>
                   <p className="text-xs text-slate-600">
                     Stored in <span className="font-semibold">handed_vehicleassignments</span> as ordered sets of
-                    <span className="font-semibold"> drivers + vehicle + trailer</span>.
+                    <span className="font-semibold"> drivers + vehicle + trailers</span>.
                   </p>
 
                   {handoverAssignments.length === 0 && (
@@ -2577,7 +2636,7 @@ export default function LoadPlanPage() {
                         </Button>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div className="space-y-2">
                           <Label className="text-sm font-medium text-slate-700">Horse (Vehicle/Truck)</Label>
                           <VehicleDropdown
@@ -2594,6 +2653,15 @@ export default function LoadPlanPage() {
                             onChange={(value) => handleHandoverVehicleChange(setIndex, 'trailerId', value)}
                             trailers={filteredTrailers}
                             placeholder="Select handover trailer"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium text-slate-700">Trailer 2</Label>
+                          <TrailerDropdown
+                            value={set.trailer2Id || ''}
+                            onChange={(value) => handleHandoverVehicleChange(setIndex, 'trailer2Id', value)}
+                            trailers={filteredTrailers}
+                            placeholder="Select handover trailer 2"
                           />
                         </div>
                       </div>

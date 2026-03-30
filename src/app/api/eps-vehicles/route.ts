@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   const plate = searchParams.get('plate')
   const driver = searchParams.get('driver')
 
-  const baseUrl = process.env.NEXT_PUBLIC_VEHICLE_API_ENDPOINT || 'http://64.227.138.235:3000/api/eps-vehicles'
+  const baseUrl = process.env.NEXT_PUBLIC_VEHICLE_API_ENDPOINT
   if (!baseUrl) {
     return NextResponse.json({ data: [], message: 'Vehicle endpoint is not configured' }, { status: 200 })
   }
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
       const data = await response.json()
       const vehicleList = Array.isArray(data)
         ? data
-        : (data?.result?.data || data?.data || [])
+        : (data?.value || data?.result?.data || data?.data || [])
       const normalizedVehicles = (vehicleList as RawVehicle[]).map(normalizeVehicle)
 
       if (endpoint === 'by-plate' && plate) {

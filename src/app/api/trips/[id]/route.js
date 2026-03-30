@@ -30,16 +30,29 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ error: 'Trip not found' }, { status: 404 })
     }
 
+    const nextStatus = String(body.status || '').toLowerCase()
+    const updatePayload = {
+      ...body,
+    }
+
+    if (nextStatus === 'accepted' && !trip.accepted_at && !body.accepted_at) {
+      updatePayload.accepted_at = new Date().toISOString()
+    }
+
+    if ((nextStatus === 'completed' || nextStatus === 'delivered') && !trip.actual_end_time && !body.actual_end_time) {
+      updatePayload.actual_end_time = new Date().toISOString()
+    }
+
     // Update trip
     const { error: updateError } = await supabase
       .from('trips')
-      .update(body)
+      .update(updatePayload)
       .eq('id', id)
     // .eq('client_id', user.id)
 
     if (updateError) throw updateError
 
-    return NextResponse.json({ id, ...body }, { status: 200 })
+    return NextResponse.json({ id, ...updatePayload }, { status: 200 })
   } catch (error) {
     return NextResponse.json({ error: 'Failed to update trip' }, { status: 500 })
   }
