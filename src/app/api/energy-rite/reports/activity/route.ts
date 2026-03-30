@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { buildEnergyRiteReportsUrl } from '@/lib/server/energy-rite-upstream';
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Forward the request to the external API
-    const externalApiUrl = `http://${process.env.NEXT_PUBLIC_API_HOST}:${process.env.NEXT_PUBLIC_API_PORT}/api/energy-rite/activity-reports`;
+    const externalApiUrl = buildEnergyRiteReportsUrl('/api/energy-rite/activity-reports');
     const apiUrl = `${externalApiUrl}?${params.toString()}`;
 
     console.log('🔄 Forwarding to external API:', apiUrl);
