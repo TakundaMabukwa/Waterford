@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Truck, Car, FileText, TruckElectricIcon } from "lucide-react";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -44,6 +44,7 @@ import { initialVehiclesState } from "@/context/vehicles-context/context";
 const vehicleFormSchema = z.object({
   id: z.number().int().optional(),
   registration_number: z.string().min(1, "Registration number is required"),
+  horse_reg_no: z.string().optional(),
   engine_number: z.string().min(1, "Engine number is required"),
   vin_number: z.string().min(1, "VIN number is required"),
   make: z.string().min(1, "Make is required"),
@@ -82,6 +83,9 @@ const vehicleFormSchema = z.object({
   updated_at: z.string().optional(),
   tech_id: z.number().int().optional(),
   driver_id: z.number().int().optional(),
+  zim_permit_expiry_date: z.string().optional(),
+  zam_permit_expiry_date: z.string().optional(),
+  malawi_permit_expiry_date: z.string().optional(),
 });
 
 type VehicleFormValues = z.infer<typeof vehicleFormSchema>;
@@ -107,8 +111,38 @@ interface CostCenter {
   cost_code: string;
 }
 
+const formatPermitDate = (value?: string | null) => {
+  if (!value) return '-'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleDateString('en-ZA', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+  })
+}
+
+const daysUntil = (value?: string | null) => {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  parsed.setHours(0, 0, 0, 0)
+  return Math.ceil((parsed.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+const getPermitTone = (days: number | null) => {
+  if (days == null) return 'bg-slate-100 text-slate-500 border-slate-200'
+  if (days < 0) return 'bg-rose-100 text-rose-700 border-rose-200'
+  if (days <= 30) return 'bg-amber-100 text-amber-700 border-amber-200'
+  if (days <= 90) return 'bg-orange-100 text-orange-700 border-orange-200'
+  return 'bg-emerald-100 text-emerald-700 border-emerald-200'
+}
+
 const getVehicleDefaultValues = (): VehicleFormValues => ({
   registration_number: "",
+  horse_reg_no: "",
   engine_number: "",
   vin_number: "",
   make: "",
@@ -135,6 +169,9 @@ const getVehicleDefaultValues = (): VehicleFormValues => ({
   hourly_rate: "",
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
+  zim_permit_expiry_date: "",
+  zam_permit_expiry_date: "",
+  malawi_permit_expiry_date: "",
 })
 
 const normalizeVehicleFormValues = (vehicle: VehicleFormValues): VehicleFormValues => ({
@@ -143,6 +180,9 @@ const normalizeVehicleFormValues = (vehicle: VehicleFormValues): VehicleFormValu
   registration_date: vehicle.registration_date?.split('T')[0] || '',
   license_expiry_date: vehicle.license_expiry_date?.split('T')[0] || '',
   expected_boarding_date: vehicle.expected_boarding_date?.split('T')[0] || '',
+  zim_permit_expiry_date: vehicle.zim_permit_expiry_date?.split('T')[0] || '',
+  zam_permit_expiry_date: vehicle.zam_permit_expiry_date?.split('T')[0] || '',
+  malawi_permit_expiry_date: vehicle.malawi_permit_expiry_date?.split('T')[0] || '',
   purchase_price: vehicle.purchase_price?.toString() || '',
   retail_price: vehicle.retail_price?.toString() || '',
   tank_capacity: vehicle.tank_capacity?.toString() || '',
@@ -154,6 +194,7 @@ const normalizeVehicleFormValues = (vehicle: VehicleFormValues): VehicleFormValu
   cost_centres: vehicle.cost_centres?.toString() || '',
   register_number: vehicle.register_number?.toString() || '',
   sub_model: vehicle.sub_model?.toString() || '',
+  horse_reg_no: vehicle.horse_reg_no?.toString() || '',
 })
 
 export default function Vehicles() {
@@ -260,16 +301,40 @@ export default function Vehicles() {
     toast.info(`Uploading: ${selectedFile.name}`);
   };
 
-  // Filter vehicles based on search
-  const filteredVehicles = vehicles.filter((vehicle) => {
-    const searchLower = search.toLowerCase();
-    return (
-      (vehicle.make || '').toLowerCase().includes(searchLower) ||
-      (vehicle.model || '').toLowerCase().includes(searchLower) ||
-      (vehicle.registration_number || '').toLowerCase().includes(searchLower) ||
-      (vehicle.vehicle_type || '').toLowerCase().includes(searchLower)
-    );
-  });
+  const getNearestPermitDays = (vehicle: VehicleFormValues) => {
+    const permitDays = [
+      daysUntil(vehicle.zim_permit_expiry_date),
+      daysUntil(vehicle.zam_permit_expiry_date),
+      daysUntil(vehicle.malawi_permit_expiry_date),
+    ].filter((value): value is number => value != null)
+
+    if (!permitDays.length) return null
+    return Math.min(...permitDays)
+  }
+
+  // Filter + sort vehicles based on nearest permit expiry first
+  const filteredVehicles = useMemo(() => {
+    const searchLower = search.toLowerCase()
+
+    return [...vehicles]
+      .filter((vehicle) =>
+        (vehicle.make || '').toLowerCase().includes(searchLower) ||
+        (vehicle.model || '').toLowerCase().includes(searchLower) ||
+        (vehicle.registration_number || '').toLowerCase().includes(searchLower) ||
+        (vehicle.horse_reg_no || '').toLowerCase().includes(searchLower) ||
+        (vehicle.vehicle_type || '').toLowerCase().includes(searchLower)
+      )
+      .sort((a, b) => {
+        const aDays = getNearestPermitDays(a)
+        const bDays = getNearestPermitDays(b)
+
+        if (aDays == null && bDays == null) return (a.registration_number || '').localeCompare(b.registration_number || '')
+        if (aDays == null) return 1
+        if (bDays == null) return -1
+        if (aDays !== bDays) return aDays - bDays
+        return (a.registration_number || '').localeCompare(b.registration_number || '')
+      })
+  }, [search, vehicles])
 
   // Pagination state & logic (50 per page)
   const [currentPage, setCurrentPage] = useState(1);
@@ -291,6 +356,19 @@ export default function Vehicles() {
     (currentPage - 1) * PAGE_SIZE,
     currentPage * PAGE_SIZE
   );
+
+  const expiringVehicles = useMemo(
+    () =>
+      vehicles.map((vehicle) => ({
+        vehicle,
+        nearestPermitDays: getNearestPermitDays(vehicle),
+      })),
+    [vehicles]
+  )
+
+  const expiringIn30 = expiringVehicles.filter((item) => item.nearestPermitDays != null && item.nearestPermitDays >= 0 && item.nearestPermitDays <= 30).length
+  const expiringIn90 = expiringVehicles.filter((item) => item.nearestPermitDays != null && item.nearestPermitDays >= 0 && item.nearestPermitDays <= 90).length
+  const expiringIn180 = expiringVehicles.filter((item) => item.nearestPermitDays != null && item.nearestPermitDays >= 0 && item.nearestPermitDays <= 180).length
 
   // Row background color by type
   const getRowBg = (type: string) => {
@@ -461,6 +539,11 @@ export default function Vehicles() {
     );
   };
 
+  const getAssignedDriverName = (driverId?: number | null) => {
+    const driver = drivers.find((item) => item.id === driverId)
+    return driver ? `${driver.first_name} ${driver.surname}`.trim() : 'Unassigned'
+  }
+
   async function handleAssignDriver(vehicleId: number, driverId: number) {
     const { data, error } = await supabase
       .from("vehiclesc")
@@ -542,9 +625,8 @@ export default function Vehicles() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Fleet</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {vehicles.length}
-                </p>
+                <p className="text-2xl font-bold text-gray-900">{vehicles.length}</p>
+                <p className="mt-1 text-xs text-gray-500">All active vehicles and trailers</p>
               </div>
               <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
                 <span className="text-blue-600 text-sm font-semibold">🚗</span>
@@ -556,28 +638,12 @@ export default function Vehicles() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Vehicles</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {vehicles.filter((v) => v.vehicle_type === "vehicle").length}
-                </p>
+                <p className="text-sm font-medium text-gray-600">Permits Due In 1 Month</p>
+                <p className="text-2xl font-bold text-amber-600">{expiringIn30}</p>
+                <p className="mt-1 text-xs text-gray-500">0 to 30 days</p>
               </div>
-              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                <Car className="w-4 h-4 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Trailers</p>
-                <p className="text-2xl font-bold text-purple-600">
-                  {vehicles.filter((v) => v.vehicle_type === "trailer").length}
-                </p>
-              </div>
-              <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Truck className="w-4 h-4 text-purple-600" />
+              <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+                <FileText className="w-4 h-4 text-amber-600" />
               </div>
             </div>
           </CardContent>
@@ -586,12 +652,23 @@ export default function Vehicles() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">
-                  High Priority
-                </p>
-                <p className="text-2xl font-bold text-red-600">
-                  {vehicles.filter((v) => v.vehicle_priority === "high").length}
-                </p>
+                <p className="text-sm font-medium text-gray-600">Permits Due In 3 Months</p>
+                <p className="text-2xl font-bold text-orange-600">{expiringIn90}</p>
+                <p className="mt-1 text-xs text-gray-500">0 to 90 days</p>
+              </div>
+              <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
+                <Car className="w-4 h-4 text-orange-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Permits Due In 6 Months</p>
+                <p className="text-2xl font-bold text-red-600">{expiringIn180}</p>
+                <p className="mt-1 text-xs text-gray-500">0 to 180 days</p>
               </div>
               <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
                 <span className="text-red-600 text-sm font-semibold">⚠</span>
@@ -712,6 +789,20 @@ export default function Vehicles() {
 
                   <FormField
                     control={form.control}
+                    name="horse_reg_no"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Horse Reg No</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Horse registration reference" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
                     name="make"
                     render={({ field }) => (
                       <FormItem>
@@ -814,6 +905,48 @@ export default function Vehicles() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>License Expiry Date *</FormLabel>
+                        <FormControl>
+                          <Input type="date" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="zim_permit_expiry_date"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>ZIM Permit Expiry</FormLabel>
+                        <FormControl>
+                          <Input type="date" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="zam_permit_expiry_date"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>ZAM Permit Expiry</FormLabel>
+                        <FormControl>
+                          <Input type="date" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="malawi_permit_expiry_date"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Malawi Permit Expiry</FormLabel>
                         <FormControl>
                           <Input type="date" {...field} />
                         </FormControl>
@@ -1144,12 +1277,13 @@ export default function Vehicles() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50 border-b border-slate-200">
+                    <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">No</TableHead>
                     <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">Registration</TableHead>
+                    <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">Horse Reg No</TableHead>
                     <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">Make/Model</TableHead>
-                    <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">Type</TableHead>
-                    <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">Year</TableHead>
-                    <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">Fuel</TableHead>
-                    <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">Priority</TableHead>
+                    <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">ZIM Permit</TableHead>
+                    <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">ZAM Permit</TableHead>
+                    <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">Malawi Permit</TableHead>
                     <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">Driver</TableHead>
                     <TableHead className="h-10 px-3 text-xs font-semibold text-slate-700 uppercase tracking-wider">Actions</TableHead>
                   </TableRow>
@@ -1160,36 +1294,34 @@ export default function Vehicles() {
                       key={vehicle.id}
                       className="h-12 hover:bg-slate-50 border-b border-slate-100 transition-colors"
                     >
+                      <TableCell className="px-3 py-2 text-sm text-slate-500">{(currentPage - 1) * PAGE_SIZE + index + 1}</TableCell>
                       <TableCell className="px-3 py-2 text-sm font-medium text-slate-900">{vehicle.registration_number || '-'}</TableCell>
+                      <TableCell className="px-3 py-2 text-sm text-slate-700">{vehicle.horse_reg_no || '-'}</TableCell>
                       <TableCell className="px-3 py-2 text-sm text-slate-700">
                         <div className="flex flex-col">
                           <span className="font-medium">{vehicle.make || '-'}</span>
                           <span className="text-xs text-slate-500">{vehicle.model || '-'}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="px-3 py-2 text-sm text-slate-700">
-                        <div className="flex items-center gap-1">
-                          {getVehicleTypeIcon(vehicle.vehicle_type)}
-                          <span className="capitalize text-xs">{vehicle.vehicle_type || '-'}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-3 py-2 text-sm text-slate-700">{vehicle.manufactured_year || '-'}</TableCell>
-                      <TableCell className="px-3 py-2 text-sm text-slate-700">
-                        <span className="capitalize text-xs">{vehicle.fuel_type || '-'}</span>
+                      <TableCell className="px-3 py-2 text-sm">
+                        <Badge className={`${getPermitTone(daysUntil(vehicle.zim_permit_expiry_date))} text-xs px-2 py-0.5 font-medium border`}>
+                          {formatPermitDate(vehicle.zim_permit_expiry_date)}
+                        </Badge>
                       </TableCell>
                       <TableCell className="px-3 py-2 text-sm">
-                        {getPriorityBadge(vehicle.vehicle_priority)}
+                        <Badge className={`${getPermitTone(daysUntil(vehicle.zam_permit_expiry_date))} text-xs px-2 py-0.5 font-medium border`}>
+                          {formatPermitDate(vehicle.zam_permit_expiry_date)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="px-3 py-2 text-sm">
+                        <Badge className={`${getPermitTone(daysUntil(vehicle.malawi_permit_expiry_date))} text-xs px-2 py-0.5 font-medium border`}>
+                          {formatPermitDate(vehicle.malawi_permit_expiry_date)}
+                        </Badge>
                       </TableCell>
                       <TableCell className="px-3 py-2 text-sm text-slate-700">
-                        {drivers.find(driver => driver.id === vehicle.driver_id) ? (
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs">
-                              {drivers.find(driver => driver.id === vehicle.driver_id)?.first_name} {drivers.find(driver => driver.id === vehicle.driver_id)?.surname}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-slate-400">Unassigned</span>
-                        )}
+                        <span className={`text-xs ${vehicle.driver_id ? 'text-slate-700' : 'text-slate-400'}`}>
+                          {getAssignedDriverName(vehicle.driver_id)}
+                        </span>
                       </TableCell>
                       <TableCell className="px-3 py-2">
                         <div className="flex gap-1">
@@ -1312,6 +1444,10 @@ export default function Vehicles() {
                       <p className="text-sm font-medium text-slate-900 mt-1">{selectedVehicle.registration_number || '-'}</p>
                     </div>
                     <div>
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Horse Reg No</p>
+                      <p className="text-sm text-slate-700 mt-1">{selectedVehicle.horse_reg_no || '-'}</p>
+                    </div>
+                    <div>
                       <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Engine Number</p>
                       <p className="text-sm text-slate-700 mt-1">{selectedVehicle.engine_number || '-'}</p>
                     </div>
@@ -1322,6 +1458,18 @@ export default function Vehicles() {
                     <div>
                       <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Color</p>
                       <p className="text-sm text-slate-700 mt-1">{selectedVehicle.colour || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">ZIM Permit</p>
+                      <p className="text-sm text-slate-700 mt-1">{formatPermitDate(selectedVehicle.zim_permit_expiry_date)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">ZAM Permit</p>
+                      <p className="text-sm text-slate-700 mt-1">{formatPermitDate(selectedVehicle.zam_permit_expiry_date)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Malawi Permit</p>
+                      <p className="text-sm text-slate-700 mt-1">{formatPermitDate(selectedVehicle.malawi_permit_expiry_date)}</p>
                     </div>
                   </div>
                 </div>
@@ -1397,11 +1545,7 @@ export default function Vehicles() {
                   <div className="grid grid-cols-1 gap-4">
                     <div>
                       <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Assigned Driver</p>
-                      <p className="text-sm text-slate-700 mt-1">{
-                        drivers.find(d => d.id === selectedVehicle.driver_id) 
-                          ? `${drivers.find(d => d.id === selectedVehicle.driver_id)?.first_name} ${drivers.find(d => d.id === selectedVehicle.driver_id)?.surname}`
-                          : 'Not Assigned'
-                      }</p>
+                      <p className="text-sm text-slate-700 mt-1">{getAssignedDriverName(selectedVehicle.driver_id)}</p>
                     </div>
                     <div>
                       <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Assigned Technician</p>

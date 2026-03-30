@@ -95,11 +95,14 @@ export const AFRICAN_CURRENCY_OPTIONS: Array<{ code: AuditCurrencyCode; label: s
 
 export type AuditSplitRow = {
   id: string
+  rowType?: 'assignment' | 'custom'
   driverId?: string | number | null
   driverName: string
   vehicleLabel: string
   vehiclePlate?: string
-  role: 'Primary' | 'Handover'
+  categoryKey?: string
+  categoryLabel?: string
+  role: 'Primary' | 'Handover' | 'Custom'
   baseRate: number
   splitType: AuditSplitType
   allocationValue: number
@@ -237,6 +240,7 @@ export const defaultFinanceCategoryCatalog = [
   { categoryKey: 'repairs_maintenance', label: 'Repairs & Maintenance', group: 'finance', source: 'excel' },
   { categoryKey: 'parking', label: 'Parking', group: 'finance', source: 'excel' },
   { categoryKey: 'tolls', label: 'Tolls', group: 'other', source: 'custom' },
+  { categoryKey: 'unallocated_funds', label: 'Unallocated Funds', group: 'other', source: 'custom' },
   { categoryKey: 'other', label: 'Other', group: 'other', source: 'custom' },
 ] as const
 
@@ -359,10 +363,13 @@ export const buildAssignmentSplitData = (record: any) => {
 
         return {
           id: `${assignmentGroup}-${assignmentIndex}-${driverIndex}`,
+          rowType: 'assignment',
           driverId: driver?.id ?? null,
           driverName: getDriverDisplayName(driver),
           vehicleLabel,
           vehiclePlate,
+          categoryKey: savedRow?.categoryKey || 'driver_cost',
+          categoryLabel: savedRow?.categoryLabel || 'Driver Cost',
           role,
           baseRate,
           splitType,
@@ -377,10 +384,35 @@ export const buildAssignmentSplitData = (record: any) => {
       })
     })
 
-  const splitRows = [
+  const assignmentRows = [
     ...buildRows(primaryAssignments, 'Primary', 'vehicleassignments'),
     ...buildRows(handoverAssignments, 'Handover', 'handed_vehicleassignments'),
   ]
+
+  const customRows = savedRows
+    .filter((item: any) => !item?.assignmentGroup || item?.rowType === 'custom' || item?.role === 'Custom')
+    .map((item: any, index: number) => ({
+      id: item?.id || `custom-row-${index}`,
+      rowType: 'custom',
+      driverId: item?.driverId ?? null,
+      driverName: item?.driverName || item?.label || 'Custom Item',
+      vehicleLabel: item?.vehicleLabel || 'Standalone Item',
+      vehiclePlate: item?.vehiclePlate || '',
+      categoryKey: item?.categoryKey || 'other',
+      categoryLabel: item?.categoryLabel || 'Other',
+      role: 'Custom' as const,
+      baseRate: item?.baseRate != null ? toNumber(item?.baseRate) : toNumber(item?.amount),
+      splitType: (item?.splitType || 'flat_fee') as AuditSplitType,
+      allocationValue:
+        item?.allocationValue != null
+          ? toNumber(item?.allocationValue)
+          : toNumber(item?.amount),
+      fuelUsedLiters: toNumber(item?.fuelUsedLiters),
+      currentFuelLiters: toNumber(item?.currentFuelLiters),
+      fuelLevelPercentage: toNumber(item?.fuelLevelPercentage),
+    }))
+
+  const splitRows = [...assignmentRows, ...customRows]
 
   const handoverLogs: AuditHandoverLog[] = savedHandoverLogs.length
     ? savedHandoverLogs
@@ -423,4 +455,51 @@ export const buildActualCostSummary = (financeEntries: AuditFinanceEntry[]) => {
   )
 
   return totals
+}
+
+export const applySplitRowsToFinanceEntries = (
+  financeEntries: AuditFinanceEntry[],
+  splitRows: AuditSplitRow[]
+) => {
+  const totalsByCategory = splitRows.reduce((acc, row) => {
+    const key = row.categoryKey || 'other'
+    const label = row.categoryLabel || key
+    const total = calcSplitTotal(row)
+
+    if (!acc.has(key)) {
+      acc.set(key, { total: 0, label })
+    }
+
+    const current = acc.get(key)!
+    current.total += total
+    if (!current.label && label) current.label = label
+    return acc
+  }, new Map<string, { total: number; label: string }>())
+
+  const nextEntries = financeEntries.map((entry) => {
+    const categoryTotal = totalsByCategory.get(entry.categoryKey)
+    if (!categoryTotal) return entry
+
+    return {
+      ...entry,
+      actualAmount: Math.round(categoryTotal.total * 100) / 100,
+      label: categoryTotal.label || entry.label,
+    }
+  })
+
+  const existingKeys = new Set(nextEntries.map((entry) => entry.categoryKey))
+  const generatedEntries = Array.from(totalsByCategory.entries())
+    .filter(([key]) => !existingKeys.has(key))
+    .map(([key, value], index) => ({
+      id: `generated-${key}-${index}`,
+      categoryKey: key,
+      label: value.label || key,
+      group: 'other' as const,
+      plannedAmount: 0,
+      actualAmount: Math.round(value.total * 100) / 100,
+      source: 'custom' as const,
+      notes: '',
+    }))
+
+  return [...nextEntries, ...generatedEntries]
 }

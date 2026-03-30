@@ -7,6 +7,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { toast } from 'sonner'
 
 import AuditTripWorkspace from '@/components/audit/AuditTripWorkspace'
+import { Toaster } from '@/components/ui/sonner'
 import {
   AuditCurrencyCode,
   buildActualCostSummary,
@@ -190,7 +191,6 @@ export default function AuditTripDetailPage() {
       actual_total_cost: financeSummary.total,
     }
     setRecord(nextRecord)
-    toast.success(`Audit saved for ${record.trip_id}`)
   }
 
   if (loading) {
@@ -210,18 +210,21 @@ export default function AuditTripDetailPage() {
       : 'summary'
 
   return (
-    <AuditTripWorkspace
-      record={record}
-      initialSplits={splitData.splitRows}
-      handoverLogs={splitData.handoverLogs}
-      initialFinanceEntries={financeEntries}
-      routeData={routeData}
-      routeLoading={routeLoading}
-      initialTab={initialTab}
-      onBack={() => router.push('/audit')}
-      onSaveAudit={saveAudit}
-      onExport={() => toast.info('Export flow can be wired next.')}
-      onFinalAudit={() => toast.info('Final audit action can be wired next.')}
-    />
+    <>
+      <Toaster position="top-right" richColors />
+      <AuditTripWorkspace
+        record={record}
+        initialSplits={splitData.splitRows}
+        handoverLogs={splitData.handoverLogs}
+        initialFinanceEntries={financeEntries}
+        routeData={routeData}
+        routeLoading={routeLoading}
+        initialTab={initialTab}
+        onBack={() => router.push('/audit')}
+        onSaveAudit={saveAudit}
+        onExport={() => toast.info('Export flow can be wired next.')}
+        onFinalAudit={() => toast.info('Final audit action can be wired next.')}
+      />
+    </>
   )
 }

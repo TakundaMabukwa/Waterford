@@ -95,6 +95,9 @@ type Driver = {
   user_id?: string | null
 }
 
+const getDriverFullName = (driver?: Partial<Driver> | null) =>
+  [driver?.first_name, driver?.surname].filter(Boolean).join(' ').trim() || 'Unnamed Driver'
+
 export default function Drivers() {
   const supabase = createClient()
   const [activeTab, setActiveTab] = useState<string>('drivers-management')
@@ -1249,7 +1252,7 @@ export default function Drivers() {
                           filteredDrivers.map((driver, i) => (
                             <tr key={driver.id} className={`transition-colors hover:bg-muted/30 ${i % 2 === 1 ? 'bg-muted/10' : ''}`}>
                               <td className="px-4 py-3">{driver.driver_restriction_code || '-'}</td>
-                              <td className="px-4 py-3 font-medium">{driver.surname}</td>
+                              <td className="px-4 py-3 font-medium">{getDriverFullName(driver)}</td>
                               <td className="px-4 py-3">{driver.id_or_passport_document || '-'}</td>
                               <td className="px-4 py-3">{driver.cell_number || '-'}</td>
                               <td className="px-4 py-3">{formatDate(driver.pdp_expiry_date)}</td>
@@ -1284,6 +1287,17 @@ export default function Drivers() {
                   {selectedDriver && (
                     <div className="space-y-4 mt-6 pb-20">
                       {/* Personal Information */}
+                      <div className="space-y-2">
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            Driver Full Name
+                          </p>
+                          <p className="mt-1 text-lg font-bold text-gray-900">
+                            {getDriverFullName(selectedDriver)}
+                          </p>
+                        </div>
+                      </div>
+
                       <div className="space-y-4">
                         <h3 className="text-lg font-semibold text-gray-900">
                           Personal Information

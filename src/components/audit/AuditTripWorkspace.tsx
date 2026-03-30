@@ -13,6 +13,7 @@ import {
   Truck,
   User,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -26,6 +27,7 @@ import {
   AuditCurrencyCode,
   AuditSplitRow,
   AuditSplitType,
+  applySplitRowsToFinanceEntries,
   buildActualCostSummary,
   calcSplitTotal,
   normalizeCurrency,
@@ -44,6 +46,18 @@ const numberFmt = (value: number | null | undefined, suffix = '') =>
   `${Number(value || 0).toLocaleString('en-ZA', {
     maximumFractionDigits: 2,
   })}${suffix}`
+
+const formatEditableNumber = (value: number | null | undefined) => {
+  const numericValue = Number(value || 0)
+  return numericValue === 0 ? '' : String(value)
+}
+
+const parseEditableNumber = (value: string) => {
+  const sanitized = value.replace(/[^0-9.-]/g, '')
+  if (!sanitized.trim()) return 0
+  const parsed = Number(sanitized)
+  return Number.isFinite(parsed) ? parsed : 0
+}
 
 const fmtDateTime = (val: any) => {
   if (!val) return 'N/A'
@@ -219,8 +233,8 @@ export default function AuditTripWorkspace({
   const [fxDate, setFxDate] = useState<string | null>(null)
   const [fxLoading, setFxLoading] = useState(false)
   const [fxError, setFxError] = useState<string | null>(null)
-  const [saveError, setSaveError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [pendingSplitCategory, setPendingSplitCategory] = useState<string>('driver_cost')
 
   useEffect(() => {
     setActiveTab(initialTab)
@@ -291,6 +305,31 @@ export default function AuditTripWorkspace({
   }, [actualCurrency, invoiceCurrency])
 
   const handovers = useMemo(() => mergeHandoverLogs(splitRows, handoverLogs), [handoverLogs, splitRows])
+  const splitCategoryOptions = useMemo(
+    () =>
+      financeEntries.map((entry) => ({
+        value: entry.categoryKey,
+        label: entry.label,
+      })),
+    [financeEntries]
+  )
+  const splitCategoriesInUse = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          splitRows
+            .filter((row) => row.categoryKey && row.categoryKey !== 'unallocated_funds')
+            .map((row) => [row.categoryKey, row.categoryLabel || row.categoryKey || 'Uncategorised'])
+        ).entries()
+      ).map(([key, label]) => ({ key, label })),
+    [splitRows]
+  )
+
+  useEffect(() => {
+    if (!splitCategoryOptions.length) return
+    if (splitCategoryOptions.some((option) => option.value === pendingSplitCategory)) return
+    setPendingSplitCategory(splitCategoryOptions[0].value)
+  }, [pendingSplitCategory, splitCategoryOptions])
   const plannedRate = toNumber(record?.planned_rate ?? record?.rate)
   const plannedFuelCost = toNumber(record?.planned_fuel_cost)
   const plannedVehicleCost = toNumber(record?.planned_vehicle_cost)
@@ -309,13 +348,48 @@ export default function AuditTripWorkspace({
       ? invoiceRate - convertedActualToInvoice
       : null
   const fuelBreakdown = Array.isArray(record?.fuel_breakdown) ? record.fuel_breakdown : []
-  const actualCostSummary = useMemo(() => buildActualCostSummary(financeEntries), [financeEntries])
+  const effectiveFinanceEntries = useMemo(
+    () => applySplitRowsToFinanceEntries(financeEntries, splitRows),
+    [financeEntries, splitRows]
+  )
+  const actualCostSummary = useMemo(() => buildActualCostSummary(effectiveFinanceEntries), [effectiveFinanceEntries])
   const actualTotalCost = actualCostSummary.total
+  const fundsBreakdown = useMemo(() => {
+    const rows = effectiveFinanceEntries
+      .map((entry) => ({
+        key: entry.categoryKey,
+        label: entry.label,
+        amount: toNumber(entry.actualAmount),
+      }))
+      .filter((entry) => Math.abs(entry.amount) > 0.001)
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+
+    const maxAmount = rows.length ? Math.max(...rows.map((entry) => Math.abs(entry.amount))) : 0
+
+    return rows.map((entry) => ({
+      ...entry,
+      widthPercent: maxAmount > 0 ? Math.max((Math.abs(entry.amount) / maxAmount) * 100, 8) : 0,
+      tone:
+        entry.key === 'fuel_cost'
+          ? 'bg-rose-500'
+          : entry.key === 'vehicle_cost'
+            ? 'bg-sky-500'
+            : entry.key === 'driver_cost'
+              ? 'bg-emerald-500'
+              : entry.key === 'unallocated_funds'
+                ? 'bg-amber-500'
+                : 'bg-slate-500',
+    }))
+  }, [effectiveFinanceEntries])
   const net = invoiceRate - actualTotalCost
   const operatingRatio = invoiceRate > 0 ? actualTotalCost / invoiceRate : 0
-  const allocatedTotal = splitRows.reduce((sum, row) => sum + calcSplitTotal(row), 0)
+  const visibleSplitRows = useMemo(
+    () => splitRows.filter((row) => row.categoryKey !== 'unallocated_funds'),
+    [splitRows]
+  )
+  const allocatedTotal = visibleSplitRows.reduce((sum, row) => sum + calcSplitTotal(row), 0)
   const unallocated = amountToSplit - allocatedTotal
-  const canSaveSplit = splitRows.length > 0 && Math.abs(unallocated) < 0.01
+  const canSaveSplit = splitRows.length > 0
   const routePoints = Array.isArray(routeData?.route_points) ? routeData.route_points : []
 
   const handleDistributeEvenly = () => {
@@ -332,12 +406,15 @@ export default function AuditTripWorkspace({
   }
 
   const handleAddFinanceCategory = () => {
+    const categoryKey = `custom-${Date.now()}`
+    const categoryLabel = `Custom Category ${financeEntries.filter((entry) => entry.source === 'custom').length + 1}`
+
     setFinanceEntries((prev) => [
       ...prev,
       {
-        id: `custom-${Date.now()}`,
-        categoryKey: `custom-${Date.now()}`,
-        label: 'Custom Category',
+        id: categoryKey,
+        categoryKey,
+        label: categoryLabel,
         group: 'other',
         plannedAmount: 0,
         actualAmount: 0,
@@ -347,28 +424,109 @@ export default function AuditTripWorkspace({
     ])
   }
 
+  const handleAddCategoryToRow = (rowIndex: number) => {
+    const categoryKey = `custom-${Date.now()}-${rowIndex}`
+    const categoryLabel = `Custom Category ${financeEntries.filter((entry) => entry.source === 'custom').length + 1}`
+
+    setFinanceEntries((prev) => [
+      ...prev,
+      {
+        id: categoryKey,
+        categoryKey,
+        label: categoryLabel,
+        group: 'other',
+        plannedAmount: 0,
+        actualAmount: 0,
+        source: 'custom',
+        notes: '',
+      },
+    ])
+
+    setSplitRows((prev) =>
+      prev.map((row, index) =>
+        index === rowIndex
+          ? {
+              ...row,
+              categoryKey,
+              categoryLabel,
+            }
+          : row
+      )
+    )
+  }
+
+  const handleAddSplitItemRow = () => {
+    const customCount = splitRows.filter((row) => row.rowType === 'custom').length + 1
+    const selectedCategory = splitCategoryOptions.find((option) => option.value === pendingSplitCategory)
+    setSplitRows((prev) => [
+      ...prev,
+      {
+        id: `custom-row-${Date.now()}`,
+        rowType: 'custom',
+        driverId: null,
+        driverName: selectedCategory?.label || `Custom Item ${customCount}`,
+        vehicleLabel: 'Standalone Item',
+        vehiclePlate: '',
+        categoryKey: selectedCategory?.value || 'other',
+        categoryLabel: selectedCategory?.label || 'Other',
+        role: 'Custom',
+        baseRate: 0,
+        splitType: 'flat_fee',
+        allocationValue: 0,
+        fuelUsedLiters: 0,
+        currentFuelLiters: 0,
+        fuelLevelPercentage: 0,
+      },
+    ])
+  }
+
   const handleSaveAudit = async () => {
     if (!onSaveAudit) return
-    if (!canSaveSplit) {
-      setSaveError('Split must balance exactly before saving.')
-      return
-    }
 
     try {
       setIsSaving(true)
-      setSaveError(null)
+      const rowsWithoutUnallocated = splitRows.filter((row) => row.categoryKey !== 'unallocated_funds')
+      const rowsToSave =
+        Math.abs(unallocated) < 0.01
+          ? rowsWithoutUnallocated
+          : [
+              ...rowsWithoutUnallocated,
+              {
+                id: 'unallocated-funds',
+                rowType: 'custom' as const,
+                driverId: null,
+                driverName: 'Unallocated Funds',
+                vehicleLabel: 'System Balance',
+                vehiclePlate: '',
+                categoryKey: 'unallocated_funds',
+                categoryLabel: 'Unallocated Funds',
+                role: 'Custom' as const,
+                baseRate: 0,
+                splitType: 'flat_fee' as const,
+                allocationValue: unallocated,
+                fuelUsedLiters: 0,
+                currentFuelLiters: 0,
+                fuelLevelPercentage: 0,
+              },
+            ]
       await onSaveAudit({
         amountToSplit,
         actualRate,
         actualCurrency,
         invoiceRate,
         invoiceCurrency,
-        splitRows,
+        splitRows: rowsToSave,
         handoverLogs: handovers,
-        financeEntries,
+        financeEntries: applySplitRowsToFinanceEntries(financeEntries, rowsToSave),
+      })
+      toast.success('Audit saved successfully.', {
+        description: 'Saved values will auto-fill when you return to this trip.',
       })
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Failed to save audit')
+      console.error('Failed to save audit:', error)
+      toast.error('Could not save the audit right now.', {
+        description: 'Please try again in a moment.',
+      })
     } finally {
       setIsSaving(false)
     }
@@ -575,6 +733,72 @@ export default function AuditTripWorkspace({
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-black tracking-tight text-[#001e42]">Funds Overview</h3>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Saved split and finance values roll up here automatically when you return.
+                      </p>
+                    </div>
+                    <div className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      {fundsBreakdown.length} categories
+                    </div>
+                  </div>
+
+                  <div className="mt-5 space-y-4">
+                    {fundsBreakdown.length ? (
+                      fundsBreakdown.map((item) => (
+                        <div key={item.key} className="space-y-2">
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="text-sm font-bold text-[#001e42]">{item.label}</div>
+                              <div className="text-xs text-slate-500">
+                                {actualTotalCost > 0 ? `${((Math.abs(item.amount) / actualTotalCost) * 100).toFixed(1)}% of actual cost` : 'Saved allocation'}
+                              </div>
+                            </div>
+                            <div className="text-sm font-black tabular-nums text-slate-900">
+                              {currency(item.amount)}
+                            </div>
+                          </div>
+                          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className={`h-full rounded-full ${item.tone}`}
+                              style={{ width: `${item.widthPercent}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                        Save the split or finance lines and the funds chart will auto-fill here.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                  <h3 className="text-lg font-black tracking-tight text-[#001e42]">Saved Snapshot</h3>
+                  <div className="mt-5 space-y-4">
+                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Allocated Split</div>
+                      <div className="mt-2 text-2xl font-black text-[#001e42]">{currency(allocatedTotal, actualCurrency)}</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Unallocated Funds</div>
+                      <div className={`mt-2 text-2xl font-black ${unallocated >= 0 ? 'text-amber-600' : 'text-emerald-700'}`}>
+                        {currency(Math.abs(unallocated), actualCurrency)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Finance Categories</div>
+                      <div className="mt-2 text-2xl font-black text-[#001e42]">{effectiveFinanceEntries.length}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Planned Fuel</div>
@@ -736,28 +960,28 @@ export default function AuditTripWorkspace({
 
         {activeTab === 'split' && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-4">
-              <div className="rounded-lg bg-slate-50 p-4">
+            <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 xl:grid-cols-12">
+              <div className="rounded-lg bg-slate-50 p-4 sm:p-5 xl:col-span-3">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Planned Rate</div>
                 <div className="mt-2 text-2xl font-black text-slate-900">{currency(plannedRate)}</div>
               </div>
-              <div>
-                <div className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Actual Rate</div>
-                <div className="grid gap-2 md:grid-cols-[1fr_140px]">
+              <div className="rounded-lg border border-slate-200 p-4 sm:p-5 xl:col-span-3">
+                <div className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Actual Rate</div>
+                <div className="space-y-2">
                   <Input
-                    type="number"
-                    step="0.01"
-                    value={actualRate}
+                    type="text"
+                    inputMode="decimal"
+                    value={formatEditableNumber(actualRate)}
                     onChange={(e) => {
-                      const next = Number(e.target.value || 0)
+                      const next = parseEditableNumber(e.target.value)
                       setActualRate(next)
                       setAmountToSplit(next)
                     }}
-                    className="h-12 text-lg font-bold"
+                    className="h-11 text-base font-bold sm:text-lg"
                   />
                   <Select value={actualCurrency} onValueChange={(value: AuditCurrencyCode) => setActualCurrency(value)}>
-                    <SelectTrigger className="h-12 font-semibold">
-                      <SelectValue />
+                    <SelectTrigger className="h-11 font-semibold">
+                      <SelectValue placeholder="Currency" />
                     </SelectTrigger>
                     <SelectContent className="max-h-72">
                       {AFRICAN_CURRENCY_OPTIONS.map((option) => (
@@ -767,21 +991,24 @@ export default function AuditTripWorkspace({
                       ))}
                     </SelectContent>
                   </Select>
+                  <div className="text-xs text-slate-500">
+                    Split currency: <span className="font-semibold text-slate-700">{actualCurrency}</span>
+                  </div>
                 </div>
               </div>
-              <div>
-                <div className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Invoice Rate</div>
-                <div className="grid gap-2 md:grid-cols-[1fr_140px]">
+              <div className="rounded-lg border border-slate-200 p-4 sm:p-5 xl:col-span-3">
+                <div className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Invoice Rate</div>
+                <div className="space-y-2">
                   <Input
-                    type="number"
-                    step="0.01"
-                    value={invoiceRate}
-                    onChange={(e) => setInvoiceRate(Number(e.target.value || 0))}
-                    className="h-12 text-lg font-bold"
+                    type="text"
+                    inputMode="decimal"
+                    value={formatEditableNumber(invoiceRate)}
+                    onChange={(e) => setInvoiceRate(parseEditableNumber(e.target.value))}
+                    className="h-11 text-base font-bold sm:text-lg"
                   />
                   <Select value={invoiceCurrency} onValueChange={(value: AuditCurrencyCode) => setInvoiceCurrency(value)}>
-                    <SelectTrigger className="h-12 font-semibold">
-                      <SelectValue />
+                    <SelectTrigger className="h-11 font-semibold">
+                      <SelectValue placeholder="Currency" />
                     </SelectTrigger>
                     <SelectContent className="max-h-72">
                       {AFRICAN_CURRENCY_OPTIONS.map((option) => (
@@ -791,24 +1018,46 @@ export default function AuditTripWorkspace({
                       ))}
                     </SelectContent>
                   </Select>
+                  <div className="text-xs text-slate-500">
+                    Invoice currency: <span className="font-semibold text-slate-700">{invoiceCurrency}</span>
+                  </div>
                 </div>
               </div>
-              <div className="rounded-lg bg-slate-50 p-4">
+              <div className="rounded-lg bg-slate-50 p-4 sm:p-5 xl:col-span-3">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">My Rate</div>
                 <div className={`mt-2 text-2xl font-black ${myRate != null && myRate >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                  {myRate == null ? 'Loading...' : currency(myRate, invoiceCurrency)}
+                  {fxLoading ? 'Loading...' : myRate == null ? 'Currency mismatch' : currency(myRate, invoiceCurrency)}
+                </div>
+                <div className="mt-2 text-xs text-slate-500">
+                  {actualCurrency === invoiceCurrency
+                    ? 'Same currency selected'
+                    : fxError
+                      ? fxError
+                      : fxDate
+                        ? `Reference rate date ${fxDate}`
+                        : 'Latest reference rate'}
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-2">
-              <div className="rounded-lg bg-slate-50 p-4">
-                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Allocated</div>
-                <div className="mt-2 text-2xl font-black text-[#001e42]">{currency(allocatedTotal)}</div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Amount To Split</div>
+                <div className="mt-2 text-2xl font-black text-[#001e42]">{currency(amountToSplit, actualCurrency)}</div>
               </div>
-              <div className="rounded-lg bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Allocated</div>
+                <div className="mt-2 text-2xl font-black text-[#001e42]">{currency(allocatedTotal, actualCurrency)}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Remaining</div>
-                <div className={`mt-2 text-2xl font-black ${unallocated >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{currency(unallocated)}</div>
+                <div className={`mt-2 text-2xl font-black ${unallocated >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{currency(unallocated, actualCurrency)}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual In Invoice Currency</div>
+                <div className="mt-2 text-2xl font-black text-slate-900">
+                  {convertedActualToInvoice != null ? currency(convertedActualToInvoice, invoiceCurrency) : 'Unavailable'}
+                </div>
               </div>
             </div>
 
@@ -817,17 +1066,17 @@ export default function AuditTripWorkspace({
               rate, then allocate it until the remaining value reaches exactly <span className="font-bold text-slate-900">{currency(0, actualCurrency)}</span>.
             </div>
 
-            <div className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 lg:grid-cols-3">
               <div className="rounded-lg bg-slate-50 p-4">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Live FX Rate</div>
-                <div className="mt-2 text-2xl font-black text-[#001e42]">
+                <div className="mt-2 text-lg font-black text-[#001e42] sm:text-2xl">
                   {fxLoading ? 'Loading...' : fxRate != null ? `1 ${actualCurrency} = ${fxRate.toFixed(4)} ${invoiceCurrency}` : 'Unavailable'}
                 </div>
                 <div className="mt-1 text-xs text-slate-500">{fxDate ? `Latest reference date ${fxDate}` : 'Updates when currency changes'}</div>
               </div>
               <div className="rounded-lg bg-slate-50 p-4">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual In Invoice Currency</div>
-                <div className="mt-2 text-2xl font-black text-slate-900">
+                <div className="mt-2 text-lg font-black text-slate-900 sm:text-2xl">
                   {convertedActualToInvoice != null ? currency(convertedActualToInvoice, invoiceCurrency) : 'Unavailable'}
                 </div>
               </div>
@@ -839,57 +1088,171 @@ export default function AuditTripWorkspace({
               </div>
             </div>
 
-            {splitRows.length ? (
+            {visibleSplitRows.length ? (
               <>
                 <div className="flex flex-wrap items-center gap-3">
                   <Button variant="outline" onClick={handleDistributeEvenly}>Distribute Evenly</Button>
+                  <div className="flex items-center gap-2">
+                    <Select value={pendingSplitCategory} onValueChange={setPendingSplitCategory}>
+                      <SelectTrigger className="h-10 min-w-[240px] border-slate-200 bg-white text-sm font-medium text-slate-700">
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                  {splitCategoryOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button variant="outline" onClick={handleAddSplitItemRow}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Row
+                    </Button>
+                  </div>
+                  {splitCategoriesInUse.length ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {splitCategoriesInUse.map((category) => (
+                        <Badge key={category.key} variant="secondary" className="bg-slate-100 text-slate-700">
+                          {category.label}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                  <table className="w-full border-collapse text-left">
+                  <table className="min-w-[1140px] w-full border-collapse text-left">
                     <thead className="border-b border-slate-200 bg-slate-50">
                       <tr>
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Driver</th>
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Vehicle Set</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Category</th>
                         <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-slate-500">Role</th>
                         <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Base Rate</th>
                         <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Split Type</th>
                         <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Allocation</th>
                         <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Total</th>
+                        <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {splitRows.map((row, index) => (
-                        <tr key={row.id} className="hover:bg-slate-50">
+                      {visibleSplitRows.map((row, index) => (
+                        <tr key={row.id} className={`hover:bg-slate-50 ${row.rowType === 'custom' ? 'bg-amber-50/40' : ''}`}>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
-                              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100">
-                                <User className="h-4 w-4 text-[#001e42]" />
+                              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${row.rowType === 'custom' ? 'bg-amber-100' : 'bg-blue-100'}`}>
+                                <User className={`h-4 w-4 ${row.rowType === 'custom' ? 'text-amber-700' : 'text-[#001e42]'}`} />
                               </div>
                               <div>
-                                <div className="text-sm font-bold text-[#001e42]">{row.driverName}</div>
-                                <div className="text-xs text-slate-500">
-                                  Fuel used: {numberFmt(row.fuelUsedLiters, ' L')} | Current fuel: {numberFmt(row.currentFuelLiters, ' L')}
-                                </div>
+                                {row.rowType === 'custom' ? (
+                                  <Input
+                                    value={row.driverName}
+                                    onChange={(e) => {
+                                      const next = e.target.value
+                                      setSplitRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, driverName: next } : item)))
+                                    }}
+                                    className="h-9 min-w-[180px] border-slate-200 bg-white text-sm font-bold text-[#001e42]"
+                                  />
+                                ) : (
+                                  <>
+                                    <div className="text-sm font-bold text-[#001e42]">{row.driverName}</div>
+                                    <div className="text-xs text-slate-500">
+                                      Fuel used: {numberFmt(row.fuelUsedLiters, ' L')} | Current fuel: {numberFmt(row.currentFuelLiters, ' L')}
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-600">
-                            <div className="font-medium text-slate-800">{row.vehicleLabel}</div>
-                            <div className="text-xs text-slate-500">
-                              {row.vehiclePlate || 'No plate'}{row.fuelLevelPercentage ? ` | ${numberFmt(row.fuelLevelPercentage, '%')}` : ''}
+                            {row.rowType === 'custom' ? (
+                              <Input
+                                value={row.vehicleLabel}
+                                onChange={(e) => {
+                                  const next = e.target.value
+                                  setSplitRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, vehicleLabel: next } : item)))
+                                }}
+                                className="h-9 min-w-[180px] border-slate-200 bg-white text-sm font-medium text-slate-800"
+                              />
+                            ) : (
+                              <>
+                                <div className="font-medium text-slate-800">{row.vehicleLabel}</div>
+                                <div className="text-xs text-slate-500">
+                                  {row.vehiclePlate || 'No plate'}{row.fuelLevelPercentage ? ` | ${numberFmt(row.fuelLevelPercentage, '%')}` : ''}
+                                </div>
+                              </>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <Select
+                                value={row.categoryKey || 'driver_cost'}
+                                onValueChange={(value) => {
+                                  const selectedCategory = splitCategoryOptions.find((item) => item.value === value)
+                                  setSplitRows((prev) =>
+                                    prev.map((item) =>
+                                      item.id === row.id
+                                        ? {
+                                            ...item,
+                                            categoryKey: value,
+                                            categoryLabel: selectedCategory?.label || value,
+                                          }
+                                        : item
+                                    )
+                                  )
+                                }}
+                              >
+                                <SelectTrigger className="h-10 min-w-[220px] border-slate-200 bg-white text-sm font-medium text-slate-700">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {splitCategoryOptions.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-10 w-10 shrink-0"
+                                onClick={() => handleAddCategoryToRow(index)}
+                                title="Add category to this row"
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
                             </div>
                           </td>
                           <td className="px-6 py-4 text-center">
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${row.role === 'Primary' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                              row.role === 'Primary'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : row.role === 'Handover'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-amber-100 text-amber-700'
+                            }`}>
                               {row.role}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-right text-sm font-medium tabular-nums">{currency(row.baseRate, actualCurrency)}</td>
+                          <td className="px-6 py-4 text-right">
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              value={formatEditableNumber(row.baseRate)}
+                              onChange={(e) => {
+                                const next = parseEditableNumber(e.target.value)
+                                setSplitRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, baseRate: next } : item)))
+                              }}
+                              className="ml-auto h-10 w-28 border border-slate-200 bg-white text-right text-sm font-bold tabular-nums shadow-sm focus-visible:ring-1 focus-visible:ring-[#001e42]"
+                            />
+                          </td>
                           <td className="px-6 py-4">
                             <Select
                               value={row.splitType}
                               onValueChange={(value: AuditSplitType) => {
-                                setSplitRows((prev) => prev.map((item, i) => (i === index ? { ...item, splitType: value } : item)))
+                                setSplitRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, splitType: value } : item)))
                               }}
                             >
                               <SelectTrigger className="border-0 bg-transparent text-xs font-bold text-[#001e42] shadow-none focus:ring-0">
@@ -904,17 +1267,34 @@ export default function AuditTripWorkspace({
                           </td>
                           <td className="px-6 py-4 text-right">
                             <Input
-                              type="number"
-                              step="0.01"
-                              value={row.allocationValue}
+                              type="text"
+                              inputMode="decimal"
+                              value={formatEditableNumber(row.allocationValue)}
                               onChange={(e) => {
-                                const next = Number(e.target.value || 0)
-                                setSplitRows((prev) => prev.map((item, i) => (i === index ? { ...item, allocationValue: next } : item)))
+                                const next = parseEditableNumber(e.target.value)
+                                setSplitRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, allocationValue: next } : item)))
                               }}
-                              className="ml-auto w-28 border-0 bg-transparent text-right text-sm font-bold shadow-none"
+                              className="ml-auto h-10 w-28 border border-slate-200 bg-white text-right text-sm font-bold tabular-nums shadow-sm focus-visible:ring-1 focus-visible:ring-[#001e42]"
                             />
                           </td>
                           <td className="px-6 py-4 text-right text-sm font-bold tabular-nums text-[#001e42]">{currency(calcSplitTotal(row), actualCurrency)}</td>
+                          <td className="px-6 py-4 text-right">
+                            {row.rowType === 'custom' ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => {
+                                  setSplitRows((prev) => prev.filter((item) => item.id !== row.id))
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 text-slate-500" />
+                              </Button>
+                            ) : (
+                              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Assignment</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -966,14 +1346,16 @@ export default function AuditTripWorkspace({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {financeEntries.map((entry, index) => (
+                  {effectiveFinanceEntries.map((entry) => (
                     <tr key={entry.id} className="hover:bg-slate-50">
                       <td className="px-6 py-4">
                         <Input
                           value={entry.label}
                           onChange={(e) => {
                             const next = e.target.value
-                            setFinanceEntries((prev) => prev.map((item, i) => (i === index ? { ...item, label: next } : item)))
+                            setFinanceEntries((prev) =>
+                              prev.map((item) => (item.categoryKey === entry.categoryKey ? { ...item, label: next } : item))
+                            )
                           }}
                           className="border-0 bg-transparent px-0 font-semibold text-[#001e42] shadow-none"
                         />
@@ -982,7 +1364,9 @@ export default function AuditTripWorkspace({
                         <Select
                           value={entry.group}
                           onValueChange={(value: AuditFinanceEntry['group']) => {
-                            setFinanceEntries((prev) => prev.map((item, i) => (i === index ? { ...item, group: value } : item)))
+                            setFinanceEntries((prev) =>
+                              prev.map((item) => (item.categoryKey === entry.categoryKey ? { ...item, group: value } : item))
+                            )
                           }}
                         >
                           <SelectTrigger className="h-9 border-0 bg-transparent px-0 text-sm capitalize text-slate-600 shadow-none focus:ring-0">
@@ -1005,7 +1389,9 @@ export default function AuditTripWorkspace({
                           value={entry.actualAmount}
                           onChange={(e) => {
                             const next = Number(e.target.value || 0)
-                            setFinanceEntries((prev) => prev.map((item, i) => (i === index ? { ...item, actualAmount: next } : item)))
+                            setFinanceEntries((prev) =>
+                              prev.map((item) => (item.categoryKey === entry.categoryKey ? { ...item, actualAmount: next } : item))
+                            )
                           }}
                           className="ml-auto w-32 border-0 bg-transparent text-right font-bold shadow-none"
                         />
@@ -1015,7 +1401,9 @@ export default function AuditTripWorkspace({
                           value={entry.notes || ''}
                           onChange={(e) => {
                             const next = e.target.value
-                            setFinanceEntries((prev) => prev.map((item, i) => (i === index ? { ...item, notes: next } : item)))
+                            setFinanceEntries((prev) =>
+                              prev.map((item) => (item.categoryKey === entry.categoryKey ? { ...item, notes: next } : item))
+                            )
                           }}
                           placeholder="Optional note"
                           className="border-0 bg-transparent px-0 text-sm shadow-none"
@@ -1029,7 +1417,7 @@ export default function AuditTripWorkspace({
                             size="icon"
                             className="h-8 w-8"
                             onClick={() => {
-                              setFinanceEntries((prev) => prev.filter((_, i) => i !== index))
+                              setFinanceEntries((prev) => prev.filter((item) => item.categoryKey !== entry.categoryKey))
                             }}
                           >
                             <Trash2 className="h-4 w-4 text-slate-500" />
@@ -1175,8 +1563,11 @@ export default function AuditTripWorkspace({
           </div>
 
           <div className="flex items-center gap-3">
-            {saveError ? <div className="text-sm font-medium text-rose-700">{saveError}</div> : null}
-            {!canSaveSplit ? <div className="text-sm font-medium text-amber-700">Split must balance to {currency(0, actualCurrency)} before saving.</div> : null}
+            {Math.abs(unallocated) >= 0.01 ? (
+              <div className="text-sm font-medium text-amber-700">
+                Remaining {currency(unallocated, actualCurrency)} will be saved under Unallocated Funds.
+              </div>
+            ) : null}
             <Button variant="outline" size="sm" onClick={() => setActiveTab('summary')}>Summary</Button>
             <Button variant="outline" size="sm" onClick={() => setActiveTab('route')}>Route</Button>
             <Button size="sm" className="bg-[#001e42] text-white hover:bg-[#0b2955]" onClick={handleSaveAudit} disabled={isSaving || !onSaveAudit || !canSaveSplit}>
