@@ -23,7 +23,7 @@ function buildUrl(path: string, baseUrl?: string): string {
   const normalizedBase = normalizeBaseUrl(baseUrl);
   const normalizedPath = normalizePath(path);
 
-  if (!normalizedBase || shouldUseRelative(normalizedBase)) return normalizedPath || '/';
+  if (!normalizedBase || shouldUseRelative(normalizedBase)) return normalizedPath || '';
   return `${normalizedBase}${normalizedPath}`;
 }
 
