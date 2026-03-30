@@ -581,6 +581,7 @@ export default function Drivers() {
                     <SecureButton
                       page="drivers"
                       action="create"
+                      onClick={resetForm}
                       className="bg-blue-600 hover:bg-blue-700"
                     >
                       <Plus className="w-4 h-4 mr-2" />

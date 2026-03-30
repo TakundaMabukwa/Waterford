@@ -107,6 +107,55 @@ interface CostCenter {
   cost_code: string;
 }
 
+const getVehicleDefaultValues = (): VehicleFormValues => ({
+  registration_number: "",
+  engine_number: "",
+  vin_number: "",
+  make: "",
+  model: "",
+  sub_model: "",
+  manufactured_year: "",
+  vehicle_type: "vehicle",
+  registration_date: new Date().toISOString().split('T')[0],
+  license_expiry_date: new Date().toISOString().split('T')[0],
+  purchase_price: "",
+  retail_price: "",
+  vehicle_priority: "medium",
+  fuel_type: "petrol",
+  transmission_type: "manual",
+  tank_capacity: "",
+  register_number: "",
+  take_on_kilometers: "",
+  service_intervals: "",
+  boarding_km_hours: "",
+  expected_boarding_date: new Date().toISOString().split('T')[0],
+  cost_centres: "",
+  colour: "",
+  monthly_premium: "",
+  hourly_rate: "",
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+})
+
+const normalizeVehicleFormValues = (vehicle: VehicleFormValues): VehicleFormValues => ({
+  ...getVehicleDefaultValues(),
+  ...vehicle,
+  registration_date: vehicle.registration_date?.split('T')[0] || '',
+  license_expiry_date: vehicle.license_expiry_date?.split('T')[0] || '',
+  expected_boarding_date: vehicle.expected_boarding_date?.split('T')[0] || '',
+  purchase_price: vehicle.purchase_price?.toString() || '',
+  retail_price: vehicle.retail_price?.toString() || '',
+  tank_capacity: vehicle.tank_capacity?.toString() || '',
+  take_on_kilometers: vehicle.take_on_kilometers?.toString() || '',
+  service_intervals: vehicle.service_intervals?.toString() || '',
+  boarding_km_hours: vehicle.boarding_km_hours?.toString() || '',
+  monthly_premium: vehicle.monthly_premium?.toString() || '',
+  hourly_rate: vehicle.hourly_rate?.toString() || '',
+  cost_centres: vehicle.cost_centres?.toString() || '',
+  register_number: vehicle.register_number?.toString() || '',
+  sub_model: vehicle.sub_model?.toString() || '',
+})
+
 export default function Vehicles() {
   const [vehicles, setVehicles] = useState<VehicleFormValues[]>([]);
   const [isAddingVehicle, setIsAddingVehicle] = useState(false);
@@ -299,37 +348,29 @@ export default function Vehicles() {
 
   const form = useForm<VehicleFormValues>({
     resolver: zodResolver(vehicleFormSchema),
-    defaultValues: {
-      registration_number: "",
-      engine_number: "",
-      vin_number: "",
-      make: "",
-      model: "",
-      sub_model: "",
-      manufactured_year: "",
-      vehicle_type: "vehicle",
-      registration_date: new Date().toISOString().split('T')[0],
-      license_expiry_date: new Date().toISOString().split('T')[0],
-      purchase_price: "",
-      retail_price: "",
-      vehicle_priority: "medium",
-      fuel_type: "petrol",
-      transmission_type: "manual",
-      tank_capacity: "",
-      register_number: "",
-      take_on_kilometers: "",
-      service_intervals: "",
-      boarding_km_hours: "",
-      expected_boarding_date: new Date().toISOString().split('T')[0],
-      cost_centres: "",
-      colour: "",
-      monthly_premium: "",
-      hourly_rate: "",
-      // created_by: '',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
+    defaultValues: getVehicleDefaultValues(),
   });
+
+  const openAddVehicleForm = () => {
+    setIsEditing(false)
+    setEditingVehicleId(null)
+    form.reset(getVehicleDefaultValues())
+    setIsAddingVehicle(true)
+  }
+
+  const openEditVehicleForm = (vehicle: VehicleFormValues) => {
+    setIsEditing(true)
+    setEditingVehicleId(Number(vehicle.id))
+    form.reset(normalizeVehicleFormValues(vehicle))
+    setIsAddingVehicle(true)
+  }
+
+  const closeVehicleForm = () => {
+    setIsAddingVehicle(false)
+    setIsEditing(false)
+    setEditingVehicleId(null)
+    form.reset(getVehicleDefaultValues())
+  }
 
   const onSubmit = async (data: VehicleFormValues) => {
     console.log('onSubmit called with data:', data);
@@ -368,10 +409,7 @@ export default function Vehicles() {
       console.log(vehicle);
       toast.success("Vehicle added successfully");
       fetchVehicles();
-      form.reset();
-      setIsAddingVehicle(false);
-      setIsEditing(false);
-      setEditingVehicleId(null);
+      closeVehicleForm();
       router.refresh();
     }
   };
@@ -397,10 +435,7 @@ export default function Vehicles() {
     } else {
       toast.success("Vehicle updated successfully");
       fetchVehicles();
-      form.reset();
-      setIsAddingVehicle(false);
-      setIsEditing(false);
-      setEditingVehicleId(null);
+      closeVehicleForm();
       router.refresh();
     }
   };
@@ -492,7 +527,7 @@ export default function Vehicles() {
         <SecureButton
           page="vehicles"
           action="create"
-          onClick={() => setIsAddingVehicle(true)}
+          onClick={openAddVehicleForm}
           className="bg-blue-600 hover:bg-blue-700"
         >
           <Plus className="w-4 h-4 mr-2" />
@@ -610,7 +645,7 @@ export default function Vehicles() {
                         <FormLabel>Vehicle Type *</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -795,7 +830,7 @@ export default function Vehicles() {
                         <FormLabel>Fuel Type *</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -823,7 +858,7 @@ export default function Vehicles() {
                         <FormLabel>Transmission *</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -1069,18 +1104,6 @@ export default function Vehicles() {
                   <Button
                     type="submit"
                     className="bg-blue-600 hover:bg-blue-700"
-                    onClick={() => {
-                      const errors = form.formState.errors;
-                      console.log('All errors:', JSON.stringify(errors, null, 2));
-                      toast.error('Button clicked - check console for errors');
-                      
-                      if (Object.keys(errors).length > 0) {
-                        Object.entries(errors).forEach(([field, error]) => {
-                          console.log(`Field ${field}:`, error);
-                          toast.error(`${field}: ${error?.message || 'Invalid'}`);
-                        });
-                      }
-                    }}
                   >
                     <FileText className="w-4 h-4 mr-2" />
                     {isEditing ? 'Update Vehicle' : 'Save Vehicle'}
@@ -1088,12 +1111,7 @@ export default function Vehicles() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => {
-                      setIsAddingVehicle(false);
-                      setIsEditing(false);
-                      setEditingVehicleId(null);
-                      form.reset();
-                    }}
+                    onClick={closeVehicleForm}
                   >
                     Cancel
                   </Button>
@@ -1186,6 +1204,16 @@ export default function Vehicles() {
                           >
                             View
                           </Button>
+                          <SecureButton 
+                            page="vehicles"
+                            action="edit"
+                            variant="outline" 
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => openEditVehicleForm(vehicle)}
+                          >
+                            Edit
+                          </SecureButton>
                           <SecureButton 
                             page="vehicles"
                             action="edit"
