@@ -22,10 +22,10 @@ export async function GET(request: NextRequest) {
     }
     
     if (costCode) {
-      params.append('costCode', costCode);
+      params.append('cost_code', costCode);
     }
     if (costCodes) {
-      params.append('costCodes', costCodes);
+      params.append('cost_codes', costCodes);
     }
 
     // Forward the request to the external API
@@ -50,7 +50,8 @@ export async function GET(request: NextRequest) {
       }, { status: response.status });
     }
 
-    const data = await response.json();
+    const upstream = await response.json();
+    const data = upstream?.success && upstream?.data ? upstream.data : upstream;
     
     console.log('✅ Enhanced executive dashboard data received successfully');
 

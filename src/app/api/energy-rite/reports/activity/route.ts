@@ -18,10 +18,10 @@ export async function GET(request: NextRequest) {
     params.append('date', reportDate);
     
     if (siteId) {
-      params.append('siteId', siteId);
+      params.append('site_id', siteId);
     }
     if (costCode) {
-      params.append('costCode', costCode);
+      params.append('cost_code', costCode);
     }
 
     // Forward the request to the external API
@@ -46,7 +46,8 @@ export async function GET(request: NextRequest) {
       }, { status: response.status });
     }
 
-    const data = await response.json();
+    const upstream = await response.json();
+    const data = upstream?.success && upstream?.data ? upstream.data : upstream;
     
     console.log('✅ Activity reports data received successfully');
 

@@ -56,7 +56,8 @@ export async function GET(request: NextRequest) {
       }, { status: response.status });
     }
 
-    const data = await response.json();
+    const upstream = await response.json();
+    const data = upstream?.success && upstream?.data ? upstream.data : upstream;
     
     console.log('✅ Snapshot reports data received successfully');
 
