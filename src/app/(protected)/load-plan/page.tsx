@@ -76,7 +76,7 @@ export default function LoadPlanPage() {
   const [showAddressPopup, setShowAddressPopup] = useState(false)
   const [commodity, setCommodity] = useState('')
   const [costCenter, setCostCenter] = useState('')
-  const [rate, setRate] = useState('')
+  const [rate, setRate] = useState('0')
   const [orderNumber, setOrderNumber] = useState(`ORD-${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`)
   const [comment, setComment] = useState('')
   // Address & ETA section
@@ -94,7 +94,7 @@ export default function LoadPlanPage() {
   const [driverAssignments, setDriverAssignments] = useState([{ id: '', name: '' }])
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [selectedTrailerId, setSelectedTrailerId] = useState('')
-  const [selectedTrailer2Id, setSelectedTrailer2Id] = useState('') // Second trailer (local only)
+  const [selectedTrailer2Id, setSelectedTrailer2Id] = useState('')
   const [selectedVehicleType, setSelectedVehicleType] = useState('')
   const [handoverAssignments, setHandoverAssignments] = useState([])
   const [selectedDriverLocation, setSelectedDriverLocation] = useState(null)
@@ -108,7 +108,7 @@ export default function LoadPlanPage() {
   const [approximatedVehicleCost, setApproximatedVehicleCost] = useState(0)
   const [approximatedDriverCost, setApproximatedDriverCost] = useState(0)
   const [totalVehicleCost, setTotalVehicleCost] = useState(0)
-  const [goodsInTransitPremium, setGoodsInTransitPremium] = useState('')
+  const [goodsInTransitPremium, setGoodsInTransitPremium] = useState('0')
   const [tripType, setTripType] = useState('local')
   const [stopPoints, setStopPoints] = useState([])
   const [availableStopPoints, setAvailableStopPoints] = useState([])
@@ -261,6 +261,16 @@ export default function LoadPlanPage() {
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, '')
 
+  const extractPlateCandidates = (value) => {
+    const raw = String(value || '').trim()
+    if (!raw) return []
+
+    return raw
+      .split('&')
+      .map((part) => normalizePlate(part))
+      .filter(Boolean)
+  }
+
   const normalizeCategory = (value) =>
     String(value || '')
       .toLowerCase()
@@ -370,7 +380,7 @@ export default function LoadPlanPage() {
         while (hasMore) {
           const { data, error } = await supabase
             .from('vehiclesc')
-            .select('id, registration_number, engine_number, vin_number, make, model, sub_model, manufactured_year, vehicle_type, veh_dormant_flag, trailer_no, trailer_no2, trailer_name, trailer_name2, tank_capacity')
+            .select('id, registration_number, engine_number, vin_number, make, model, sub_model, manufactured_year, vehicle_type, veh_dormant_flag, trailer_no, trailer_no2, trailer_name, trailer_name2, tank_capacity, vehicle_category, vehicle_type_descrip, type, linked_trailer_reg_no')
             .range(from, from + batchSize - 1)
           
           if (error) throw error
@@ -534,6 +544,28 @@ export default function LoadPlanPage() {
     )
   }, [vehicles])
 
+  const trailerIdByPlate = useMemo(() => {
+    return new Map(
+      allTrailers
+        .map((trailer) => [normalizePlate(trailer.registration_number), String(trailer.id)])
+        .filter(([plate, id]) => plate && id)
+    )
+  }, [allTrailers])
+
+  const getLinkedTrailerId = useCallback((trailerId) => {
+    if (!trailerId) return ''
+
+    const selectedTrailer = allTrailers.find((trailer) => String(trailer.id) === String(trailerId))
+    if (!selectedTrailer) return ''
+
+    const linkedPlate = normalizePlate(selectedTrailer.linked_trailer_reg_no)
+    if (!linkedPlate) return ''
+
+    const linkedId = trailerIdByPlate.get(linkedPlate) || ''
+    if (String(linkedId) === String(trailerId)) return ''
+    return linkedId
+  }, [allTrailers, trailerIdByPlate])
+
   const selectedTrailerRecord = useMemo(() => {
     if (!selectedTrailerId) return null
     return allTrailers.find(t => String(t.id) === String(selectedTrailerId)) || null
@@ -549,6 +581,7 @@ export default function LoadPlanPage() {
   useEffect(() => {
     if (!selectedVehicleId) {
       setSelectedTrailerId('')
+      setSelectedTrailer2Id('')
       return
     }
 
@@ -564,17 +597,31 @@ export default function LoadPlanPage() {
 
     if (trailerCandidates.length === 0) return
 
-    const candidatePlates = trailerCandidates.map(normalizePlate).filter(Boolean)
+    const candidatePlates = trailerCandidates.flatMap(extractPlateCandidates)
     if (candidatePlates.length === 0) return
 
-    const match = allTrailers.find(trailer =>
-      candidatePlates.includes(normalizePlate(trailer.registration_number))
-    )
+    const matchedTrailerIds = candidatePlates
+      .map((candidatePlate) =>
+        allTrailers.find((trailer) => normalizePlate(trailer.registration_number) === candidatePlate)
+      )
+      .filter(Boolean)
+      .map((trailer) => String(trailer.id))
 
-    if (match) {
-      setSelectedTrailerId(String(match.id))
+    if (matchedTrailerIds.length > 0) {
+      setSelectedTrailerId(matchedTrailerIds[0] || '')
+      setSelectedTrailer2Id(matchedTrailerIds[1] || getLinkedTrailerId(matchedTrailerIds[0]) || '')
     }
-  }, [selectedVehicleId, vehicles, allTrailers])
+  }, [selectedVehicleId, vehicles, allTrailers, getLinkedTrailerId])
+
+  useEffect(() => {
+    if (!selectedTrailerId) {
+      setSelectedTrailer2Id('')
+      return
+    }
+
+    const linkedTrailerId = getLinkedTrailerId(selectedTrailerId)
+    setSelectedTrailer2Id(linkedTrailerId || '')
+  }, [selectedTrailerId, getLinkedTrailerId])
 
   // Memoized vehicle and driver lookups
   const vehicleMap = useMemo(() => 
@@ -1587,9 +1634,20 @@ export default function LoadPlanPage() {
   }
 
   const handleHandoverVehicleChange = (setIndex, field, value) => {
-    setHandoverAssignments(prev => prev.map((set, idx) =>
-      idx === setIndex ? { ...set, [field]: value } : set
-    ))
+    setHandoverAssignments(prev => prev.map((set, idx) => {
+      if (idx !== setIndex) return set
+
+      if (field === 'trailerId') {
+        const linkedTrailerId = getLinkedTrailerId(value)
+        return {
+          ...set,
+          [field]: value,
+          trailer2Id: linkedTrailerId || ''
+        }
+      }
+
+      return { ...set, [field]: value }
+    }))
   }
 
   const addHandoverDriver = (setIndex) => {
@@ -2004,7 +2062,7 @@ export default function LoadPlanPage() {
       }
       
       // Reset form
-      setClient(''); setSelectedClient(null); setManualClientName(''); setCommodity(''); setRate(''); setOrderNumber(''); setComment('')
+      setClient(''); setSelectedClient(null); setManualClientName(''); setCommodity(''); setRate('0'); setOrderNumber(''); setComment('')
       setEtaPickup(''); setLoadingLocation(''); setEtaDropoff(''); setDropOffPoint('')
       setDriverAssignments([{ id: '', name: '' }])
       setSelectedVehicleId('')
@@ -2015,7 +2073,7 @@ export default function LoadPlanPage() {
       setStopPoints([]) // Reset stop points for both trip types
       setCustomStopPoints([])
       setFuelPricePerLiter('')
-      setGoodsInTransitPremium('')
+      setGoodsInTransitPremium('0')
       setSelectedVehicleType('')
       setShowSecondSection(false)
       setOptimizedRoute(null)
@@ -2044,8 +2102,8 @@ export default function LoadPlanPage() {
       
       <Tabs defaultValue="loads" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="loads">Loads</TabsTrigger>
-          <TabsTrigger value="create">Create Load</TabsTrigger>
+          <TabsTrigger value="loads">Trips</TabsTrigger>
+          <TabsTrigger value="create">Create Trip</TabsTrigger>
         </TabsList>
 
         <TabsContent value="loads" className="space-y-6">
@@ -2582,12 +2640,9 @@ export default function LoadPlanPage() {
                     />
                   </div>
 
-                  {/* Trailer 2 Dropdown - Only trailers (Local storage only) */}
+                  {/* Trailer 2 Dropdown - Only trailers */}
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor="trailer2" className="text-sm font-medium text-slate-700">Select Trailer 2 (Optional)</Label>
-                      <span className="text-xs text-slate-500 italic">- Local reference only</span>
-                    </div>
+                    <Label htmlFor="trailer2" className="text-sm font-medium text-slate-700">Select Trailer 2 (Optional)</Label>
                     <TrailerDropdown
                       value={selectedTrailer2Id}
                       onChange={setSelectedTrailer2Id}
@@ -2595,9 +2650,9 @@ export default function LoadPlanPage() {
                       placeholder="Select second trailer (optional)"
                     />
                     {selectedTrailer2Id && (
-                      <p className="text-xs text-amber-600 flex items-center gap-1">
+                      <p className="text-xs text-emerald-600">
                         <span>⚠️</span>
-                        <span>This trailer is for reference only and won't be saved to the trip</span>
+                        <span>Linked trailer will be saved with the trip assignment.</span>
                       </p>
                     )}
                   </div>
