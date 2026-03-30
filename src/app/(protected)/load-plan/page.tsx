@@ -727,7 +727,7 @@ export default function LoadPlanPage() {
       if (!mapboxToken) return null
       
       const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location)}.json?access_token=${mapboxToken}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location)}.json?access_token=${mapboxToken}&limit=12&autocomplete=false&language=en&country=ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG`
       )
       const data = await response.json()
       const bestFeature = pickBestGeocodeFeature(location, data.features)
@@ -846,8 +846,8 @@ export default function LoadPlanPage() {
         
         // Geocode loading and drop-off locations
         const [loadingResponse, dropOffResponse] = await Promise.all([
-          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(loadingLocation)}.json?access_token=${mapboxToken}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`),
-          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(dropOffPoint)}.json?access_token=${mapboxToken}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`)
+          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(loadingLocation)}.json?access_token=${mapboxToken}&limit=12&autocomplete=false&language=en&country=ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG`),
+          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(dropOffPoint)}.json?access_token=${mapboxToken}&limit=12&autocomplete=false&language=en&country=ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG`)
         ])
         
         const [loadingData, dropOffData] = await Promise.all([
@@ -1422,7 +1422,7 @@ export default function LoadPlanPage() {
         // Geocode custom location
         try {
           const response = await fetch(
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(customLocation)}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(customLocation)}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}&limit=12&autocomplete=false&language=en&country=ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG`
           )
           const data = await response.json()
           const bestFeature = pickBestGeocodeFeature(customLocation, data.features)
@@ -1749,7 +1749,7 @@ export default function LoadPlanPage() {
           const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
           if (mapboxToken) {
             const response = await fetch(
-              `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(clientData.address)}.json?access_token=${mapboxToken}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`
+              `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(clientData.address)}.json?access_token=${mapboxToken}&limit=12&autocomplete=false&language=en&country=ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG`
             )
             const data = await response.json()
             const bestFeature = pickBestGeocodeFeature(clientData.address, data.features)

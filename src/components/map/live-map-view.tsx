@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { X, Search, MapPin, Navigation, Loader2, Video, Fuel, FileText, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 declare global {
   interface Window {
@@ -35,7 +36,9 @@ interface Vehicle {
 
 export default function LiveMapView() {
   const router = useRouter();
+  const supabase = createClient();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [allowedPlates, setAllowedPlates] = useState<Set<string>>(new Set());
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -48,6 +51,34 @@ export default function LiveMapView() {
   const fetchIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const mapInitialized = useRef(false);
   const boundsSet = useRef(false);
+
+  const normalizePlate = (value: string | undefined | null) =>
+    String(value || '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+
+  useEffect(() => {
+    async function fetchAllowedVehicles() {
+      const { data, error } = await supabase
+        .from("vehiclesc")
+        .select("registration_number");
+
+      if (error) {
+        console.error("Error loading allowed vehicles for live map:", error);
+        return;
+      }
+
+      const plateSet = new Set(
+        (data || [])
+          .map((vehicle: any) => normalizePlate(vehicle.registration_number))
+          .filter(Boolean)
+      );
+
+      setAllowedPlates(plateSet);
+    }
+
+    fetchAllowedVehicles();
+  }, [supabase]);
 
   // Fetch vehicles with video availability
   useEffect(() => {
@@ -212,11 +243,12 @@ export default function LiveMapView() {
         return acc;
       }, [] as Vehicle[]);
       
-      // Filter to only include vehicles with 8-character plates
+      // Filter to only include DB-backed vehicles and 8-character plates
       // Preserve existing hasVideo state when updating vehicles
       const filteredVehicles = uniqueVehicles.filter(v => {
         const cleanPlate = v.plate?.trim() || '';
-        return cleanPlate.length === 8;
+        const normalizedPlate = normalizePlate(cleanPlate);
+        return cleanPlate.length === 8 && allowedPlates.has(normalizedPlate);
       }).map(v => {
         const existingVehicle = vehicles.find(ev => ev.plate === v.plate);
         return {
@@ -225,7 +257,7 @@ export default function LiveMapView() {
         };
       });
       
-      console.log(`Loaded ${filteredVehicles.length} vehicles with 8-char plates from ${allVehicles.length} total records (including waterford-sites)`);
+      console.log(`Loaded ${filteredVehicles.length} DB-matched vehicles from ${allVehicles.length} total live records`);
       setVehicles(filteredVehicles);
       setLoading(false);
     } catch (error) {
@@ -250,7 +282,7 @@ export default function LiveMapView() {
         fetchIntervalRef.current = null;
       }
     };
-  }, [mapLoaded]);
+  }, [mapLoaded, allowedPlates]);
 
   // Update vehicles with video availability when it changes (without re-fetching)
   useEffect(() => {

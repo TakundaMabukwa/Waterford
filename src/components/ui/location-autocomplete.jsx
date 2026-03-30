@@ -232,19 +232,34 @@ export function LocationAutocomplete({
         const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
 
         if (mapboxToken) {
-          const response = await fetch(
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
-              value,
-            )}.json?access_token=${mapboxToken}&limit=8&autocomplete=true&types=country,region,postcode,district,place,locality,neighborhood,address,poi`,
+          const encodedValue = encodeURIComponent(value)
+          const countryBias = 'ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG'
+          const mapboxUrls = [
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedValue}.json?access_token=${mapboxToken}&limit=12&autocomplete=true&language=en&country=${countryBias}&types=poi,address,neighborhood,locality,place,district,postcode,region,country`,
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedValue}.json?access_token=${mapboxToken}&limit=12&autocomplete=true&language=en&country=${countryBias}`,
+          ]
+
+          const responses = await Promise.allSettled(
+            mapboxUrls.map((url) => fetch(url))
           )
 
-          if (!response.ok) {
-            throw new Error(`Mapbox request failed: ${response.status}`)
+          const featureMap = new Map()
+
+          for (const result of responses) {
+            if (result.status !== 'fulfilled' || !result.value.ok) continue
+
+            const data = await result.value.json()
+            const features = Array.isArray(data.features) ? data.features : []
+
+            features.forEach((feature) => {
+              const featureKey = feature?.id || feature?.place_name
+              if (featureKey && !featureMap.has(featureKey)) {
+                featureMap.set(featureKey, feature)
+              }
+            })
           }
 
-          const data = await response.json()
-
-          const features = Array.isArray(data.features) ? data.features : []
+          const features = Array.from(featureMap.values())
           const bestFeature = pickBestFeature(value, features)
           const orderedFeatures = bestFeature
             ? [bestFeature, ...features.filter((feature) => feature?.id !== bestFeature?.id)]

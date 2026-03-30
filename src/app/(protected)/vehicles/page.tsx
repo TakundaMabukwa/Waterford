@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Truck, Car, FileText, TruckElectricIcon } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -312,29 +312,50 @@ export default function Vehicles() {
     return Math.min(...permitDays)
   }
 
-  // Filter + sort vehicles based on nearest permit expiry first
+  const deferredSearch = useDeferredValue(search)
+
+  const indexedVehicles = useMemo(() => {
+    return vehicles.map((vehicle) => ({
+      vehicle,
+      nearestPermitDays: getNearestPermitDays(vehicle),
+      searchText: [
+        vehicle.make,
+        vehicle.model,
+        vehicle.registration_number,
+        vehicle.horse_reg_no,
+        vehicle.vehicle_type,
+        vehicle.type,
+        vehicle.vehicle_category,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase(),
+    }))
+  }, [vehicles])
+
+  const sortedIndexedVehicles = useMemo(() => {
+    return [...indexedVehicles].sort((a, b) => {
+      const aDays = a.nearestPermitDays
+      const bDays = b.nearestPermitDays
+
+      if (aDays == null && bDays == null) {
+        return (a.vehicle.registration_number || '').localeCompare(b.vehicle.registration_number || '')
+      }
+      if (aDays == null) return 1
+      if (bDays == null) return -1
+      if (aDays !== bDays) return aDays - bDays
+      return (a.vehicle.registration_number || '').localeCompare(b.vehicle.registration_number || '')
+    })
+  }, [indexedVehicles])
+
   const filteredVehicles = useMemo(() => {
-    const searchLower = search.toLowerCase()
+    const searchLower = deferredSearch.trim().toLowerCase()
+    if (!searchLower) return sortedIndexedVehicles.map((item) => item.vehicle)
 
-    return [...vehicles]
-      .filter((vehicle) =>
-        (vehicle.make || '').toLowerCase().includes(searchLower) ||
-        (vehicle.model || '').toLowerCase().includes(searchLower) ||
-        (vehicle.registration_number || '').toLowerCase().includes(searchLower) ||
-        (vehicle.horse_reg_no || '').toLowerCase().includes(searchLower) ||
-        (vehicle.vehicle_type || '').toLowerCase().includes(searchLower)
-      )
-      .sort((a, b) => {
-        const aDays = getNearestPermitDays(a)
-        const bDays = getNearestPermitDays(b)
-
-        if (aDays == null && bDays == null) return (a.registration_number || '').localeCompare(b.registration_number || '')
-        if (aDays == null) return 1
-        if (bDays == null) return -1
-        if (aDays !== bDays) return aDays - bDays
-        return (a.registration_number || '').localeCompare(b.registration_number || '')
-      })
-  }, [search, vehicles])
+    return sortedIndexedVehicles
+      .filter((item) => item.searchText.includes(searchLower))
+      .map((item) => item.vehicle)
+  }, [deferredSearch, sortedIndexedVehicles])
 
   // Pagination state & logic (50 per page)
   const [currentPage, setCurrentPage] = useState(1);
@@ -357,14 +378,7 @@ export default function Vehicles() {
     currentPage * PAGE_SIZE
   );
 
-  const expiringVehicles = useMemo(
-    () =>
-      vehicles.map((vehicle) => ({
-        vehicle,
-        nearestPermitDays: getNearestPermitDays(vehicle),
-      })),
-    [vehicles]
-  )
+  const expiringVehicles = indexedVehicles
 
   const expiringIn30 = expiringVehicles.filter((item) => item.nearestPermitDays != null && item.nearestPermitDays >= 0 && item.nearestPermitDays <= 30).length
   const expiringIn90 = expiringVehicles.filter((item) => item.nearestPermitDays != null && item.nearestPermitDays >= 0 && item.nearestPermitDays <= 90).length
