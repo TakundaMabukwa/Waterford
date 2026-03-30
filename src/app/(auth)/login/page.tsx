@@ -124,7 +124,7 @@ export default function LoginPage() {
               id="email"
               name="email"
               type="email"
-              placeholder="you@eps.co.za"
+              placeholder="you@waterfordcarriers.co.za"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
