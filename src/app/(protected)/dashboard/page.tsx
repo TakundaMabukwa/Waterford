@@ -72,6 +72,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { EditTripModal } from "@/components/ui/edit-trip-modal";
 import LiveMapView from "@/components/map/live-map-view";
 import { VehicleDashboardModal } from "@/components/ui/vehicle-dashboard-modal";
+import { mapFuelStopToOverlay } from "@/lib/fuel-stop-map";
 
 const normalizePlate = (value: string | undefined | null) =>
   String(value || '')
@@ -1756,11 +1757,15 @@ export default function Dashboard() {
   const handleViewMap = async (driverName: string, trip?: any) => {
     // Fetch high risk zones
     let highRiskZones = [];
+    let fuelStopZones = [];
     try {
       const supabase = createClient();
       const { data: riskZones } = await supabase
         .from('high_risk')
         .select('id, name, coordinates');
+      const { data: fuelStops } = await supabase
+        .from('fuel_stops')
+        .select('id, name, name2, geozone_name, geozone_coordinates, location_coordinates, coords, coordinates, radius');
       
       highRiskZones = (riskZones || []).map(zone => {
         if (zone.coordinates) {
@@ -1781,6 +1786,10 @@ export default function Dashboard() {
         }
         return null;
       }).filter(Boolean);
+
+      fuelStopZones = (fuelStops || [])
+        .map((fuelStop) => mapFuelStopToOverlay(fuelStop))
+        .filter(Boolean);
     } catch (error) {
       console.error('Error fetching high risk zones:', error);
     }
@@ -1792,6 +1801,7 @@ export default function Dashboard() {
         routeCoordinates: trip.routeCoords,
         stopPoints: trip.stopPoints,
         highRiskZones,
+        fuelStopZones,
         driverDetails: {
           fullName: driverName,
           plate: trip.vehicleLocation.plate,
@@ -1811,6 +1821,7 @@ export default function Dashboard() {
         latitude: trip.vehicleLocation.latitude,
         longitude: trip.vehicleLocation.longitude,
         highRiskZones,
+        fuelStopZones,
         driverDetails: {
           fullName: driverName,
           plate: trip.vehicleLocation.plate,
@@ -1830,6 +1841,7 @@ export default function Dashboard() {
         routeCoordinates: trip.routeCoords,
         stopPoints: trip.stopPoints,
         highRiskZones,
+        fuelStopZones,
         showRouteOnly: true,
         driverDetails: {
           fullName: driverName,
@@ -1846,6 +1858,7 @@ export default function Dashboard() {
         origin: trip.origin,
         destination: trip.destination,
         highRiskZones,
+        fuelStopZones,
         driverDetails: {
           fullName: driverName,
           plate: trip.vehicleInfo?.registration_number || 'Unknown vehicle',
@@ -2581,6 +2594,101 @@ export default function Dashboard() {
                                     }
                                   });
                                   console.log('Added risk zone:', sourceId);
+                                }
+                              });
+                            }
+
+                            if (mapData.fuelStopZones && mapData.fuelStopZones.length > 0) {
+                              mapData.fuelStopZones.forEach((fuelStop, index) => {
+                                const sourceId = `fuel-stop-zone-${index}`;
+                                const fillLayerId = `${sourceId}-fill`;
+                                const lineLayerId = `${sourceId}-line`;
+                                const circleLayerId = `${sourceId}-circle`;
+
+                                if (fuelStop.polygon && fuelStop.polygon.length > 2) {
+                                  if (!map.getSource(sourceId)) {
+                                    map.addSource(sourceId, {
+                                      type: 'geojson',
+                                      data: {
+                                        type: 'Feature',
+                                        properties: { name: fuelStop.name },
+                                        geometry: {
+                                          type: 'Polygon',
+                                          coordinates: [fuelStop.polygon]
+                                        }
+                                      }
+                                    });
+                                  }
+
+                                  if (!map.getLayer(fillLayerId)) {
+                                    map.addLayer({
+                                      id: fillLayerId,
+                                      type: 'fill',
+                                      source: sourceId,
+                                      paint: {
+                                        'fill-color': '#22c55e',
+                                        'fill-opacity': 0.18
+                                      }
+                                    });
+                                  }
+
+                                  if (!map.getLayer(lineLayerId)) {
+                                    map.addLayer({
+                                      id: lineLayerId,
+                                      type: 'line',
+                                      source: sourceId,
+                                      paint: {
+                                        'line-color': '#15803d',
+                                        'line-width': 2
+                                      }
+                                    });
+                                  }
+                                } else if (fuelStop.center) {
+                                  if (!map.getSource(sourceId)) {
+                                    map.addSource(sourceId, {
+                                      type: 'geojson',
+                                      data: {
+                                        type: 'Feature',
+                                        properties: { name: fuelStop.name },
+                                        geometry: {
+                                          type: 'Point',
+                                          coordinates: fuelStop.center
+                                        }
+                                      }
+                                    });
+                                  }
+
+                                  if (!map.getLayer(circleLayerId)) {
+                                    map.addLayer({
+                                      id: circleLayerId,
+                                      type: 'circle',
+                                      source: sourceId,
+                                      paint: {
+                                        'circle-radius': {
+                                          stops: [
+                                            [0, 0],
+                                            [20, Math.max(10, (fuelStop.radiusMeters || 100) / 10)]
+                                          ],
+                                          base: 2
+                                        },
+                                        'circle-color': '#22c55e',
+                                        'circle-opacity': 0.18,
+                                        'circle-stroke-color': '#15803d',
+                                        'circle-stroke-width': 2
+                                      }
+                                    });
+                                  }
+                                }
+
+                                if (fuelStop.center) {
+                                  new window.mapboxgl.Marker({ color: '#16a34a' })
+                                    .setLngLat(fuelStop.center)
+                                    .setPopup(
+                                      new window.mapboxgl.Popup({ offset: 18 }).setHTML(
+                                        `<div class="p-2"><strong>${fuelStop.name}</strong><br/>Fuel Stop Zone</div>`
+                                      )
+                                    )
+                                    .addTo(map);
                                 }
                               });
                             }

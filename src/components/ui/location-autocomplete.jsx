@@ -159,40 +159,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { MapPin } from 'lucide-react'
 
-const pickBestFeature = (query, features = []) => {
-  if (!Array.isArray(features) || features.length === 0) return null
-
-  const normalizedQuery = String(query || '').trim().toLowerCase()
-  const queryParts = normalizedQuery
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean)
-
-  const scored = features.map((feature) => {
-    const text = String(feature?.text || '').toLowerCase()
-    const placeName = String(feature?.place_name || '').toLowerCase()
-    let score = 0
-
-    if (placeName === normalizedQuery) score += 200
-    if (text === normalizedQuery) score += 150
-    if (placeName.includes(normalizedQuery)) score += 80
-    if (text.includes(normalizedQuery)) score += 60
-
-    queryParts.forEach((part) => {
-      if (placeName.includes(part)) score += 40
-      if (text.includes(part)) score += 25
-    })
-
-    return { feature, score }
-  })
-
-  scored.sort((a, b) => b.score - a.score)
-  return scored[0]?.feature || features[0]
-}
-
 export function LocationAutocomplete({
   value,
   onChange,
+  onSelect,
   placeholder = 'Enter location',
   label,
   clientLocations = [],
@@ -202,6 +172,12 @@ export function LocationAutocomplete({
   const [isLoading, setIsLoading] = useState(false)
   const inputRef = useRef(null)
   const suggestionsRef = useRef(null)
+  const lookupCacheRef = useRef(new Map())
+
+  const getDisplayValue = (suggestion) => {
+    if (suggestion?.type === 'place' && suggestion?.name) return suggestion.name
+    return suggestion?.address || suggestion?.name || ''
+  }
 
   useEffect(() => {
     if (!value || value.length < 2) {
@@ -226,59 +202,31 @@ export function LocationAutocomplete({
           type: 'client',
         }))
 
-      let mapboxPlaces = []
+      let lookupPlaces = []
 
       try {
-        const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+        const cacheKey = value.trim().toLowerCase()
+        let results = lookupCacheRef.current.get(cacheKey)
 
-        if (mapboxToken) {
-          const encodedValue = encodeURIComponent(value)
-          const countryBias = 'ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG'
-          const mapboxUrls = [
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedValue}.json?access_token=${mapboxToken}&limit=12&autocomplete=true&language=en&country=${countryBias}&types=poi,address,neighborhood,locality,place,district,postcode,region,country`,
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedValue}.json?access_token=${mapboxToken}&limit=12&autocomplete=true&language=en&country=${countryBias}`,
-          ]
-
-          const responses = await Promise.allSettled(
-            mapboxUrls.map((url) => fetch(url))
-          )
-
-          const featureMap = new Map()
-
-          for (const result of responses) {
-            if (result.status !== 'fulfilled' || !result.value.ok) continue
-
-            const data = await result.value.json()
-            const features = Array.isArray(data.features) ? data.features : []
-
-            features.forEach((feature) => {
-              const featureKey = feature?.id || feature?.place_name
-              if (featureKey && !featureMap.has(featureKey)) {
-                featureMap.set(featureKey, feature)
-              }
-            })
-          }
-
-          const features = Array.from(featureMap.values())
-          const bestFeature = pickBestFeature(value, features)
-          const orderedFeatures = bestFeature
-            ? [bestFeature, ...features.filter((feature) => feature?.id !== bestFeature?.id)]
-            : features
-
-          mapboxPlaces =
-            orderedFeatures.map((feature, index) => ({
-              id: feature.id || `mapbox_${index}`,
-              name: feature.text,
-              address: feature.place_name,
-              type: 'mapbox',
-              coordinates: feature.center,
-            })) || []
+        if (!results) {
+          const response = await fetch(`/api/location-lookup?q=${encodeURIComponent(value)}`)
+          const data = await response.json()
+          results = Array.isArray(data?.results) ? data.results : []
+          lookupCacheRef.current.set(cacheKey, results)
         }
+
+        lookupPlaces = results.map((result, index) => ({
+          id: result.id || `lookup_${index}`,
+          name: result.name,
+          address: result.address,
+          type: result.type || 'lookup',
+          coordinates: result.coordinates || null,
+        }))
       } catch (error) {
-        console.error('Mapbox geocoding error:', error)
+        console.error('Location lookup error:', error)
       }
 
-      const mergedSuggestions = [...clientMatches, ...mapboxPlaces]
+      const mergedSuggestions = [...clientMatches, ...lookupPlaces]
 
       setSuggestions(mergedSuggestions)
       setShowSuggestions(mergedSuggestions.length > 0)
@@ -289,8 +237,11 @@ export function LocationAutocomplete({
   }, [value])
 
   const handleSuggestionClick = (suggestion) => {
-    onChange(suggestion.address || suggestion.name)
+    onChange(getDisplayValue(suggestion))
+    onSelect?.(suggestion)
+    setSuggestions([])
     setShowSuggestions(false)
+    inputRef.current?.blur()
   }
 
   const handleInputChange = (e) => {

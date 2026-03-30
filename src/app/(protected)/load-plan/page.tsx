@@ -82,10 +82,14 @@ export default function LoadPlanPage() {
   // Address & ETA section
   const [etaPickup, setEtaPickup] = useState('')
   const [loadingLocation, setLoadingLocation] = useState('')
+  const [loadingLocationSelection, setLoadingLocationSelection] = useState<any | null>(null)
   const [etaDropoff, setEtaDropoff] = useState('')
   const [dropOffPoint, setDropOffPoint] = useState('')
+  const [dropOffSelection, setDropOffSelection] = useState<any | null>(null)
   const [showSecondSection, setShowSecondSection] = useState(false)
   const secondRef = useRef<HTMLDivElement | null>(null)
+  const locationLookupCacheRef = useRef(new Map<string, { lat: number; lng: number; address: string; name: string } | null>())
+  const reverseLookupCacheRef = useRef(new Map<string, string | null>())
   const [optimizedRoute, setOptimizedRoute] = useState<any>(null)
   const [showRouteModal, setShowRouteModal] = useState(false)
   const [isOptimizing, setIsOptimizing] = useState(false)
@@ -114,6 +118,7 @@ export default function LoadPlanPage() {
   const [availableStopPoints, setAvailableStopPoints] = useState([])
   const [isLoadingStopPoints, setIsLoadingStopPoints] = useState(false)
   const [customStopPoints, setCustomStopPoints] = useState([])
+  const [customStopSelections, setCustomStopSelections] = useState<Record<number, any | null>>({})
   const [tripDays, setTripDays] = useState(1)
   const [isManuallyOrdered, setIsManuallyOrdered] = useState(false)
   const [estimatedTravelHours, setEstimatedTravelHours] = useState(0)
@@ -126,6 +131,103 @@ export default function LoadPlanPage() {
   const [distancePerTruck, setDistancePerTruck] = useState(0)
   const lastAutoEtaDropoffRef = useRef('')
   const STOP_DWELL_HOURS = 0.25
+
+  const parseStoredCoordinates = useCallback((value, fallbackLocation = null) => {
+    if (Array.isArray(value)) {
+      return value
+        .map((coord) => {
+          if (!Array.isArray(coord) || coord.length < 2) return null
+          const lng = Number(coord[0])
+          const lat = Number(coord[1])
+          return Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null
+        })
+        .filter(Boolean)
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+      const trimmed = value.trim()
+
+      if (trimmed.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(trimmed)
+          if (Array.isArray(parsed)) {
+            return parsed
+              .map((coord) => {
+                if (!Array.isArray(coord) || coord.length < 2) return null
+                const lng = Number(coord[0])
+                const lat = Number(coord[1])
+                return Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null
+              })
+              .filter(Boolean)
+          }
+        } catch {
+          // keep falling through
+        }
+      }
+
+      return trimmed
+        .split(' ')
+        .filter((coord) => coord.trim())
+        .map((coord) => {
+          const [lng, lat] = coord.split(',')
+          const parsedLng = Number.parseFloat(lng)
+          const parsedLat = Number.parseFloat(lat)
+          return Number.isFinite(parsedLng) && Number.isFinite(parsedLat) ? [parsedLng, parsedLat] : null
+        })
+        .filter(Boolean)
+    }
+
+    if (fallbackLocation && typeof fallbackLocation === 'object') {
+      const lng = Number(fallbackLocation.lng)
+      const lat = Number(fallbackLocation.lat)
+      if (Number.isFinite(lng) && Number.isFinite(lat)) {
+        return [[lng, lat]]
+      }
+    }
+
+    return []
+  }, [])
+
+  const fetchStopPointOptions = useCallback(async () => {
+    const [{ data: stopPointsData, error: stopPointsError }, { data: fuelStopsData, error: fuelStopsError }] = await Promise.all([
+      supabase
+        .from('stop_points')
+        .select('id, name, name2, coordinates')
+        .order('name'),
+      supabase
+        .from('fuel_stops')
+        .select('id, name, name2, coordinates, geozone_coordinates, location_coordinates')
+        .order('name'),
+    ])
+
+    if (stopPointsError) {
+      console.error('Stop points error:', stopPointsError)
+    }
+
+    if (fuelStopsError) {
+      console.error('Fuel stops error:', fuelStopsError)
+    }
+
+    const normalizedStopPoints = (stopPointsData || []).map((point) => ({
+      ...point,
+      id: `stop:${point.id}`,
+      sourceType: 'stop_point',
+      coordinatesParsed: parseStoredCoordinates(point.coordinates),
+    }))
+
+    const normalizedFuelStops = (fuelStopsData || []).map((point) => ({
+      ...point,
+      id: `fuel:${point.id}`,
+      sourceType: 'fuel_stop',
+      name: point.name || point.name2 || 'Fuel Stop',
+      name2: point.name2 || 'Fuel Stop',
+      coordinatesParsed: parseStoredCoordinates(point.geozone_coordinates || point.coordinates, point.location_coordinates),
+    }))
+
+    return [...normalizedStopPoints, ...normalizedFuelStops]
+      .filter((point) => Array.isArray(point.coordinatesParsed) && point.coordinatesParsed.length > 0)
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+  }, [supabase, parseStoredCoordinates])
 
   const FUEL_BURN_RATE_BY_TYPE = {
     'TAUTLINER': 32,
@@ -277,37 +379,6 @@ export default function LoadPlanPage() {
       .replace(/[^a-z0-9]+/g, ' ')
       .trim()
 
-  const pickBestGeocodeFeature = (query, features = []) => {
-    if (!Array.isArray(features) || features.length === 0) return null
-
-    const normalizedQuery = String(query || '').trim().toLowerCase()
-    const queryParts = normalizedQuery
-      .split(',')
-      .map((part) => part.trim())
-      .filter(Boolean)
-
-    const scored = features.map((feature) => {
-      const text = String(feature?.text || '').toLowerCase()
-      const placeName = String(feature?.place_name || '').toLowerCase()
-      let score = 0
-
-      if (placeName === normalizedQuery) score += 200
-      if (text === normalizedQuery) score += 150
-      if (placeName.includes(normalizedQuery)) score += 80
-      if (text.includes(normalizedQuery)) score += 60
-
-      queryParts.forEach((part) => {
-        if (placeName.includes(part)) score += 40
-        if (text.includes(part)) score += 25
-      })
-
-      return { feature, score }
-    })
-
-    scored.sort((a, b) => b.score - a.score)
-    return scored[0]?.feature || features[0]
-  }
-
   const hasValidRegistration = (value) => {
     const plate = normalizePlate(value)
     return plate.length > 0
@@ -348,17 +419,8 @@ export default function LoadPlanPage() {
     
     setIsLoadingStopPoints(true)
     try {
-      const { data: stopPointsData, error: stopPointsError } = await supabase
-        .from('stop_points')
-        .select('id, name, name2, coordinates')
-        .order('name')
-        // .limit(1000) // Removed limit to get all stop points
-      
-      if (stopPointsError) {
-        console.error('Stop points error:', stopPointsError)
-      } else {
-        setAvailableStopPoints(stopPointsData || [])
-      }
+      const stopPointOptions = await fetchStopPointOptions()
+      setAvailableStopPoints(stopPointOptions)
     } catch (err) {
       console.error('Error fetching stop points:', err)
     }
@@ -719,36 +781,105 @@ export default function LoadPlanPage() {
     return R * c
   }, [])
 
-  // Get pickup location coordinates using Mapbox
-  const getPickupCoordinates = useCallback(async (location) => {
-    if (!location) return null
+  const lookupLocation = useCallback(async (query) => {
+    if (!query) return null
+
     try {
-      const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-      if (!mapboxToken) return null
-      
-      const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location)}.json?access_token=${mapboxToken}&limit=12&autocomplete=false&language=en&country=ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG`
-      )
-      const data = await response.json()
-      const bestFeature = pickBestGeocodeFeature(location, data.features)
-      if (bestFeature?.center) {
-        const [lon, lat] = bestFeature.center
-        return { lat, lon }
+      const cacheKey = String(query).trim().toLowerCase()
+      if (locationLookupCacheRef.current.has(cacheKey)) {
+        return locationLookupCacheRef.current.get(cacheKey) || null
       }
+
+      const response = await fetch(`/api/location-lookup?q=${encodeURIComponent(query)}`)
+      const data = await response.json()
+      const firstResult = Array.isArray(data?.results) ? data.results[0] : null
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Location lookup failed')
+      }
+
+      if (!firstResult?.coordinates || firstResult.coordinates.length < 2) {
+        return null
+      }
+
+      const [lng, lat] = firstResult.coordinates
+      const result = {
+        lat,
+        lng,
+        address: firstResult.address || firstResult.name || query,
+        name: firstResult.name || firstResult.address || query,
+      }
+      locationLookupCacheRef.current.set(cacheKey, result)
+      return result
     } catch (error) {
-      console.error('Error geocoding pickup location:', error)
+      console.error('Error looking up location:', error)
+      return null
     }
-    return null
   }, [])
 
+  const reverseLookupLocation = useCallback(async (lat, lng) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+
+    try {
+      const cacheKey = `${lat},${lng}`
+      if (reverseLookupCacheRef.current.has(cacheKey)) {
+        return reverseLookupCacheRef.current.get(cacheKey) || null
+      }
+
+      const response = await fetch(`/api/location-lookup?lat=${lat}&lng=${lng}`)
+      const data = await response.json()
+      const firstResult = Array.isArray(data?.results) ? data.results[0] : null
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Reverse lookup failed')
+      }
+
+      const result = firstResult?.address || firstResult?.name || `${lat},${lng}`
+      reverseLookupCacheRef.current.set(cacheKey, result)
+      return result
+    } catch (error) {
+      console.error('Error reverse-looking up location:', error)
+      return `${lat},${lng}`
+    }
+  }, [])
+
+  const normalizeSelectedLookup = useCallback((selection) => {
+    if (!selection?.coordinates || selection.coordinates.length < 2) return null
+
+    const [lng, lat] = selection.coordinates
+    return {
+      lat,
+      lng,
+      address: selection.address || selection.name || '',
+      name: selection.name || selection.address || '',
+    }
+  }, [])
+
+  // Get pickup location coordinates using Google lookup
+  const getPickupCoordinates = useCallback(async (location) => {
+    if (!location) return null
+    if (
+      loadingLocationSelection &&
+      (loadingLocationSelection.address === location || loadingLocationSelection.name === location)
+    ) {
+      return { lat: loadingLocationSelection.lat, lon: loadingLocationSelection.lng }
+    }
+    const result = await lookupLocation(location)
+    return result ? { lat: result.lat, lon: result.lng } : null
+  }, [lookupLocation, loadingLocationSelection])
+
   // Get sorted drivers by distance from pickup location
-  const getSortedDriversByDistance = useCallback(async (pickupLocation) => {
+  const getSortedDriversByDistance = useCallback(async (pickupLocation, trackingDataOverride = null) => {
     if (!pickupLocation) return drivers
     
     const pickupCoords = await getPickupCoordinates(pickupLocation)
     if (!pickupCoords) return drivers
     
-    const trackingData = Array.isArray(vehicleTrackingData) ? vehicleTrackingData : []
+    const trackingData = Array.isArray(trackingDataOverride)
+      ? trackingDataOverride
+      : Array.isArray(vehicleTrackingData)
+        ? vehicleTrackingData
+        : []
     if (trackingData.length === 0) return drivers
     
     const driversWithDistance = drivers.map(driver => {
@@ -780,7 +911,7 @@ export default function LoadPlanPage() {
       if (b.distance === null) return -1
       return a.distance - b.distance
     })
-  }, [drivers, calculateDistance, getPickupCoordinates, vehicleTrackingData])
+  }, [drivers, calculateDistance, getPickupCoordinates])
 
   // State for sorted drivers
   const [sortedDrivers, setSortedDrivers] = useState(drivers)
@@ -844,23 +975,20 @@ export default function LoadPlanPage() {
           }
         }
         
-        // Geocode loading and drop-off locations
-        const [loadingResponse, dropOffResponse] = await Promise.all([
-          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(loadingLocation)}.json?access_token=${mapboxToken}&limit=12&autocomplete=false&language=en&country=ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG`),
-          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(dropOffPoint)}.json?access_token=${mapboxToken}&limit=12&autocomplete=false&language=en&country=ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG`)
+        const [loadingLookup, dropOffLookup] = await Promise.all([
+          loadingLocationSelection &&
+          (loadingLocationSelection.address === loadingLocation || loadingLocationSelection.name === loadingLocation)
+            ? loadingLocationSelection
+            : lookupLocation(loadingLocation),
+          dropOffSelection &&
+          (dropOffSelection.address === dropOffPoint || dropOffSelection.name === dropOffPoint)
+            ? dropOffSelection
+            : lookupLocation(dropOffPoint)
         ])
-        
-        const [loadingData, dropOffData] = await Promise.all([
-          loadingResponse.json(),
-          dropOffResponse.json()
-        ])
-        
-        const loadingFeature = pickBestGeocodeFeature(loadingLocation, loadingData.features)
-        const dropOffFeature = pickBestGeocodeFeature(dropOffPoint, dropOffData.features)
 
-        if (loadingFeature?.center && dropOffFeature?.center) {
-          const loadingCoords = loadingFeature.center
-          const dropOffCoords = dropOffFeature.center
+        if (loadingLookup && dropOffLookup) {
+          const loadingCoords = [loadingLookup.lng, loadingLookup.lat]
+          const dropOffCoords = [dropOffLookup.lng, dropOffLookup.lat]
           
           // Build waypoints string including stop points
           let waypoints = `${loadingCoords[0]},${loadingCoords[1]}`
@@ -942,7 +1070,7 @@ export default function LoadPlanPage() {
     // Add a small delay to prevent too frequent updates
     const timeoutId = setTimeout(previewRoute, 500)
     return () => clearTimeout(timeoutId)
-  }, [loadingLocation, dropOffPoint, stopPoints, customStopPoints, driverAssignments, isManuallyOrdered])
+  }, [loadingLocation, dropOffPoint, stopPoints, customStopPoints, driverAssignments, isManuallyOrdered, lookupLocation, loadingLocationSelection, dropOffSelection])
 
 
 
@@ -960,7 +1088,7 @@ export default function LoadPlanPage() {
       .then((vehicleData) => {
         if (!isMounted) return null
         setVehicleTrackingData(vehicleData)
-        return getSortedDriversByDistance(loadingLocation)
+        return getSortedDriversByDistance(loadingLocation, vehicleData)
       })
       .then((sorted) => {
         if (!isMounted || !sorted) return
@@ -1353,19 +1481,10 @@ export default function LoadPlanPage() {
     const [destLng, destLat] = routeCoords[routeCoords.length - 1]
     
     return availableStopPoints.filter(point => {
-      if (!point.coordinates) return false
+      const coordPairs = parseStoredCoordinates(point.coordinatesParsed || point.coordinates)
+      if (coordPairs.length === 0) return false
       
       try {
-        const coordPairs = point.coordinates.split(' ')
-          .filter(coord => coord.trim())
-          .map(coord => {
-            const [lng, lat] = coord.split(',')
-            return [parseFloat(lng), parseFloat(lat)]
-          })
-          .filter(pair => !isNaN(pair[0]) && !isNaN(pair[1]))
-        
-        if (coordPairs.length === 0) return false
-        
         // Use centroid of stop point polygon
         const avgLng = coordPairs.reduce((sum, coord) => sum + coord[0], 0) / coordPairs.length
         const avgLat = coordPairs.reduce((sum, coord) => sum + coord[1], 0) / coordPairs.length
@@ -1385,7 +1504,7 @@ export default function LoadPlanPage() {
         return false
       }
     })
-  }, [availableStopPoints, loadingLocation, dropOffPoint, optimizedRoute, distanceToRoute, calculateDistance])
+  }, [availableStopPoints, loadingLocation, dropOffPoint, optimizedRoute, distanceToRoute, calculateDistance, parseStoredCoordinates])
 
   // Get selected stop points with coordinates including custom locations
   const getSelectedStopPointsData = useCallback(async () => {
@@ -1395,17 +1514,9 @@ export default function LoadPlanPage() {
     if (availableStopPoints.length === 0 && (stopPoints.length > 0 || customStopPoints.some(p => p))) {
       console.log('Loading stop points from database...')
       try {
-        const { data: stopPointsData, error: stopPointsError } = await supabase
-          .from('stop_points')
-          .select('id, name, name2, coordinates')
-          .order('name')
-        
-        if (stopPointsError) {
-          console.error('Stop points error:', stopPointsError)
-        } else {
-          setAvailableStopPoints(stopPointsData || [])
-          console.log('Loaded stop points:', stopPointsData?.length || 0)
-        }
+        const stopPointOptions = await fetchStopPointOptions()
+        setAvailableStopPoints(stopPointOptions)
+        console.log('Loaded stop points:', stopPointOptions?.length || 0)
       } catch (err) {
         console.error('Error fetching stop points:', err)
       }
@@ -1421,17 +1532,17 @@ export default function LoadPlanPage() {
       if (customLocation) {
         // Geocode custom location
         try {
-          const response = await fetch(
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(customLocation)}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}&limit=12&autocomplete=false&language=en&country=ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG`
-          )
-          const data = await response.json()
-          const bestFeature = pickBestGeocodeFeature(customLocation, data.features)
-          if (bestFeature?.center) {
-            const [lng, lat] = bestFeature.center
+          const selectedLookup = customStopSelections[i]
+          const lookup =
+            selectedLookup &&
+            (selectedLookup.address === customLocation || selectedLookup.name === customLocation)
+              ? selectedLookup
+              : await lookupLocation(customLocation)
+          if (lookup) {
             results.push({
               id: `custom_${i}`,
               name: customLocation,
-              coordinates: [[lng, lat]]
+              coordinates: [[lookup.lng, lookup.lat]]
             })
           }
         } catch (error) {
@@ -1439,20 +1550,15 @@ export default function LoadPlanPage() {
         }
       } else if (pointId) {
         // Use existing stop point - use current availableStopPoints or fetch directly
-        let point = availableStopPoints.find(p => p.id.toString() === pointId)
+        let point = availableStopPoints.find(p => String(p.id) === String(pointId))
         
         // If not found in current array, fetch directly from database
         if (!point) {
           console.log('Stop point not found in cache, fetching from database...')
           try {
-            const { data: pointData, error } = await supabase
-              .from('stop_points')
-              .select('id, name, name2, coordinates')
-              .eq('id', pointId)
-              .single()
-            
-            if (!error && pointData) {
-              point = pointData
+            const stopPointOptions = await fetchStopPointOptions()
+            point = stopPointOptions.find((option) => String(option.id) === String(pointId))
+            if (point) {
               console.log('Fetched stop point from database:', point)
             }
           } catch (err) {
@@ -1461,21 +1567,15 @@ export default function LoadPlanPage() {
         }
         
         console.log('Found stop point for ID', pointId, ':', point)
-        if (point?.coordinates) {
+        const coordPairs = parseStoredCoordinates(point?.coordinatesParsed || point?.coordinates)
+        if (coordPairs.length > 0) {
           try {
-            const coordPairs = point.coordinates.split(' ')
-              .filter(coord => coord.trim())
-              .map(coord => {
-                const [lng, lat] = coord.split(',')
-                return [parseFloat(lng), parseFloat(lat)]
-              })
-              .filter(pair => !isNaN(pair[0]) && !isNaN(pair[1]))
-            
             console.log('Parsed coordinates:', coordPairs)
             results.push({
               id: point.id,
               name: point.name,
-              coordinates: coordPairs
+              coordinates: coordPairs,
+              sourceType: point.sourceType || 'stop_point',
             })
           } catch (error) {
             console.error('Error parsing coordinates:', error)
@@ -1489,7 +1589,7 @@ export default function LoadPlanPage() {
     
     console.log('getSelectedStopPointsData returning:', results)
     return results
-  }, [stopPoints, customStopPoints, availableStopPoints])
+  }, [stopPoints, customStopPoints, availableStopPoints, lookupLocation, customStopSelections, fetchStopPointOptions, parseStoredCoordinates])
 
   // Optimized handlers with useCallback
   const handleDriverChange = useCallback((driverIndex, driverId) => {
@@ -1551,7 +1651,7 @@ export default function LoadPlanPage() {
       }
       setVehicleTrackingData(vehicleData)
       
-      const sorted = await getSortedDriversByDistance(loadingLocation)
+      const sorted = await getSortedDriversByDistance(loadingLocation, vehicleData)
       console.log('Sorted drivers:', sorted.filter(d => d.distance !== null).length, 'with distances')
       setSortedDrivers(sorted)
       
@@ -1746,23 +1846,15 @@ export default function LoadPlanPage() {
       // Always geocode client address as an additional option
       if (clientData.address) {
         try {
-          const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-          if (mapboxToken) {
-            const response = await fetch(
-              `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(clientData.address)}.json?access_token=${mapboxToken}&limit=12&autocomplete=false&language=en&country=ZA,BW,ZW,ZM,MZ,MW,NA,SZ,LS,AO,CD,TZ,KE,UG`
-            )
-            const data = await response.json()
-            const bestFeature = pickBestGeocodeFeature(clientData.address, data.features)
-            if (bestFeature?.center) {
-              const [lng, lat] = bestFeature.center
-              const geocodedClient = {
-                ...clientData,
-                geocoded_coordinates: `${lng},${lat}`,
-                geocoded_address: bestFeature.place_name
-              }
-              setSelectedClient(geocodedClient)
-              console.log(`✓ Geocoded client address: ${clientData.address} -> ${lng},${lat}`)
+          const lookup = await lookupLocation(clientData.address)
+          if (lookup) {
+            const geocodedClient = {
+              ...clientData,
+              geocoded_coordinates: `${lookup.lng},${lookup.lat}`,
+              geocoded_address: lookup.address
             }
+            setSelectedClient(geocodedClient)
+            console.log(`Geocoded client address: ${clientData.address} -> ${lookup.lng},${lookup.lat}`)
           }
         } catch (error) {
           console.error('Error geocoding client address:', error)
@@ -1782,7 +1874,7 @@ export default function LoadPlanPage() {
     }
   }
 
-  const handleUseAsPickup = () => {
+  const handleUseAsPickup = async () => {
     // Use stored coordinates first, fallback to geocoded address if no coordinates
     if (selectedClient?.coordinates) {
       try {
@@ -1791,16 +1883,8 @@ export default function LoadPlanPage() {
           const lng = parseFloat(coords[0])
           const lat = parseFloat(coords[1])
           if (!isNaN(lng) && !isNaN(lat)) {
-            fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`)
-              .then(response => response.json())
-              .then(data => {
-                if (data.features && data.features.length > 0) {
-                  setLoadingLocation(data.features[0].place_name)
-                } else {
-                  setLoadingLocation(`${lat},${lng}`)
-                }
-              })
-              .catch(() => setLoadingLocation(`${lat},${lng}`))
+            const address = await reverseLookupLocation(lat, lng)
+            setLoadingLocation(address || `${lat},${lng}`)
           }
         }
       } catch (error) {
@@ -1812,7 +1896,7 @@ export default function LoadPlanPage() {
     setShowAddressPopup(false)
   }
 
-  const handleUseAsDropoff = () => {
+  const handleUseAsDropoff = async () => {
     // Use stored coordinates first, fallback to geocoded address if no coordinates
     if (selectedClient?.coordinates) {
       try {
@@ -1821,16 +1905,8 @@ export default function LoadPlanPage() {
           const lng = parseFloat(coords[0])
           const lat = parseFloat(coords[1])
           if (!isNaN(lng) && !isNaN(lat)) {
-            fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`)
-              .then(response => response.json())
-              .then(data => {
-                if (data.features && data.features.length > 0) {
-                  setDropOffPoint(data.features[0].place_name)
-                } else {
-                  setDropOffPoint(`${lat},${lng}`)
-                }
-              })
-              .catch(() => setDropOffPoint(`${lat},${lng}`))
+            const address = await reverseLookupLocation(lat, lng)
+            setDropOffPoint(address || `${lat},${lng}`)
           }
         }
       } catch (error) {
@@ -2018,7 +2094,7 @@ export default function LoadPlanPage() {
             return { type: 'custom', name: customStopPoints[index], id: `custom_${index}` }
           } else if (pointId) {
             const point = availableStopPoints.find(p => p.id.toString() === pointId)
-            return point ? { type: 'existing', ...point } : null
+            return point ? { type: 'existing', source_type: point.sourceType || 'stop_point', ...point } : null
           }
           return null
         }).filter(Boolean),
@@ -2286,7 +2362,19 @@ export default function LoadPlanPage() {
                       onChange={(value) => {
                         console.log('Loading location changed to:', value)
                         setLoadingLocation(value)
+                        setLoadingLocationSelection(null)
                         setOptimizedRoute(null) // Force route recalculation
+                      }}
+                      onSelect={(suggestion) => {
+                        const selected = normalizeSelectedLookup(suggestion)
+                        if (!selected) return
+                        const displayValue =
+                          suggestion?.type === 'place' && suggestion?.name
+                            ? suggestion.name
+                            : (suggestion.address || suggestion.name || '')
+                        setLoadingLocation(displayValue)
+                        setLoadingLocationSelection(selected)
+                        setOptimizedRoute(null)
                       }}
                       placeholder="Search for loading location"
                       clientLocations={useMemo(() => {
@@ -2316,7 +2404,19 @@ export default function LoadPlanPage() {
                       onChange={(value) => {
                         console.log('Drop off location changed to:', value)
                         setDropOffPoint(value)
+                        setDropOffSelection(null)
                         setOptimizedRoute(null) // Force route recalculation
+                      }}
+                      onSelect={(suggestion) => {
+                        const selected = normalizeSelectedLookup(suggestion)
+                        if (!selected) return
+                        const displayValue =
+                          suggestion?.type === 'place' && suggestion?.name
+                            ? suggestion.name
+                            : (suggestion.address || suggestion.name || '')
+                        setDropOffPoint(displayValue)
+                        setDropOffSelection(selected)
+                        setOptimizedRoute(null)
                       }}
                       placeholder="Search for drop off location"
                       clientLocations={useMemo(() => {
@@ -2398,16 +2498,17 @@ export default function LoadPlanPage() {
                             value={stopPoint}
                             onChange={(value) => {
                               console.log('StopPointDropdown onChange called with value:', value)
-                              const updated = [...stopPoints]
-                              updated[index] = value
-                              console.log('Setting stopPoints from:', stopPoints, 'to:', updated)
-                              setStopPoints(updated)
-                              const updatedCustom = [...customStopPoints]
-                              updatedCustom[index] = ''
-                              setCustomStopPoints(updatedCustom)
-                              // Force route recalculation
-                              setOptimizedRoute(null)
-                            }}
+                            const updated = [...stopPoints]
+                            updated[index] = value
+                            console.log('Setting stopPoints from:', stopPoints, 'to:', updated)
+                            setStopPoints(updated)
+                            const updatedCustom = [...customStopPoints]
+                            updatedCustom[index] = ''
+                            setCustomStopPoints(updatedCustom)
+                            setCustomStopSelections(prev => ({ ...prev, [index]: null }))
+                            // Force route recalculation
+                            setOptimizedRoute(null)
+                          }}
                             stopPoints={filteredStopPoints}
                             placeholder="Select from existing stop points"
                             isLoading={isLoadingStopPoints}
@@ -2424,6 +2525,11 @@ export default function LoadPlanPage() {
                             setStopPoints(updated)
                             const updatedCustom = customStopPoints.filter((_, i) => i !== index)
                             setCustomStopPoints(updatedCustom)
+                            setCustomStopSelections(prev => {
+                              const next = { ...prev }
+                              delete next[index]
+                              return next
+                            })
                             setIsManuallyOrdered(false)
                           }}
                         >
@@ -2442,12 +2548,32 @@ export default function LoadPlanPage() {
                           }
                           updatedCustom[index] = value
                           setCustomStopPoints(updatedCustom)
+                          setCustomStopSelections(prev => ({ ...prev, [index]: null }))
                           if (value) {
                             const updated = [...stopPoints]
                             updated[index] = ''
                             setStopPoints(updated)
                           }
                           // Force route recalculation
+                          setOptimizedRoute(null)
+                        }}
+                        onSelect={(suggestion) => {
+                          const updatedCustom = [...customStopPoints]
+                          while (updatedCustom.length <= index) {
+                            updatedCustom.push('')
+                          }
+                          updatedCustom[index] =
+                            suggestion?.type === 'place' && suggestion?.name
+                              ? suggestion.name
+                              : (suggestion.address || suggestion.name || '')
+                          setCustomStopPoints(updatedCustom)
+                          setCustomStopSelections(prev => ({
+                            ...prev,
+                            [index]: normalizeSelectedLookup(suggestion),
+                          }))
+                          const updated = [...stopPoints]
+                          updated[index] = ''
+                          setStopPoints(updated)
                           setOptimizedRoute(null)
                         }}
                         placeholder="Search for custom stop location"
@@ -2471,6 +2597,14 @@ export default function LoadPlanPage() {
                           key={`${loadingLocation}-${dropOffPoint}-${stopPoints.join(',')}-${customStopPoints.join(',')}`}
                           origin={loadingLocation}
                           destination={dropOffPoint}
+                          originCoordinates={loadingLocationSelection ? {
+                            lat: loadingLocationSelection.lat,
+                            lng: loadingLocationSelection.lng,
+                          } : undefined}
+                          destinationCoordinates={dropOffSelection ? {
+                            lat: dropOffSelection.lat,
+                            lng: dropOffSelection.lng,
+                          } : undefined}
                           routeData={optimizedRoute}
                           stopPoints={stopPoints.length > 0 || customStopPoints.some(p => p) ? 'async' : []}
                           getStopPointsData={getSelectedStopPointsData}

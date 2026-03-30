@@ -4,45 +4,17 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MapPin, Route } from 'lucide-react';
 
-const pickBestFeature = (query: string, features: any[] = []) => {
-  if (!Array.isArray(features) || features.length === 0) return null;
-
-  const normalizedQuery = String(query || '').trim().toLowerCase();
-  const queryParts = normalizedQuery
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  const scored = features.map((feature) => {
-    const text = String(feature?.text || '').toLowerCase();
-    const placeName = String(feature?.place_name || '').toLowerCase();
-    let score = 0;
-
-    if (placeName === normalizedQuery) score += 200;
-    if (text === normalizedQuery) score += 150;
-    if (placeName.includes(normalizedQuery)) score += 80;
-    if (text.includes(normalizedQuery)) score += 60;
-
-    queryParts.forEach((part) => {
-      if (placeName.includes(part)) score += 40;
-      if (text.includes(part)) score += 25;
-    });
-
-    return { feature, score };
-  });
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored[0]?.feature || features[0];
-};
-
 interface RoutePreviewMapProps {
   origin: string;
   destination: string;
+  originCoordinates?: { lat: number; lng: number } | null;
+  destinationCoordinates?: { lat: number; lng: number } | null;
   routeData?: any;
   stopPoints?: Array<{
-    id: number;
+    id: number | string;
     name: string;
     coordinates: number[][];
+    sourceType?: string;
   }> | string;
   getStopPointsData?: () => Promise<any[]>;
   driverLocation?: {
@@ -60,7 +32,7 @@ interface RoutePreviewMapProps {
   preserveOrder?: boolean;
 }
 
-export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [], getStopPointsData, driverLocation, clientLocation, selectedClient, tripId, preserveOrder = false }: RoutePreviewMapProps) {
+export function RoutePreviewMap({ origin, destination, originCoordinates, destinationCoordinates, routeData, stopPoints = [], getStopPointsData, driverLocation, clientLocation, selectedClient, tripId, preserveOrder = false }: RoutePreviewMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<any>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -137,14 +109,14 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
       markersRef.current = [];
 
       try {
-        let originCoords = null;
-        let destCoords = null;
+        let originCoords = originCoordinates || null;
+        let destCoords = destinationCoordinates || null;
         
         // Geocode locations if available
-        if (origin && destination) {
+        if ((!originCoords || !destCoords) && origin && destination) {
           [originCoords, destCoords] = await Promise.all([
-            geocodeLocation(origin),
-            geocodeLocation(destination)
+            originCoords || geocodeLocation(origin),
+            destCoords || geocodeLocation(destination)
           ]);
         }
 
@@ -304,6 +276,8 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
               }
             });
             
+            const isFuelStop = stopPoint.sourceType === 'fuel_stop';
+
             map.current.addLayer({
               id: circleId,
               type: 'circle',
@@ -316,17 +290,18 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
                   ],
                   base: 2
                 },
-                'circle-color': '#87CEEB',
-                'circle-opacity': 0.3,
-                'circle-stroke-color': '#4682B4',
+                'circle-color': isFuelStop ? '#22c55e' : '#87CEEB',
+                'circle-opacity': isFuelStop ? 0.22 : 0.3,
+                'circle-stroke-color': isFuelStop ? '#15803d' : '#4682B4',
                 'circle-stroke-width': 2
               }
             });
             
-            // Add orange marker for stop point
-            const marker = new mapboxgl.Marker({ color: 'orange' })
+            const markerColor = isFuelStop ? 'green' : 'orange';
+            const markerLabel = isFuelStop ? `Fuel Stop ${index + 1}: ${stopPoint.name}` : `Stop ${index + 1}: ${stopPoint.name}`;
+            const marker = new mapboxgl.Marker({ color: markerColor })
               .setLngLat([avgLng, avgLat])
-              .setPopup(new mapboxgl.Popup().setText(`Stop ${index + 1}: ${stopPoint.name}`))
+              .setPopup(new mapboxgl.Popup().setText(markerLabel))
               .addTo(map.current);
             markersRef.current.push(marker);
             
@@ -359,10 +334,10 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
                 type: 'line',
                 source: arrowId,
                 paint: {
-                  'line-color': '#ff6b35',
-                  'line-width': 3,
-                  'line-dasharray': [2, 1]
-                }
+                'line-color': isFuelStop ? '#16a34a' : '#ff6b35',
+                'line-width': 3,
+                'line-dasharray': [2, 1]
+              }
               });
             }
           });
@@ -375,7 +350,7 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
         }
 
         // Fetch route from API if tripId is provided, otherwise use routeData or calculate
-        let mainRoute = routeData?.geometry;
+        let mainRoute = routeData?.route?.geometry || routeData?.geometry;
         
         if (tripId && !mainRoute) {
           try {
@@ -539,17 +514,64 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
               asyncStopPoints.forEach((stopPoint, index) => {
                 console.log('Processing async stop point:', stopPoint);
                 if (stopPoint.coordinates && stopPoint.coordinates.length > 0) {
-                  // Calculate center point for marker
                   const coords = stopPoint.coordinates;
                   const avgLng = coords.reduce((sum, coord) => sum + coord[0], 0) / coords.length;
                   const avgLat = coords.reduce((sum, coord) => sum + coord[1], 0) / coords.length;
+                  const isFuelStop = stopPoint.sourceType === 'fuel_stop';
+                  const sourceId = `async-stop-${stopPoint.id}`;
+                  const layerId = `async-stop-layer-${stopPoint.id}`;
+
+                  if (map.current.getLayer(`${layerId}-border`)) {
+                    map.current.removeLayer(`${layerId}-border`);
+                  }
+                  if (map.current.getLayer(layerId)) {
+                    map.current.removeLayer(layerId);
+                  }
+                  if (map.current.getSource(sourceId)) {
+                    map.current.removeSource(sourceId);
+                  }
+
+                  if (coords.length >= 3) {
+                    map.current.addSource(sourceId, {
+                      type: 'geojson',
+                      data: {
+                        type: 'Feature',
+                        properties: {
+                          name: stopPoint.name
+                        },
+                        geometry: {
+                          type: 'Polygon',
+                          coordinates: [coords]
+                        }
+                      }
+                    });
+
+                    map.current.addLayer({
+                      id: layerId,
+                      type: 'fill',
+                      source: sourceId,
+                      paint: {
+                        'fill-color': isFuelStop ? '#22c55e' : '#f97316',
+                        'fill-opacity': isFuelStop ? 0.22 : 0.2
+                      }
+                    });
+
+                    map.current.addLayer({
+                      id: `${layerId}-border`,
+                      type: 'line',
+                      source: sourceId,
+                      paint: {
+                        'line-color': isFuelStop ? '#15803d' : '#ea580c',
+                        'line-width': 2
+                      }
+                    });
+                  }
                   
                   console.log('Adding marker at:', avgLng, avgLat);
-                  // Add orange marker for stop point
                   if (map.current) {
-                    const marker = new mapboxgl.Marker({ color: 'orange' })
+                    const marker = new mapboxgl.Marker({ color: isFuelStop ? 'green' : 'orange' })
                       .setLngLat([avgLng, avgLat])
-                      .setPopup(new mapboxgl.Popup().setText(`Stop: ${stopPoint.name}`))
+                      .setPopup(new mapboxgl.Popup().setText(`${isFuelStop ? 'Fuel Stop' : 'Stop'}: ${stopPoint.name}`))
                       .addTo(map.current);
                     markersRef.current.push(marker);
                   }
@@ -598,13 +620,14 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
                 }
               });
 
+              const isFuelStop = stopPoint.sourceType === 'fuel_stop';
               map.current.addLayer({
                 id: layerId,
                 type: 'fill',
                 source: sourceId,
                 paint: {
-                  'fill-color': `hsl(${(index * 60) % 360}, 70%, 50%)`,
-                  'fill-opacity': 0.4
+                  'fill-color': isFuelStop ? '#22c55e' : `hsl(${(index * 60) % 360}, 70%, 50%)`,
+                  'fill-opacity': isFuelStop ? 0.22 : 0.4
                 }
               });
 
@@ -614,7 +637,7 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
                 type: 'line',
                 source: sourceId,
                 paint: {
-                  'line-color': `hsl(${(index * 60) % 360}, 70%, 40%)`,
+                  'line-color': isFuelStop ? '#15803d' : `hsl(${(index * 60) % 360}, 70%, 40%)`,
                   'line-width': 2
                 }
               });
@@ -624,7 +647,7 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
                 const mapboxgl = (await import('mapbox-gl')).default;
                 new mapboxgl.Popup()
                   .setLngLat(e.lngLat)
-                  .setHTML(`<strong>${stopPoint.name}</strong>`)
+                  .setHTML(`<strong>${stopPoint.name}</strong><div style="font-size:12px;color:#64748b;">${isFuelStop ? 'Fuel Stop' : 'Stop Point'}</div>`)
                   .addTo(map.current);
               });
             }
@@ -641,7 +664,7 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
         clearTimeout(updateTimeoutRef.current);
       }
     };
-  }, [mapLoaded, origin, destination, selectedClient, tripId, stopPoints, driverLocation, getStopPointsData, preserveOrder, routeData]);
+  }, [mapLoaded, origin, destination, originCoordinates, destinationCoordinates, selectedClient, tripId, stopPoints, driverLocation, getStopPointsData, preserveOrder, routeData]);
 
   const geocodeLocation = async (location: string) => {
     const cacheKey = `geocode-${location}`;
@@ -650,18 +673,17 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
     }
     
     try {
-      const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location)}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}&limit=8&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`
-      );
+      const response = await fetch(`/api/location-lookup?q=${encodeURIComponent(location)}`);
       const data = await response.json();
-      
-      const bestFeature = pickBestFeature(location, data.features);
-      if (bestFeature?.center) {
-        const [lng, lat] = bestFeature.center;
+      const firstResult = Array.isArray(data?.results) ? data.results[0] : null;
+
+      if (firstResult?.coordinates?.length >= 2) {
+        const [lng, lat] = firstResult.coordinates;
         const result = { lat, lng };
         cacheRef.current.set(cacheKey, result);
         return result;
       }
+
       cacheRef.current.set(cacheKey, null);
       return null;
     } catch (error) {
@@ -859,11 +881,11 @@ export function RoutePreviewMap({ origin, destination, routeData, stopPoints = [
                     key={point.id} 
                     className="px-2 py-1 text-xs rounded"
                     style={{ 
-                      backgroundColor: `hsl(${(index * 60) % 360}, 70%, 90%)`,
-                      color: `hsl(${(index * 60) % 360}, 70%, 30%)`
+                      backgroundColor: point.sourceType === 'fuel_stop' ? '#dcfce7' : `hsl(${(index * 60) % 360}, 70%, 90%)`,
+                      color: point.sourceType === 'fuel_stop' ? '#166534' : `hsl(${(index * 60) % 360}, 70%, 30%)`
                     }}
                   >
-                    {point.name}
+                    {point.name}{point.sourceType === 'fuel_stop' ? ' • Fuel Stop' : ''}
                   </span>
                 ))}
               </div>

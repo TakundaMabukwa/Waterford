@@ -12,12 +12,19 @@ import { Textarea } from '@/components/ui/textarea'
 import { LocationAutocomplete } from '@/components/ui/location-autocomplete'
 
 type Point = { lng: number; lat: number }
+type LocationLookupSelection = {
+  id?: string
+  name?: string
+  address?: string
+  coordinates?: [number, number] | null
+  city?: string
+  state?: string
+  country?: string
+  type?: string
+}
 
 const MAPBOX_SCRIPT_ID = 'fuel-stop-mapbox-js'
 const MAPBOX_STYLE_ID = 'fuel-stop-mapbox-css'
-
-const parseContextValue = (feature: any, prefix: string) =>
-  feature?.context?.find((item: any) => String(item.id || '').startsWith(prefix))?.text || ''
 
 const ensureMapboxAssets = async () => {
   if ((window as any).mapboxgl) return (window as any).mapboxgl
@@ -77,6 +84,7 @@ export function FuelStopForm({
   const [isSaving, setIsSaving] = useState(false)
   const [isLocating, setIsLocating] = useState(false)
   const [locationQuery, setLocationQuery] = useState('')
+  const [selectedLocation, setSelectedLocation] = useState<LocationLookupSelection | null>(null)
   const [name, setName] = useState('')
   const [geozoneName, setGeozoneName] = useState('')
   const [address, setAddress] = useState('')
@@ -94,6 +102,29 @@ export function FuelStopForm({
   const [polygonPoints, setPolygonPoints] = useState<Point[]>([])
   const [drawMode, setDrawMode] = useState<'station' | 'polygon'>('station')
   const [error, setError] = useState<string | null>(null)
+
+  const applySelectedLocation = (selection: LocationLookupSelection | null) => {
+    if (!selection?.coordinates || selection.coordinates.length < 2) {
+      setSelectedLocation(null)
+      return
+    }
+
+    const [lng, lat] = selection.coordinates
+    setSelectedLocation(selection)
+    setLocationQuery(selection.type === 'place' && selection.name ? selection.name : selection.address || selection.name || '')
+    setCenterPoint({ lng, lat })
+    setDrawMode('polygon')
+    setAddress(selection.address || '')
+    setCity(selection.city || '')
+    setState(selection.state || '')
+    setCountry(selection.country || '')
+    if (!name) {
+      setName(selection.name || 'Fuel Stop')
+    }
+    if (!geozoneName) {
+      setGeozoneName(selection.name || 'Fuel Stop Zone')
+    }
+  }
 
   useEffect(() => {
     drawModeRef.current = drawMode
@@ -280,31 +311,26 @@ export function FuelStopForm({
     setError(null)
 
     try {
-      const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-      const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
-          locationQuery
-        )}.json?access_token=${token}&limit=1&autocomplete=false&types=country,region,postcode,district,place,locality,neighborhood,address,poi`
-      )
-      const data = await response.json()
-      const feature = Array.isArray(data?.features) ? data.features[0] : null
-      if (!feature?.center) {
-        throw new Error('Location not found')
+      if (
+        selectedLocation &&
+        (selectedLocation.address === locationQuery || selectedLocation.name === locationQuery)
+      ) {
+        applySelectedLocation(selectedLocation)
+        return
       }
 
-      const [lng, lat] = feature.center
-      setCenterPoint({ lng, lat })
-      setDrawMode('polygon')
-      setAddress(feature.place_name || '')
-      setCity(parseContextValue(feature, 'place'))
-      setState(parseContextValue(feature, 'region'))
-      setCountry(parseContextValue(feature, 'country'))
-      if (!name) {
-        setName(feature.text || 'Fuel Stop')
+      const response = await fetch(`/api/location-lookup?q=${encodeURIComponent(locationQuery)}`)
+      const data = await response.json()
+      const selection = Array.isArray(data?.results) ? data.results[0] : null
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Location lookup failed')
       }
-      if (!geozoneName) {
-        setGeozoneName(feature.text || 'Fuel Stop Zone')
+
+      if (!selection?.coordinates || selection.coordinates.length < 2) {
+        throw new Error('Location not found')
       }
+      applySelectedLocation(selection)
     } catch (locateError: any) {
       console.error('Fuel stop geocode error:', locateError)
       setError(locateError?.message || 'Failed to locate fuel station')
@@ -315,6 +341,7 @@ export function FuelStopForm({
 
   const resetForm = () => {
     setLocationQuery('')
+    setSelectedLocation(null)
     setName('')
     setGeozoneName('')
     setAddress('')
@@ -411,7 +438,17 @@ export function FuelStopForm({
                 <Label>Search Location</Label>
                 <div className="flex gap-2">
                   <div className="flex-1">
-                    <LocationAutocomplete value={locationQuery} onChange={setLocationQuery} placeholder="Search a fuel station or address" />
+                    <LocationAutocomplete
+                      value={locationQuery}
+                      onChange={(value) => {
+                        setLocationQuery(value)
+                        setSelectedLocation(null)
+                      }}
+                      onSelect={(suggestion) => {
+                        applySelectedLocation(suggestion)
+                      }}
+                      placeholder="Search a fuel station or address"
+                    />
                   </div>
                   <Button type="button" variant="outline" onClick={handleLocate} disabled={isLocating}>
                     {isLocating ? 'Locating...' : 'Locate'}

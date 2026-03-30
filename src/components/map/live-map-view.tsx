@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { X, Search, MapPin, Navigation, Loader2, Video, Fuel, FileText, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { mapFuelStopToOverlay, type FuelStopOverlay } from "@/lib/fuel-stop-map";
 
 declare global {
   interface Window {
@@ -38,6 +39,7 @@ export default function LiveMapView() {
   const router = useRouter();
   const supabase = createClient();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [fuelStops, setFuelStops] = useState<FuelStopOverlay[]>([]);
   const [allowedPlates, setAllowedPlates] = useState<Set<string>>(new Set());
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -48,6 +50,7 @@ export default function LiveMapView() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<any>(null);
   const markers = useRef<any[]>([]);
+  const fuelStopMarkers = useRef<any[]>([]);
   const fetchIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const mapInitialized = useRef(false);
   const boundsSet = useRef(false);
@@ -78,6 +81,27 @@ export default function LiveMapView() {
     }
 
     fetchAllowedVehicles();
+  }, [supabase]);
+
+  useEffect(() => {
+    async function fetchFuelStops() {
+      const { data, error } = await supabase
+        .from("fuel_stops")
+        .select("id, name, name2, geozone_name, geozone_coordinates, location_coordinates, coords, coordinates, radius");
+
+      if (error) {
+        console.error("Error loading fuel stops for live map:", error);
+        return;
+      }
+
+      setFuelStops(
+        (data || [])
+          .map((fuelStop: any) => mapFuelStopToOverlay(fuelStop))
+          .filter(Boolean) as FuelStopOverlay[]
+      );
+    }
+
+    fetchFuelStops();
   }, [supabase]);
 
   // Fetch vehicles with video availability
@@ -369,6 +393,8 @@ export default function LiveMapView() {
     return () => {
       markers.current.forEach((marker) => marker.remove());
       markers.current = [];
+      fuelStopMarkers.current.forEach((marker) => marker.remove());
+      fuelStopMarkers.current = [];
       if (map.current) {
         map.current.remove();
         map.current = null;
@@ -477,6 +503,108 @@ export default function LiveMapView() {
       }
     }
   }, [vehicles, mapLoaded]);
+
+  useEffect(() => {
+    if (!map.current || !mapLoaded || !map.current.isStyleLoaded()) return;
+
+    fuelStopMarkers.current.forEach((marker) => marker.remove());
+    fuelStopMarkers.current = [];
+
+    fuelStops.forEach((fuelStop) => {
+      const sourceId = `fuel-stop-zone-${fuelStop.id}`;
+      const fillLayerId = `${sourceId}-fill`;
+      const lineLayerId = `${sourceId}-line`;
+      const circleLayerId = `${sourceId}-circle`;
+
+      [fillLayerId, lineLayerId, circleLayerId].forEach((layerId) => {
+        if (map.current.getLayer(layerId)) {
+          map.current.removeLayer(layerId);
+        }
+      });
+
+      if (map.current.getSource(sourceId)) {
+        map.current.removeSource(sourceId);
+      }
+
+      if (fuelStop.polygon.length >= 3) {
+        map.current.addSource(sourceId, {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: { name: fuelStop.name },
+            geometry: {
+              type: "Polygon",
+              coordinates: [fuelStop.polygon],
+            },
+          },
+        });
+
+        map.current.addLayer({
+          id: fillLayerId,
+          type: "fill",
+          source: sourceId,
+          paint: {
+            "fill-color": "#22c55e",
+            "fill-opacity": 0.18,
+          },
+        });
+
+        map.current.addLayer({
+          id: lineLayerId,
+          type: "line",
+          source: sourceId,
+          paint: {
+            "line-color": "#15803d",
+            "line-width": 2,
+          },
+        });
+      } else if (fuelStop.center) {
+        map.current.addSource(sourceId, {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: { name: fuelStop.name },
+            geometry: {
+              type: "Point",
+              coordinates: fuelStop.center,
+            },
+          },
+        });
+
+        map.current.addLayer({
+          id: circleLayerId,
+          type: "circle",
+          source: sourceId,
+          paint: {
+            "circle-radius": {
+              stops: [
+                [0, 0],
+                [20, Math.max(10, fuelStop.radiusMeters / 10)],
+              ],
+              base: 2,
+            },
+            "circle-color": "#22c55e",
+            "circle-opacity": 0.18,
+            "circle-stroke-color": "#15803d",
+            "circle-stroke-width": 2,
+          },
+        });
+      }
+
+      if (fuelStop.center) {
+        const marker = new window.mapboxgl.Marker({ color: "#16a34a" })
+          .setLngLat(fuelStop.center)
+          .setPopup(
+            new window.mapboxgl.Popup({ offset: 14 }).setHTML(
+              `<strong>${fuelStop.name}</strong><br/>Fuel Stop Zone`
+            )
+          )
+          .addTo(map.current);
+
+        fuelStopMarkers.current.push(marker);
+      }
+    });
+  }, [fuelStops, mapLoaded]);
 
   // Filter and sort vehicles - video available vehicles first
   const filteredVehicles = vehicles

@@ -29,7 +29,7 @@ export function StopPointDropdown({
   // Get selected stop point display name
   const selectedStopPoint = stopPoints.find(p => p.id.toString() === value)
   const displayValue = selectedStopPoint 
-    ? `${selectedStopPoint.name}${selectedStopPoint.name2 ? ` - ${selectedStopPoint.name2}` : ''}`
+    ? `${selectedStopPoint.name}${selectedStopPoint.sourceType === 'fuel_stop' ? ' (Fuel Stop)' : ''}${selectedStopPoint.name2 ? ` - ${selectedStopPoint.name2}` : ''}`
     : ''
 
   const handleInputChange = (e) => {
@@ -117,9 +117,11 @@ export function StopPointDropdown({
                       <div className="font-medium text-sm truncate">
                         {stopPoint.name}
                       </div>
-                      {stopPoint.name2 && (
+                      {(stopPoint.name2 || stopPoint.sourceType === 'fuel_stop') && (
                         <div className="text-xs text-gray-500 truncate">
-                          {stopPoint.name2}
+                          {stopPoint.sourceType === 'fuel_stop'
+                            ? `${stopPoint.name2 ? `${stopPoint.name2} • ` : ''}Fuel Stop`
+                            : stopPoint.name2}
                         </div>
                       )}
                     </div>
