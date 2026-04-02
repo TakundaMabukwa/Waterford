@@ -98,6 +98,67 @@ type Driver = {
 const getDriverFullName = (driver?: Partial<Driver> | null) =>
   [driver?.first_name, driver?.surname].filter(Boolean).join(' ').trim() || 'Unnamed Driver'
 
+const DRIVER_SELECT_COLUMNS = [
+  'id',
+  'first_name',
+  'surname',
+  'id_or_passport_number',
+  'id_or_passport_document',
+  'email_address',
+  'cell_number',
+  'sa_issued',
+  'work_permit_upload',
+  'license_number',
+  'license_expiry_date',
+  'license_code',
+  'driver_restriction_code',
+  'vehicle_restriction_code',
+  'front_of_driver_pic',
+  'rear_of_driver_pic',
+  'professional_driving_permit',
+  'pdp_expiry_date',
+  'created_at',
+  'created_by',
+  'user_id',
+].join(', ')
+
+const withTimeout = async <T,>(promise: Promise<T>, label: string, timeoutMs = 15000): Promise<T> => {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`${label} timed out`))
+    }, timeoutMs)
+  })
+
+  try {
+    return await Promise.race([promise, timeoutPromise])
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle)
+  }
+}
+
+const buildDriverPayload = (driver: Driver, userId: string | null): Record<string, unknown> => ({
+  first_name: driver.first_name?.trim() || '',
+  surname: driver.surname?.trim() || '',
+  id_or_passport_number: driver.id_or_passport_number?.trim() || '',
+  id_or_passport_document: driver.id_or_passport_document || null,
+  email_address: driver.email_address || null,
+  cell_number: driver.cell_number || null,
+  sa_issued: !!driver.sa_issued,
+  work_permit_upload: driver.work_permit_upload || null,
+  license_number: driver.license_number || null,
+  license_expiry_date: driver.license_expiry_date || null,
+  license_code: driver.license_code || null,
+  driver_restriction_code: driver.driver_restriction_code || null,
+  vehicle_restriction_code: driver.vehicle_restriction_code || null,
+  front_of_driver_pic: driver.front_of_driver_pic || null,
+  rear_of_driver_pic: driver.rear_of_driver_pic || null,
+  professional_driving_permit: !!driver.professional_driving_permit,
+  pdp_expiry_date: driver.pdp_expiry_date || null,
+  created_by: driver.created_by ?? userId,
+})
+
 export default function Drivers() {
   const supabase = createClient()
   const [activeTab, setActiveTab] = useState<string>('drivers-management')
@@ -255,10 +316,15 @@ export default function Drivers() {
   const fetchDrivers = async () => {
     setIsLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('drivers')
-        .select('*')
-        .order('created_at', { ascending: false })
+      const response = await withTimeout(
+        supabase
+          .from('drivers')
+          .select(DRIVER_SELECT_COLUMNS)
+          .order('created_at', { ascending: false }),
+        'Loading drivers',
+      )
+
+      const { data, error } = response
 
       if (error) throw error
       setDrivers((data ?? []) as Driver[])
@@ -420,26 +486,27 @@ export default function Drivers() {
 
     try {
       // attach current user as created_by if available
-      const { data: authUser } = await supabase.auth.getUser()
+      const { data: authUser } = await withTimeout(supabase.auth.getUser(), 'Loading current user')
       const userId = authUser.user?.id ?? null
 
-      const payload: Partial<Driver> = {
-        ...formData,
-        salary: formData.salary,
-        hourly_rate: formData.hourly_rate,
-        created_by: formData.created_by ?? userId,
-      }
+      const payload = buildDriverPayload(formData, userId)
 
       if (isEditing && editingDriverId) {
-        const { error } = await supabase
-          .from('drivers')
-          .update(payload)
-          .eq('id', editingDriverId)
+        const { error } = await withTimeout(
+          supabase
+            .from('drivers')
+            .update(payload)
+            .eq('id', editingDriverId),
+          'Updating driver',
+        )
 
         if (error) throw error
         toast.success('Driver updated')
       } else {
-        const { error } = await supabase.from('drivers').insert(payload as any)
+        const { error } = await withTimeout(
+          supabase.from('drivers').insert(payload as any),
+          'Adding driver',
+        )
 
         if (error) throw error
         toast.success('Driver added')
@@ -528,7 +595,7 @@ export default function Drivers() {
               <span className="sm:hidden">Drivers</span>
             </button>
 
-            <button
+            {/* <button
               onClick={() => setActiveTab('executive-dashboard')}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
                 activeTab === 'executive-dashboard'
@@ -563,7 +630,7 @@ export default function Drivers() {
               <Settings className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Monitoring Config</span>
               <span className="sm:hidden">Config</span>
-            </button>
+            </button> */}
           </div>
         </div>
       </div>
@@ -1569,7 +1636,7 @@ export default function Drivers() {
             </div>
           )}
 
-          {activeTab === 'executive-dashboard' && (
+          {false && (
             <div className="space-y-6">
               {/* Chart Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1582,7 +1649,7 @@ export default function Drivers() {
             </div>
           )}
 
-          {activeTab === 'executive-dashboard-old' && (
+          {false && (
             <div className="space-y-6">
               <div className="bg-gradient-to-r from-sky-100 via-blue-50 to-cyan-50 shadow-lg p-6 border border-blue-200 rounded-lg text-slate-800">
                 <h1 className="font-bold text-2xl text-center">
@@ -2139,7 +2206,7 @@ export default function Drivers() {
             </div>
           )}
 
-          {activeTab === 'drivers-performance' && (
+          {false && (
             <div className="space-y-6">
               {performanceLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -2347,7 +2414,7 @@ export default function Drivers() {
             </div>
           )}
 
-          {activeTab === 'driver-monitoring-config' && (
+          {false && (
             <div className="bg-white shadow-sm border border-gray-200 rounded-lg">
               <div className="overflow-x-auto">
                 <table className="w-full">

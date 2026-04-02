@@ -1,18 +1,14 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { FuelGauge } from '@/components/fuel-system/components/ui/fuel-gauge';
-import { useApp } from '@/components/fuel-system/contexts/AppContext';
+import React, { useEffect, useState } from 'react';
+import { Fuel, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-
-
-import { RefreshCw, Fuel } from 'lucide-react';
+import { FuelGauge } from '@/components/fuel-system/components/ui/fuel-gauge';
 import { ColorPicker } from '@/components/fuel-system/components/ui/color-picker';
+import { useApp } from '@/components/fuel-system/contexts/AppContext';
+import { useUser } from '@/components/fuel-system/contexts/UserContext';
 import { getLastFuelFill, FuelFill } from '@/lib/fuel-fill-detector';
 import { formatForDisplay } from '@/lib/utils/date-formatter';
-import { useToast } from '@/hooks/use-toast';
-import { useUser } from '@/components/fuel-system/contexts/UserContext';
-import { getApiUrl } from '@/lib/utils/api-url';
 
 interface FuelGaugesViewProps {
   onBack: () => void;
@@ -39,43 +35,34 @@ interface FuelConsumptionData {
   lastFuelFill?: FuelFill;
 }
 
-
-
 export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
-  const { fuelData, selectedRoute, vehicles, loading: contextLoading } = useApp();
+  const { selectedRoute, vehicles, loading: contextLoading } = useApp();
   const { userSiteId, isAdmin } = useUser();
-  const { toast } = useToast();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fuelConsumptionData, setFuelConsumptionData] = useState<FuelConsumptionData[]>([]);
-  
-
   const [fuelGaugeColors, setFuelGaugeColors] = useState({
-    high: '#00FF00', // green
-    medium: '#FFFF00', // yellow
-    low: '#FF0000', // red
+    high: '#00FF00',
+    medium: '#FFFF00',
+    low: '#FF0000',
   });
 
-  // Handle note updates
   const handleNoteUpdate = (vehicleId: string | number, note: string) => {
-    setFuelConsumptionData(prev => 
-      prev.map(vehicle => 
-        vehicle.id === vehicleId 
-          ? { ...vehicle, client_notes: note }
-          : vehicle
+    setFuelConsumptionData((prev) =>
+      prev.map((vehicle) =>
+        vehicle.id === vehicleId ? { ...vehicle, client_notes: note } : vehicle
       )
     );
   };
-  
 
-
-  // Fetch color codes from Supabase user settings
   const fetchColorCodes = async () => {
     try {
       const { createClient } = await import('@/lib/supabase/client');
       const supabase = createClient();
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
+
       if (!authUser) return;
 
       const { data, error } = await supabase
@@ -83,7 +70,7 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
         .select('color_high, color_medium, color_low')
         .eq('user_id', authUser.id)
         .single();
-      
+
       if (!error && data) {
         setFuelGaugeColors({
           high: data.color_high,
@@ -91,318 +78,208 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
           low: data.color_low,
         });
       }
-    } catch (error) {
-      console.warn('Could not fetch color codes from Supabase:', error);
+    } catch (fetchError) {
+      console.warn('Could not fetch color codes from Supabase:', fetchError);
     }
   };
 
-  // Build fuel data from global vehicles in context (initial + realtime)
+  const buildBaseFuelData = (): FuelConsumptionData[] => {
+    const costCode = (selectedRoute as any)?.costCode;
+    const source = Array.isArray(vehicles) ? vehicles : [];
+
+    let filtered = costCode
+      ? source.filter(
+          (vehicle: any) =>
+            vehicle.cost_code === costCode || vehicle.cost_code?.startsWith(`${costCode}-`)
+        )
+      : source;
+
+    if (userSiteId && !isAdmin) {
+      filtered = filtered.filter((vehicle: any) => vehicle.branch === userSiteId);
+    }
+
+    return filtered.map((vehicle: any) => ({
+      id: vehicle.id,
+      plate: vehicle.plate,
+      branch: vehicle.branch,
+      company: vehicle.company,
+      fuel_probe_1_level_percentage: parseFloat(vehicle.fuel_probe_1_level_percentage) || 0,
+      fuel_probe_1_volume_in_tank: parseFloat(vehicle.fuel_probe_1_volume_in_tank) || 0,
+      fuel_probe_2_level_percentage: parseFloat(vehicle.fuel_probe_2_level_percentage) || 0,
+      fuel_probe_2_volume_in_tank: parseFloat(vehicle.fuel_probe_2_volume_in_tank) || 0,
+      current_status: vehicle.drivername || 'Unknown',
+      last_message_date: vehicle.last_message_date,
+      updated_at: vehicle.updated_at,
+      fuel_anomaly: vehicle.fuel_anomaly,
+      fuel_anomaly_note: vehicle.fuel_anomaly_note,
+      notes: vehicle.notes,
+      client_notes: vehicle.client_notes,
+      volume: 0,
+      fuel_probe_1_temperature: parseFloat(vehicle.fuel_probe_1_temperature) || 0,
+      lastFuelFill: undefined,
+    }));
+  };
+
+  const enrichFuelData = async (baseRows: FuelConsumptionData[]) => {
+    if (baseRows.length === 0) return;
+
+    try {
+      const { createClient } = await import('@/lib/supabase/client');
+      const supabase = createClient();
+      const vehicleIds = baseRows.map((row) => row.id?.toString()).filter(Boolean);
+      const costCode = (selectedRoute as any)?.costCode;
+
+      const [tankResult, activityResult, notesResult] = await Promise.allSettled([
+        supabase
+          .from('vehicle_settings')
+          .select('vehicle_id, tank_size')
+          .in('vehicle_id', vehicleIds),
+        costCode
+          ? (async () => {
+              const today = new Date().toISOString().split('T')[0];
+              const activityUrl = userSiteId
+                ? `/api/energy-rite/reports/activity?date=${today}&site_id=${userSiteId}`
+                : `/api/energy-rite/reports/activity?date=${today}&cost_code=${costCode}`;
+              const response = await fetch(activityUrl);
+              if (!response.ok) return null;
+              return response.json();
+            })()
+          : Promise.resolve(null),
+        supabase
+          .from('note_logs')
+          .select('vehicle_id, new_note, note_type')
+          .in('vehicle_id', vehicleIds)
+          .order('created_at', { ascending: false }),
+      ]);
+
+      const enrichedRows = baseRows.map((row) => ({ ...row }));
+
+      if (tankResult.status === 'fulfilled' && tankResult.value.data) {
+        const tankSizes = new Map<string, number>();
+        tankResult.value.data.forEach((tank: any) => {
+          const size = parseFloat(tank.tank_size);
+          if (!isNaN(size)) {
+            tankSizes.set(tank.vehicle_id, size);
+          }
+        });
+
+        enrichedRows.forEach((row) => {
+          const vehicleId = row.id?.toString();
+          if (!vehicleId) return;
+          const tankSize = tankSizes.get(vehicleId);
+          if (tankSize !== undefined) {
+            row.volume = tankSize;
+          }
+        });
+      } else if (tankResult.status === 'rejected') {
+        console.warn('Could not fetch tank sizes from Supabase:', tankResult.reason);
+      }
+
+      if (
+        activityResult.status === 'fulfilled' &&
+        activityResult.value?.success &&
+        activityResult.value?.data?.sites
+      ) {
+        const sitesWithFills = activityResult.value.data.sites.map((site: any) => {
+          const lastFill = getLastFuelFill(
+            site.snapshots || [],
+            site.site_id || site.id,
+            site.branch || site.name
+          );
+          return { siteId: site.site_id || site.id, lastFill };
+        });
+
+        enrichedRows.forEach((row) => {
+          const siteData = sitesWithFills.find((site: any) => site.siteId === row.id);
+          if (siteData?.lastFill) {
+            row.lastFuelFill = siteData.lastFill;
+          }
+        });
+      } else if (activityResult.status === 'rejected') {
+        console.warn('Could not fetch activity report for fuel fills:', activityResult.reason);
+      }
+
+      if (notesResult.status === 'fulfilled' && notesResult.value.data) {
+        const internalNotes = new Map<string, string | null>();
+        const externalNotes = new Map<string, string | null>();
+
+        notesResult.value.data.forEach((note: any) => {
+          if (note.note_type === 'internal' && !internalNotes.has(note.vehicle_id)) {
+            internalNotes.set(note.vehicle_id, note.new_note);
+          } else if (note.note_type === 'external' && !externalNotes.has(note.vehicle_id)) {
+            externalNotes.set(note.vehicle_id, note.new_note);
+          }
+        });
+
+        enrichedRows.forEach((row) => {
+          const vehicleId = row.id?.toString();
+          if (!vehicleId) return;
+          row.notes = internalNotes.get(vehicleId) || row.notes;
+          row.client_notes = externalNotes.get(vehicleId) || row.client_notes;
+        });
+      } else if (notesResult.status === 'rejected') {
+        console.warn('Could not fetch notes from Supabase:', notesResult.reason);
+      }
+
+      setFuelConsumptionData(enrichedRows);
+    } catch (enrichError) {
+      console.warn('Could not enrich fuel gauge data:', enrichError);
+    }
+  };
+
   const fetchFuelData = async () => {
     try {
-      setLoading(true);
       setError(null);
-      
-      const costCode = (selectedRoute as any)?.costCode;
-      const source = Array.isArray(vehicles) ? vehicles : [];
-      
-      let filtered = costCode 
-        ? source.filter((v: any) => v.cost_code === costCode || v.cost_code?.startsWith(costCode + '-')) 
-        : source; // Show ALL vehicles when no cost code selected
-      
-      // Apply single site filtering if user has site_id and is not admin
-      if (userSiteId && !isAdmin) {
-        filtered = filtered.filter((v: any) => 
-          v.branch === userSiteId
-        );
-      }
 
+      const baseRows = buildBaseFuelData();
+      setLoading(baseRows.length === 0 && fuelConsumptionData.length === 0);
+      setFuelConsumptionData(baseRows);
+      setLoading(false);
 
-      
-
-
-      const mapped: FuelConsumptionData[] = filtered.map((vehicle: any, index: number) => {
-        return {
-          id: vehicle.id,
-          plate: vehicle.plate,
-          branch: vehicle.branch,
-          company: vehicle.company,
-          fuel_probe_1_level_percentage: parseFloat(vehicle.fuel_probe_1_level_percentage),
-          fuel_probe_1_volume_in_tank: parseFloat(vehicle.fuel_probe_1_volume_in_tank),
-          fuel_probe_2_level_percentage: parseFloat(vehicle.fuel_probe_2_level_percentage),
-          fuel_probe_2_volume_in_tank: parseFloat(vehicle.fuel_probe_2_volume_in_tank),
-          current_status: vehicle.drivername,
-          last_message_date: vehicle.last_message_date,
-          updated_at: vehicle.updated_at,
-          fuel_anomaly: vehicle.fuel_anomaly,
-          fuel_anomaly_note: vehicle.fuel_anomaly_note,
-          notes: vehicle.notes,
-          client_notes: vehicle.client_notes,
-          volume: 0,
-          fuel_probe_1_temperature: parseFloat(vehicle.fuel_probe_1_temperature),
-          lastFuelFill: undefined
-        };
-      });
-
-      // Fetch tank capacities from Supabase
-      if (mapped.length > 0) {
-        try {
-          const { createClient } = await import('@/lib/supabase/client');
-          const supabase = createClient();
-          const vehicleIds = mapped.map(v => v.id?.toString()).filter(Boolean);
-          
-          const { data: tankData, error: tankError } = await supabase
-            .from('vehicle_settings')
-            .select('vehicle_id, tank_size')
-            .in('vehicle_id', vehicleIds);
-          
-          if (tankData) {
-            console.log('Tank data sample:', tankData.slice(0, 3));
-            const tankSizes = new Map<string, number>();
-            tankData.forEach(tank => {
-              const size = parseFloat(tank.tank_size);
-              if (!isNaN(size)) {
-                tankSizes.set(tank.vehicle_id, size);
-              }
-            });
-            console.log('Tank sizes map size:', tankSizes.size);
-            
-            mapped.forEach(vehicle => {
-              const vid = vehicle.id?.toString();
-              if (vid) {
-                const tankSize = tankSizes.get(vid);
-                if (tankSize !== undefined) {
-                  vehicle.volume = tankSize;
-                  console.log(`Set tank for ${vid}:`, tankSize);
-                }
-              }
-            });
-          }
-        } catch (err) {
-          console.warn('⚠️ Could not fetch tank sizes from Supabase:', err);
-        }
-      }
-
-      // Fetch activity report data to detect fuel fills
-      if (costCode) {
-        try {
-          const today = new Date().toISOString().split('T')[0];
-          const activityUrl = userSiteId 
-            ? `/api/energy-rite/reports/activity?date=${today}&site_id=${userSiteId}`
-            : `/api/energy-rite/reports/activity?date=${today}&cost_code=${costCode}`;
-          
-          const activityResponse = await fetch(activityUrl);
-          
-          if (activityResponse.ok) {
-            const activityData = await activityResponse.json();
-            
-            if (activityData.success && activityData.data?.sites) {
-              // Process each site to detect fuel fills
-              const sitesWithFills = activityData.data.sites.map((site: any) => {
-                const lastFill = getLastFuelFill(
-                  site.snapshots || [], 
-                  site.site_id || site.id, 
-                  site.branch || site.name
-                );
-                return { siteId: site.site_id || site.id, lastFill };
-              });
-
-              // Update mapped data with fuel fill information
-              mapped.forEach(vehicle => {
-                const siteData = sitesWithFills.find(s => s.siteId === vehicle.id);
-                if (siteData?.lastFill) {
-                  vehicle.lastFuelFill = siteData.lastFill;
-                }
-              });
-            }
-          }
-        } catch (err) {
-          console.warn('⚠️ Could not fetch activity report for fuel fills:', err);
-        }
-      }
-
-      setFuelConsumptionData(mapped);
-      
-      // Batch fetch all notes from Supabase in one query
-      if (mapped.length > 0) {
-        try {
-          const { createClient } = await import('@/lib/supabase/client');
-          const supabase = createClient();
-          const vehicleIds = mapped.map(v => v.id?.toString()).filter(Boolean);
-          
-          const { data: notesData } = await supabase
-            .from('note_logs')
-            .select('vehicle_id, new_note, note_type')
-            .in('vehicle_id', vehicleIds)
-            .order('created_at', { ascending: false });
-          
-          if (notesData) {
-            const internalNotes = new Map<string, string | null>();
-            const externalNotes = new Map<string, string | null>();
-            
-            notesData.forEach(note => {
-              if (note.note_type === 'internal' && !internalNotes.has(note.vehicle_id)) {
-                internalNotes.set(note.vehicle_id, note.new_note);
-              } else if (note.note_type === 'external' && !externalNotes.has(note.vehicle_id)) {
-                externalNotes.set(note.vehicle_id, note.new_note);
-              }
-            });
-            
-            mapped.forEach(vehicle => {
-              const vid = vehicle.id?.toString();
-              if (vid) {
-                vehicle.notes = internalNotes.get(vid) || vehicle.notes;
-                vehicle.client_notes = externalNotes.get(vid) || vehicle.client_notes;
-              }
-            });
-          }
-        } catch (err) {
-          console.warn('⚠️ Could not fetch notes from Supabase:', err);
-        }
-      }
-    } catch (err) {
-      console.error('❌ Error fetching vehicle data:', err);
+      await enrichFuelData(baseRows);
+    } catch (fetchError) {
+      console.error('Error fetching vehicle data:', fetchError);
       setError('Failed to load vehicle data. Please try again.');
-      
-      // Set dummy fuel consumption data when API fails
-      const dummyFuelData: FuelConsumptionData[] = [
-        {
-          plate: 'SPUR THUVL',
-          branch: 'Johannesburg',
-          company: 'SPUR Corporation',
-          fuel_probe_1_level_percentage: 78,
-          fuel_probe_1_volume_in_tank: 125.5,
-          fuel_probe_2_level_percentage: 76,
-          fuel_probe_2_volume_in_tank: 120.2,
-          current_status: 'Active',
-          last_message_date: new Date().toISOString(),
-          fuel_anomaly: false,
-          fuel_anomaly_note: '',
-          notes: 'Regular maintenance completed last week'
-        },
-        {
-          plate: 'KFC WEST',
-          branch: 'Cape Town',
-          company: 'YUM Equity',
-          fuel_probe_1_level_percentage: 65,
-          fuel_probe_1_volume_in_tank: 98.2,
-          fuel_probe_2_level_percentage: 63,
-          fuel_probe_2_volume_in_tank: 95.1,
-          current_status: 'Active',
-          last_message_date: new Date().toISOString(),
-          fuel_anomaly: false,
-          fuel_anomaly_note: '',
-          notes: 'Generator scheduled for fuel delivery tomorrow'
-        },
-        {
-          plate: 'MUSHROOM',
-          branch: 'Durban',
-          company: 'Mushroom Group',
-          fuel_probe_1_level_percentage: 82,
-          fuel_probe_1_volume_in_tank: 145.8,
-          fuel_probe_2_level_percentage: 80,
-          fuel_probe_2_volume_in_tank: 142.3,
-          current_status: 'Active',
-          last_message_date: new Date().toISOString(),
-          fuel_anomaly: false,
-          fuel_anomaly_note: ''
-        },
-        {
-          plate: 'SPUR CENTRAL',
-          branch: 'Pretoria',
-          company: 'SPUR Corporation',
-          fuel_probe_1_level_percentage: 45,
-          fuel_probe_1_volume_in_tank: 67.3,
-          fuel_probe_2_level_percentage: 43,
-          fuel_probe_2_volume_in_tank: 64.8,
-          current_status: 'Low Fuel',
-          last_message_date: new Date().toISOString(),
-          fuel_anomaly: false,
-          fuel_anomaly_note: ''
-        },
-        {
-          plate: 'KFC EAST',
-          branch: 'Port Elizabeth',
-          company: 'YUM Equity',
-          fuel_probe_1_level_percentage: 91,
-          fuel_probe_1_volume_in_tank: 156.7,
-          fuel_probe_2_level_percentage: 89,
-          fuel_probe_2_volume_in_tank: 153.2,
-          current_status: 'Active',
-          last_message_date: new Date().toISOString(),
-          fuel_anomaly: false,
-          fuel_anomaly_note: ''
-        },
-        {
-          plate: 'SPUR NORTH',
-          branch: 'Bloemfontein',
-          company: 'SPUR Corporation',
-          fuel_probe_1_level_percentage: 72,
-          fuel_probe_1_volume_in_tank: 112.4,
-          fuel_probe_2_level_percentage: 70,
-          fuel_probe_2_volume_in_tank: 109.8,
-          current_status: 'Active',
-          last_message_date: new Date().toISOString(),
-          fuel_anomaly: true,
-          fuel_anomaly_note: 'Possible fuel theft: 15.2L in 12 minutes',
-          notes: null
-        }
-      ];
-      
-      setFuelConsumptionData(dummyFuelData);
-    } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    // Wait for AppContext to finish loading vehicles
-    if (contextLoading) return;
-    
     fetchColorCodes();
+  }, []);
+
+  useEffect(() => {
+    if (contextLoading && (!vehicles || vehicles.length === 0)) return;
     fetchFuelData();
-  }, [selectedRoute, vehicles, contextLoading]);
+  }, [selectedRoute, vehicles, contextLoading, userSiteId, isAdmin]);
 
-  // Convert fuel consumption data to fuel gauge format
-  const getFuelGaugeData = () => {
-    return fuelConsumptionData
-      .map((vehicle, index) => {
-        // Use parseFloat for better string to number conversion
-        const percent = parseFloat(vehicle.fuel_probe_1_level_percentage) || 0;
-        const capacity = parseFloat(vehicle.fuel_probe_1_volume_in_tank) || 0;
-        const remaining = capacity * (percent / 100);
+  const fuelGaugeData = fuelConsumptionData
+    .map((vehicle) => ({
+      id: vehicle.id,
+      location: vehicle.branch,
+      fuelLevel: vehicle.fuel_probe_1_level_percentage,
+      temperature: vehicle.fuel_probe_1_temperature,
+      volume: vehicle.volume,
+      currentVolume: vehicle.fuel_probe_1_volume_in_tank,
+      remaining: `${vehicle.fuel_probe_1_volume_in_tank}L`,
+      status: vehicle.current_status,
+      lastUpdated: formatForDisplay(vehicle.last_message_date),
+      updated_at: vehicle.updated_at,
+      anomaly: vehicle.fuel_anomaly,
+      anomalyNote: vehicle.notes,
+      clientNote: vehicle.client_notes,
+      lastFuelFill: vehicle.lastFuelFill,
+      vehicleData: vehicle,
+    }))
+    .sort((a, b) => a.location.localeCompare(b.location));
 
-        return ({
-        id: vehicle.id,
-        location: vehicle.branch,
-        fuelLevel: vehicle.fuel_probe_1_level_percentage,
-        temperature: vehicle.fuel_probe_1_temperature,
-        volume: vehicle.volume,
-        currentVolume: vehicle.fuel_probe_1_volume_in_tank,
-        remaining: `${vehicle.fuel_probe_1_volume_in_tank}L`,
-        status: vehicle.current_status,
-        lastUpdated: formatForDisplay(vehicle.last_message_date),
-        updated_at: vehicle.updated_at,
-        anomaly: vehicle.fuel_anomaly,
-        anomalyNote: vehicle.notes,
-        clientNote: vehicle.client_notes,
-        lastFuelFill: vehicle.lastFuelFill,
-        vehicleData: vehicle
-      });
-    })
-    .sort((a, b) => {
-      // Sort purely alphabetically by location name
-      return a.location.localeCompare(b.location);
-    });
-  };
-
-  const fuelGaugeData = getFuelGaugeData();
   const activeSitesCount = fuelGaugeData.length;
 
-  if (loading || contextLoading) {
+  if ((loading && fuelConsumptionData.length === 0) || (contextLoading && fuelConsumptionData.length === 0 && (!vehicles || vehicles.length === 0))) {
     return (
-      <div className="flex justify-center items-center bg-gray-50 h-full">
+      <div className="flex h-full items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="mx-auto mb-4 border-b-2 border-blue-600 rounded-full w-12 h-12 animate-spin"></div>
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>
           <p className="text-gray-600">Loading fuel data...</p>
         </div>
       </div>
@@ -411,13 +288,13 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
 
   if (error) {
     return (
-      <div className="flex justify-center items-center bg-gray-50 h-full">
+      <div className="flex h-full items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="mx-auto mb-4 text-red-500 text-6xl">⚠️</div>
+          <div className="mx-auto mb-4 text-6xl text-red-500">⚠️</div>
           <p className="mb-4 text-red-600">Error loading fuel data</p>
           <p className="mb-4 text-gray-600">{error}</p>
           <Button onClick={fetchFuelData} variant="outline">
-            <RefreshCw className="mr-2 w-4 h-4" />
+            <RefreshCw className="mr-2 h-4 w-4" />
             Retry
           </Button>
         </div>
@@ -426,23 +303,20 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
   }
 
   return (
-    <div className="bg-gray-50 h-full">
-      
-      {/* Gauges Header */}
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 px-3 sm:px-4 pt-4 pb-2">
-        <h2 className="font-semibold text-gray-900 text-base sm:text-lg">Fuel Gauges</h2>
-        <div className="flex items-center flex-wrap gap-2 sm:gap-3">
-          <span className="bg-blue-100 px-3 py-1 rounded-full font-medium text-blue-800 text-sm">
+    <div className="h-full bg-gray-50">
+      <div className="flex flex-col justify-between gap-3 px-3 pb-2 pt-4 sm:flex-row sm:items-center sm:px-4">
+        <h2 className="text-base font-semibold text-gray-900 sm:text-lg">Fuel Gauges</h2>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">
             {activeSitesCount} Active Sites
           </span>
           <ColorPicker onColorChange={setFuelGaugeColors} />
         </div>
       </div>
 
-      {/* Gauges Grid */}
       <div className="p-3 sm:p-4">
         {activeSitesCount > 0 ? (
-          <div className="gap-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
             {fuelGaugeData.map((data, index) => (
               <FuelGauge
                 key={data.id ?? `${data.location}-${index}`}
@@ -463,22 +337,20 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
                 vehicleData={data.vehicleData}
                 onNoteUpdate={handleNoteUpdate}
                 colorCodes={fuelGaugeColors}
-                className="transition-transform duration-200 transform sm:hover:scale-105"
+                className="transform transition-transform duration-200 sm:hover:scale-105"
               />
             ))}
           </div>
         ) : (
-          <div className="flex justify-center items-center py-12">
+          <div className="flex items-center justify-center py-12">
             <div className="text-center">
-              <Fuel className="mx-auto mb-4 w-16 h-16 text-gray-400" />
-              <p className="text-gray-500 text-lg">No fuel data available</p>
-              <p className="text-gray-400 text-sm">Check your connection to the Energy Rite server</p>
+              <Fuel className="mx-auto mb-4 h-16 w-16 text-gray-400" />
+              <p className="text-lg text-gray-500">No fuel data available</p>
+              <p className="text-sm text-gray-400">Check your connection to the Energy Rite server</p>
             </div>
           </div>
         )}
       </div>
-
     </div>
   );
 }
-

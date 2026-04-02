@@ -4,6 +4,7 @@ export const PAGES = {
   fleetJobs: { name: 'Fleet Jobs', path: '/jobsFleet', description: 'Manage and approve fleet job requests' },
   loadPlan: { name: 'Load Plan', path: '/load-plan', description: 'Plan and schedule vehicle loads and routes' },
   fuel: { name: 'Fuel Can Bus', path: '/fuel', description: 'Monitor fuel consumption and can bus data' },
+  clients: { name: 'Clients', path: '/clients', description: 'Manage client records and contact information' },
   drivers: { name: 'Drivers', path: '/drivers', description: 'Manage driver information and assignments' },
   vehicles: { name: 'Vehicles', path: '/vehicles', description: 'Manage vehicle fleet and equipment' },
   costCenters: { name: 'Cost Centers', path: '/ccenter', description: 'Manage cost center allocations and budgets' },
@@ -35,6 +36,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     { page: 'fleetJobs', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'loadPlan', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'fuel', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'clients', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'drivers', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'vehicles', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'costCenters', actions: ['view', 'create', 'edit', 'delete'] },
@@ -46,6 +48,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
   'fleet manager': [
     { page: 'dashboard', actions: ['view', 'create', 'edit'] },
     { page: 'fleetJobs', actions: ['view', 'create', 'edit'] },
+    { page: 'clients', actions: ['view', 'create', 'edit'] },
     { page: 'drivers', actions: ['view', 'create', 'edit'] },
     { page: 'vehicles', actions: ['view', 'create', 'edit'] },
     { page: 'inspections', actions: ['view', 'create', 'edit'] },
@@ -55,7 +58,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
   ],
   fc: [
     { page: 'dashboard', actions: ['view'] },
-    { page: 'loadPlan', actions: ['view'] }
+    { page: 'loadPlan', actions: ['view'] },
+    { page: 'clients', actions: ['view'] }
   ],
   customer: [
     { page: 'drivers', actions: ['view'] },

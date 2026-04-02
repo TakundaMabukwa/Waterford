@@ -4,7 +4,7 @@ import { buildEnergyRiteReportsUrl } from '@/lib/server/energy-rite-upstream';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const externalApiUrl = buildEnergyRiteReportsUrl('/api/energy-rite/activity-excel-reports/generate');
+    const externalApiUrl = buildEnergyRiteReportsUrl('/api/energy-rite/excel-reports/generate');
 
     const response = await fetch(externalApiUrl, {
       method: 'POST',
@@ -29,11 +29,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(payload);
   } catch (error) {
-    console.error('Activity Excel report proxy error:', error);
+    console.error('Excel reports proxy error:', error);
     return NextResponse.json(
       {
         success: false,
-        error: 'Internal server error while generating activity Excel report',
+        error: 'Internal server error while generating Excel report',
       },
       { status: 500 }
     );

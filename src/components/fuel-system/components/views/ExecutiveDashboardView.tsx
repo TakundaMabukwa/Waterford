@@ -123,7 +123,7 @@ export function ExecutiveDashboardView({ onBack }: ExecutiveDashboardViewProps) 
   const getBreadcrumbPath = () => {
     const start = toDateOnly(appliedStartDateTime);
     const end = toDateOnly(appliedEndDateTime);
-    return `Energyrite => Executive Dashboard - ${start} to ${end}`;
+    return `Waterford => Executive Dashboard - ${start} to ${end}`;
   };
 
   // Fetch data from new monitoring endpoints

@@ -61,6 +61,24 @@ interface FuelData {
 // Use the HierarchicalCostCenter from the service
 type CostCenter = HierarchicalCostCenter;
 
+interface AppDataCache {
+  scopeKey: string | null;
+  vehicles: EnergyRiteVehicle[];
+  costCenters: CostCenter[];
+  fuelData: FuelData[];
+  selectedRoute: Route | null;
+  lastSseUpdate: string | null;
+}
+
+const appDataCache: AppDataCache = {
+  scopeKey: null,
+  vehicles: [],
+  costCenters: [],
+  fuelData: [],
+  selectedRoute: null,
+  lastSseUpdate: null,
+};
+
 function flattenCostCenters(centers: CostCenter[]): CostCenter[] {
   return centers.flatMap((center) => [
     center,
@@ -142,6 +160,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [sseConnected, setSseConnected] = useState(false);
   const [lastSseUpdate, setLastSseUpdate] = useState<string | null>(null);
 
+  const syncCache = (overrides?: Partial<AppDataCache>) => {
+    Object.assign(appDataCache, {
+      vehicles,
+      costCenters,
+      fuelData,
+      selectedRoute,
+      lastSseUpdate,
+      ...overrides,
+    });
+  };
+
   // Handle URL parameters for navigation
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -173,6 +202,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Update URL when selectedRoute changes
   const updateSelectedRoute = (route: Route | null) => {
     setSelectedRoute(route);
+    syncCache({ selectedRoute: route });
     const params = new URLSearchParams(searchParams.toString());
     if (route) {
       params.set('route', route.id);
@@ -184,8 +214,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Load data based on user role and cost code
   const loadDataForUser = async () => {
+    const scopeKey = isAdmin ? 'admin' : userCostCode ? `cost:${normalizeCode(userCostCode)}` : 'anon';
+    const hasCachedData =
+      appDataCache.scopeKey === scopeKey &&
+      (appDataCache.vehicles.length > 0 ||
+        appDataCache.costCenters.length > 0 ||
+        appDataCache.fuelData.length > 0);
+
     try {
-      setLoading(true);
+      if (hasCachedData) {
+        setVehicles(appDataCache.vehicles);
+        setCostCenters(appDataCache.costCenters);
+        setFuelData(appDataCache.fuelData);
+        setSelectedRoute(appDataCache.selectedRoute);
+        setLastSseUpdate(appDataCache.lastSseUpdate);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
       console.log('🚀 Loading data for user:', { isAdmin, userCostCode, userRole: user?.role, userEmail: user?.email });
 
       if (isAdmin) {
@@ -195,6 +241,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Load all cost centers
         const costCentersData = await costCenterService.fetchAllCostCenters();
         setCostCenters(costCentersData);
+        syncCache({ scopeKey, costCenters: costCentersData });
         
         // Load all vehicles from internal route (not proxied by nginx)
         const resp = await fetch(getApiUrl('/api/energy-rite/vehicles'));
@@ -211,8 +258,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           
           console.log('🔄 Transformed data:', transformedData.length, 'vehicles');
           console.log('🔄 First vehicle sample:', transformedData[0]);
+          const loadedAt = new Date().toISOString();
           setVehicles(transformedData);
-          setLastSseUpdate(new Date().toISOString());
+          setLastSseUpdate(loadedAt);
+          syncCache({ scopeKey, vehicles: transformedData, lastSseUpdate: loadedAt });
           console.log('✅ Loaded all vehicles for admin:', transformedData.length);
         } else {
           console.error('❌ Fetch failed:', resp.status, resp.statusText);
@@ -231,6 +280,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : (scopedCostCenters[0]?.costCode || userCostCode);
 
         setCostCenters(scopedCostCenters);
+        syncCache({ scopeKey, costCenters: scopedCostCenters });
 
         // Load vehicles once, then restrict to scoped cost centers.
         const resp = await fetch(getApiUrl('/api/energy-rite/vehicles'));
@@ -240,8 +290,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             (json?.success && Array.isArray(json.data)) ? json.data.map(transformVehicleData) : [];
 
           const scopedVehicles = transformedData.filter((vehicle: any) => scopedCodes.has(vehicle.cost_code));
+          const loadedAt = new Date().toISOString();
           setVehicles(scopedVehicles);
-          setLastSseUpdate(new Date().toISOString());
+          setLastSseUpdate(loadedAt);
+          syncCache({ scopeKey, vehicles: scopedVehicles, lastSseUpdate: loadedAt });
           console.log('Loaded vehicles for scoped cost centers:', scopedVehicles.length);
 
           await updateFuelDataForCostCode(defaultCostCode);
@@ -250,17 +302,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const defaultCostCenter =
           scopedCostCenters.find((cc) => cc.costCode === defaultCostCode) || scopedCostCenters[0];
 
-        setSelectedRoute({
+        const nextRoute = {
           id: defaultCostCenter?.id || defaultCostCode,
           route: defaultCostCenter?.name || user?.company || 'User Cost Center',
           locationCode: defaultCostCode,
           costCode: defaultCostCode
-        });
+        };
+        setSelectedRoute(nextRoute);
+        syncCache({ scopeKey, selectedRoute: nextRoute as Route });
       } else {
         console.log('⚠️ User has no cost code - setting empty data');
         setCostCenters([]);
         setVehicles([]);
         setFuelData([]);
+        syncCache({
+          scopeKey,
+          vehicles: [],
+          costCenters: [],
+          fuelData: [],
+          selectedRoute: null,
+          lastSseUpdate: null,
+        });
       }
     } catch (error) {
       console.error('❌ Error loading data for user:', error);
@@ -281,6 +343,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSidebarCollapsed(false);
     setSseConnected(false);
     setLastSseUpdate(null);
+    appDataCache.scopeKey = null;
+    appDataCache.vehicles = [];
+    appDataCache.costCenters = [];
+    appDataCache.fuelData = [];
+    appDataCache.selectedRoute = null;
+    appDataCache.lastSseUpdate = null;
     console.log('✅ All AppContext data cleared');
   };
 
@@ -349,14 +417,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
 
         setFuelData(formattedFuelData);
+        syncCache({ fuelData: formattedFuelData });
         console.log('✅ Updated fuel data for cost code:', formattedFuelData.length, 'vehicles');
       } else {
         console.log('⚠️ No vehicles found for cost code:', costCode);
         setFuelData([]);
+        syncCache({ fuelData: [] });
       }
     } catch (error) {
       console.error('❌ Error updating fuel data for cost code:', error);
       setFuelData([]);
+      syncCache({ fuelData: [] });
     }
   };
 

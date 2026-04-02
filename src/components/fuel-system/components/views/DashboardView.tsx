@@ -1,11 +1,46 @@
 'use client';
 
 import React from 'react';
-import { FuelGaugesView } from '@/components/fuel-system/components/views/FuelGaugesView';
-import { FuelReportsView } from '@/components/fuel-system/components/views/FuelReportsView';
-import { ActivityReportView } from '@/components/fuel-system/components/views/ActivityReportView';
-import { ExecutiveDashboardView } from '@/components/fuel-system/components/views/ExecutiveDashboardView';
+import dynamic from 'next/dynamic';
 import { useApp } from '@/components/fuel-system/contexts/AppContext';
+
+const viewFallback = (
+  <div className="flex min-h-[240px] items-center justify-center bg-white text-sm text-slate-500">
+    Loading section...
+  </div>
+);
+
+const FuelGaugesView = dynamic(
+  () =>
+    import('@/components/fuel-system/components/views/FuelGaugesView').then(
+      (mod) => mod.FuelGaugesView
+    ),
+  { loading: () => viewFallback }
+);
+
+const FuelReportsView = dynamic(
+  () =>
+    import('@/components/fuel-system/components/views/FuelReportsView').then(
+      (mod) => mod.FuelReportsView
+    ),
+  { loading: () => viewFallback }
+);
+
+const ActivityReportView = dynamic(
+  () =>
+    import('@/components/fuel-system/components/views/ActivityReportView').then(
+      (mod) => mod.ActivityReportView
+    ),
+  { loading: () => viewFallback }
+);
+
+const ExecutiveDashboardView = dynamic(
+  () =>
+    import(
+      '@/components/fuel-system/components/views/ExecutiveDashboardView'
+    ).then((mod) => mod.ExecutiveDashboardView),
+  { loading: () => viewFallback }
+);
 
 export function DashboardView() {
   const { activeTab } = useApp();

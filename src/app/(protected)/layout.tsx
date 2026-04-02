@@ -88,6 +88,7 @@ const roleNavigation = {
     { name: "Fleet Jobs", href: "/jobsFleet", Icon: <Briefcase /> },
     { name: "Load Plan", href: "/load-plan", Icon: <Route /> },
     { name: "Fuel Can Bus", href: "/fuel", Icon: <Fuel /> },
+    { name: "Clients", href: "/clients", Icon: <Building2 /> },
     { name: "Video Feeds", href: "/video-feeds", Icon: <Video /> },
     { name: "Drivers", href: "/drivers", Icon: <Users /> },
     { name: "Vehicles", href: "/vehicles", Icon: <Truck /> },
@@ -104,6 +105,7 @@ const roleNavigation = {
   "fleet manager": [
     { name: "Dashboard", href: "/dashboard", Icon: <ChartBar /> },
     { name: "Fleet Manager", href: "/fleetManager", Icon: <Truck /> },
+    { name: "Clients", href: "/clients", Icon: <Building2 /> },
     {
       name: "Inspections",
       href: "/fleetManager/inspections",
@@ -119,6 +121,7 @@ const roleNavigation = {
   fc: [
     { name: "Dashboard", href: "/dashboard", Icon: <ChartBar /> },
     { name: "Load Plan", href: "/load-plan", Icon: <Route /> },
+    { name: "Clients", href: "/clients", Icon: <Building2 /> },
   ],
   "call centre": [
     { name: "Dashboard", href: "/dashboard", Icon: <ChartBar /> },
@@ -212,6 +215,7 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
         fleetJobs: { name: "Fleet Jobs", href: "/jobsFleet", Icon: <Briefcase /> },
         loadPlan: { name: "Load Plan", href: "/load-plan", Icon: <Route /> },
         fuel: { name: "Fuel Can Bus", href: "/fuel", Icon: <Fuel /> },
+        clients: { name: "Clients", href: "/clients", Icon: <Building2 /> },
         drivers: { name: "Drivers", href: "/drivers", Icon: <Users /> },
         vehicles: { name: "Vehicles", href: "/vehicles", Icon: <Truck /> },
         costCenters: { name: "Cost Centers", href: "/ccenter", Icon: <DollarSign /> },

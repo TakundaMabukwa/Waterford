@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Truck, Car, FileText, TruckElectricIcon } from "lucide-react";
-import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
+import React, { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -177,28 +177,104 @@ const getVehicleDefaultValues = (): VehicleFormValues => ({
 const normalizeVehicleFormValues = (vehicle: VehicleFormValues): VehicleFormValues => ({
   ...getVehicleDefaultValues(),
   ...vehicle,
+  registration_number: vehicle.registration_number ?? '',
+  horse_reg_no: vehicle.horse_reg_no?.toString() || '',
+  engine_number: vehicle.engine_number ?? '',
+  vin_number: vehicle.vin_number ?? '',
+  make: vehicle.make ?? '',
+  model: vehicle.model ?? '',
+  sub_model: vehicle.sub_model?.toString() || '',
+  manufactured_year: vehicle.manufactured_year ?? '',
+  vehicle_type: vehicle.vehicle_type ?? 'vehicle',
   registration_date: vehicle.registration_date?.split('T')[0] || '',
   license_expiry_date: vehicle.license_expiry_date?.split('T')[0] || '',
-  expected_boarding_date: vehicle.expected_boarding_date?.split('T')[0] || '',
-  zim_permit_expiry_date: vehicle.zim_permit_expiry_date?.split('T')[0] || '',
-  zam_permit_expiry_date: vehicle.zam_permit_expiry_date?.split('T')[0] || '',
-  malawi_permit_expiry_date: vehicle.malawi_permit_expiry_date?.split('T')[0] || '',
   purchase_price: vehicle.purchase_price?.toString() || '',
   retail_price: vehicle.retail_price?.toString() || '',
+  vehicle_priority: vehicle.vehicle_priority ?? 'medium',
+  fuel_type: vehicle.fuel_type ?? 'petrol',
+  transmission_type: vehicle.transmission_type ?? 'manual',
   tank_capacity: vehicle.tank_capacity?.toString() || '',
+  register_number: vehicle.register_number?.toString() || '',
   take_on_kilometers: vehicle.take_on_kilometers?.toString() || '',
   service_intervals: vehicle.service_intervals?.toString() || '',
   boarding_km_hours: vehicle.boarding_km_hours?.toString() || '',
+  expected_boarding_date: vehicle.expected_boarding_date?.split('T')[0] || '',
+  cost_centres: vehicle.cost_centres?.toString() || '',
+  colour: vehicle.colour ?? '',
   monthly_premium: vehicle.monthly_premium?.toString() || '',
   hourly_rate: vehicle.hourly_rate?.toString() || '',
-  cost_centres: vehicle.cost_centres?.toString() || '',
-  register_number: vehicle.register_number?.toString() || '',
-  sub_model: vehicle.sub_model?.toString() || '',
-  horse_reg_no: vehicle.horse_reg_no?.toString() || '',
+  created_by: vehicle.created_by ?? undefined,
+  created_at: vehicle.created_at ?? '',
+  updated_at: vehicle.updated_at ?? '',
+  tech_id: vehicle.tech_id ?? undefined,
+  driver_id: vehicle.driver_id ?? undefined,
+  zim_permit_expiry_date: vehicle.zim_permit_expiry_date?.split('T')[0] || '',
+  zam_permit_expiry_date: vehicle.zam_permit_expiry_date?.split('T')[0] || '',
+  malawi_permit_expiry_date: vehicle.malawi_permit_expiry_date?.split('T')[0] || '',
 })
+
+const normalizeRegistration = (value?: string | null) =>
+  String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+
+const toNullableNumber = (value?: string | number | null) => {
+  if (value == null) return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const normalized = trimmed.replace(/[^0-9.-]/g, '')
+  if (!normalized) return null
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const toNullableInteger = (value?: string | number | null) => {
+  const parsed = toNullableNumber(value)
+  return parsed == null ? null : Math.trunc(parsed)
+}
+
+const toNullableDate = (value?: string | null) => {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
+}
+
+const sanitizeVehiclePayload = (data: VehicleFormValues) => ({
+  ...data,
+  horse_reg_no: data.horse_reg_no?.trim() || null,
+  sub_model: data.sub_model?.trim() || null,
+  tank_capacity: toNullableNumber(data.tank_capacity),
+  register_number: data.register_number?.trim() || null,
+  take_on_kilometers: toNullableNumber(data.take_on_kilometers),
+  service_intervals: data.service_intervals?.trim() || null,
+  boarding_km_hours: toNullableNumber(data.boarding_km_hours),
+  expected_boarding_date: toNullableDate(data.expected_boarding_date),
+  cost_centres: data.cost_centres?.trim() || null,
+  monthly_premium: toNullableNumber(data.monthly_premium),
+  hourly_rate: toNullableNumber(data.hourly_rate),
+  purchase_price: toNullableNumber(data.purchase_price),
+  retail_price: toNullableNumber(data.retail_price),
+  tech_id: toNullableInteger(data.tech_id),
+  driver_id: toNullableInteger(data.driver_id),
+  registration_date: toNullableDate(data.registration_date),
+  license_expiry_date: toNullableDate(data.license_expiry_date),
+  zim_permit_expiry_date: toNullableDate(data.zim_permit_expiry_date),
+  zam_permit_expiry_date: toNullableDate(data.zam_permit_expiry_date),
+  malawi_permit_expiry_date: toNullableDate(data.malawi_permit_expiry_date),
+})
+
+const getVehicleRecordTime = (vehicle: VehicleFormValues) => {
+  const updated = vehicle.updated_at ? new Date(vehicle.updated_at).getTime() : 0
+  const created = vehicle.created_at ? new Date(vehicle.created_at).getTime() : 0
+  return Math.max(updated, created, 0)
+}
 
 export default function Vehicles() {
   const [vehicles, setVehicles] = useState<VehicleFormValues[]>([]);
+  const [isLoadingVehicles, setIsLoadingVehicles] = useState(true);
   const [isAddingVehicle, setIsAddingVehicle] = useState(false);
   const router = useRouter();
   const supabase = createClient();
@@ -405,19 +481,59 @@ export default function Vehicles() {
   };
 
   const fetchVehicles = async () => {
-    const { data: vehicles, error } = await supabase
-      .from("vehiclesc")
-      .select("*");
-    if (error) {
-      console.error("the error is", error.name, error.message);
-      toast.error(`Failed to load vehicles: ${error.message}`);
-    } else {
-      const visibleVehicles = (vehicles || []).filter((vehicle) => {
-        const departmentName = String(vehicle.department_name || '').trim().toUpperCase()
-        return departmentName !== 'SOLD'
+    setIsLoadingVehicles(true)
+    try {
+      let allVehicles: VehicleFormValues[] = []
+      let from = 0
+      const batchSize = 1000
+      let hasMore = true
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("vehiclesc")
+          .select("*")
+          .range(from, from + batchSize - 1)
+
+        if (error) {
+          throw error
+        }
+
+        if (!data || data.length === 0) {
+          break
+        }
+
+        allVehicles = [...allVehicles, ...(data as VehicleFormValues[])]
+        hasMore = data.length === batchSize
+        from += batchSize
+      }
+
+      const sortedVehicles = [...allVehicles].sort((a, b) => {
+        const timeDiff = getVehicleRecordTime(b) - getVehicleRecordTime(a)
+        if (timeDiff !== 0) return timeDiff
+        return Number(b.id || 0) - Number(a.id || 0)
       })
-      // @ts-expect-error
-      setVehicles(visibleVehicles);
+
+      const seenRegistrations = new Set<string>()
+      const dedupedVehicles = sortedVehicles.filter((vehicle) => {
+        const registrationKey = normalizeRegistration(vehicle.registration_number)
+        const key = registrationKey || `id:${vehicle.id}`
+
+        if (seenRegistrations.has(key)) {
+          return false
+        }
+
+        seenRegistrations.add(key)
+        return true
+      })
+
+      setVehicles(dedupedVehicles)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error"
+      console.error("Failed to load vehicles from vehiclesc:", error)
+      toast.error(`Failed to load vehicles: ${message}`)
+      setVehicles([])
+    } finally {
+      setIsLoadingVehicles(false)
     }
   };
   useEffect(() => {
@@ -446,15 +562,23 @@ export default function Vehicles() {
   const openAddVehicleForm = () => {
     setIsEditing(false)
     setEditingVehicleId(null)
-    form.reset(getVehicleDefaultValues())
     setIsAddingVehicle(true)
+    requestAnimationFrame(() => {
+      startTransition(() => {
+        form.reset(getVehicleDefaultValues())
+      })
+    })
   }
 
   const openEditVehicleForm = (vehicle: VehicleFormValues) => {
     setIsEditing(true)
     setEditingVehicleId(Number(vehicle.id))
-    form.reset(normalizeVehicleFormValues(vehicle))
     setIsAddingVehicle(true)
+    requestAnimationFrame(() => {
+      startTransition(() => {
+        form.reset(normalizeVehicleFormValues(vehicle))
+      })
+    })
   }
 
   const closeVehicleForm = () => {
@@ -483,11 +607,7 @@ export default function Vehicles() {
   const handleAddVehicle = async (data: VehicleFormValues) => {
     console.log('Form data received:', data);
     const { id, ...dataWithoutId } = data;
-    const vehicleData = {
-      ...dataWithoutId,
-      monthly_premium: data.monthly_premium ? parseFloat(data.monthly_premium.replace(/[^0-9.]/g, '')) : null,
-      hourly_rate: data.hourly_rate ? parseFloat(data.hourly_rate.replace(/[^0-9.]/g, '')) : null
-    };
+    const vehicleData = sanitizeVehiclePayload(dataWithoutId as VehicleFormValues);
     console.log('Vehicle data to insert:', vehicleData);
     const { data: vehicle, error } = await supabase
       .from("vehiclesc")
@@ -495,7 +615,21 @@ export default function Vehicles() {
       .insert(vehicleData);
     if (error) {
       console.error(error.message);
-      toast.error("Failed to add vehicle: " + error.message);
+      const likelyFields = [
+        'purchase_price',
+        'retail_price',
+        'tank_capacity',
+        'take_on_kilometers',
+        'service_intervals',
+        'boarding_km_hours',
+        'monthly_premium',
+        'hourly_rate',
+      ]
+      toast.error(
+        error.message.includes('invalid input syntax for type numeric')
+          ? `Failed to add vehicle. Check numeric fields: ${likelyFields.join(', ')}`
+          : "Failed to add vehicle: " + error.message
+      );
       throw new Error(error.message);
     } else {
       console.log(vehicle);
@@ -509,11 +643,7 @@ export default function Vehicles() {
   const handleUpdateVehicle = async (data: VehicleFormValues) => {
     if (!editingVehicleId) return;
     
-    const vehicleData = {
-      ...data,
-      monthly_premium: data.monthly_premium ? parseFloat(data.monthly_premium.replace(/[^0-9.]/g, '')) : null,
-      hourly_rate: data.hourly_rate ? parseFloat(data.hourly_rate.replace(/[^0-9.]/g, '')) : null
-    };
+    const vehicleData = sanitizeVehiclePayload(data);
     
     const { error } = await supabase
       .from("vehiclesc")
@@ -522,7 +652,21 @@ export default function Vehicles() {
     
     if (error) {
       console.error(error.message);
-      toast.error("Failed to update vehicle: " + error.message);
+      const likelyFields = [
+        'purchase_price',
+        'retail_price',
+        'tank_capacity',
+        'take_on_kilometers',
+        'service_intervals',
+        'boarding_km_hours',
+        'monthly_premium',
+        'hourly_rate',
+      ]
+      toast.error(
+        error.message.includes('invalid input syntax for type numeric')
+          ? `Failed to update vehicle. Check numeric fields: ${likelyFields.join(', ')}`
+          : "Failed to update vehicle: " + error.message
+      );
       throw new Error(error.message);
     } else {
       toast.success("Vehicle updated successfully");
@@ -1359,20 +1503,6 @@ export default function Vehicles() {
                             onClick={() => openEditVehicleForm(vehicle)}
                           >
                             Edit
-                          </SecureButton>
-                          <SecureButton 
-                            page="vehicles"
-                            action="edit"
-                            variant="outline" 
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={async () => {
-                              setEquipmentVehicleReg(vehicle.registration_number || '');
-                              await fetchEquipmentData(vehicle.registration_number || '');
-                              setIsEquipmentSheetOpen(true);
-                            }}
-                          >
-                            Equipment
                           </SecureButton>
                           <Link href={`/vehicles/${vehicle.id}`}>
                             <Button variant="default" size="sm" className="h-7 px-2 text-xs bg-slate-700 hover:bg-slate-800">Details</Button>
