@@ -253,6 +253,12 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
     fetchFuelData();
   }, [selectedRoute, vehicles, contextLoading, userSiteId, isAdmin]);
 
+  const hasFuelData = (vehicle: FuelConsumptionData) =>
+    vehicle.fuel_probe_1_level_percentage > 0 ||
+    vehicle.fuel_probe_1_volume_in_tank > 0 ||
+    vehicle.fuel_probe_2_level_percentage > 0 ||
+    vehicle.fuel_probe_2_volume_in_tank > 0;
+
   const fuelGaugeData = fuelConsumptionData
     .map((vehicle) => ({
       id: vehicle.id,
@@ -270,8 +276,15 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
       clientNote: vehicle.client_notes,
       lastFuelFill: vehicle.lastFuelFill,
       vehicleData: vehicle,
+      hasFuelData: hasFuelData(vehicle),
     }))
-    .sort((a, b) => a.location.localeCompare(b.location));
+    .sort((a, b) => {
+      if (a.hasFuelData !== b.hasFuelData) {
+        return a.hasFuelData ? -1 : 1;
+      }
+
+      return a.location.localeCompare(b.location);
+    });
 
   const activeSitesCount = fuelGaugeData.length;
 
@@ -308,7 +321,7 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
         <h2 className="text-base font-semibold text-gray-900 sm:text-lg">Fuel Gauges</h2>
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">
-            {activeSitesCount} Active Sites
+            {activeSitesCount} Active Vehicles
           </span>
           <ColorPicker onColorChange={setFuelGaugeColors} />
         </div>

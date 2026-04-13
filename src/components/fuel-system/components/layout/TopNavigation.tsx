@@ -17,21 +17,21 @@ export function TopNavigation() {
 
   return (
     <div className="bg-white border-b border-gray-200">
-      <div className="px-2 sm:px-6 py-2 sm:py-4">
+      <div className="px-2 sm:px-5 py-1.5 sm:py-2">
         <div className="flex items-center">
-          <div className="grid grid-cols-4 gap-2 sm:flex sm:items-center sm:gap-3 sm:overflow-x-auto sm:pb-1 w-full sm:[scrollbar-width:none] sm:[&::-webkit-scrollbar]:hidden">
+          <div className="grid w-full grid-cols-4 gap-1.5 sm:flex sm:items-center sm:gap-2 sm:overflow-x-auto sm:pb-0.5 sm:[scrollbar-width:none] sm:[&::-webkit-scrollbar]:hidden">
           {topNavItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
               className={cn(
-                "flex items-center justify-center sm:justify-start gap-1 sm:gap-2 px-2 sm:px-4 py-2 rounded-lg font-medium text-sm sm:text-base transition-all duration-200",
+                "flex items-center justify-center gap-1 rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium transition-all duration-200 sm:justify-start",
                 activeTab === item.id
                   ? "bg-blue-50 text-blue-700 border border-blue-200"
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-800"
               )}
             >
-              <item.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <item.icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               <span className="sm:hidden">{item.mobileLabel}</span>
               <span className="hidden sm:inline">{item.label}</span>
             </button>

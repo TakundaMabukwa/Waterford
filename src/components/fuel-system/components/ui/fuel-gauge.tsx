@@ -1,16 +1,14 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Thermometer, Droplets, Gauge, Clock, NotebookPen, Fuel } from 'lucide-react';
+import { Thermometer, Gauge, Clock, NotebookPen, Fuel } from 'lucide-react';
 import { formatForDisplay } from '@/lib/utils/date-formatter';
 import { AddNoteModal } from '@/components/fuel-system/components/ui/add-note-modal';
 import { VehicleNotesHistoryModal } from '@/components/fuel-system/components/ui/vehicle-notes-history-modal';
-import { useUser } from '@/components/fuel-system/contexts/UserContext';
-import { createClient } from '@/lib/supabase/client';
 
 interface FuelGaugeProps {
   location: string;
@@ -67,34 +65,28 @@ export function FuelGauge({
   const [isStatusTooltipOpen, setIsStatusTooltipOpen] = useState(false);
   const [currentNote, setCurrentNote] = useState(anomalyNote || '');
   const [currentClientNote, setCurrentClientNote] = useState(clientNote || '');
-  const { user } = useUser();
-  
-  const canViewNotes = user?.email?.includes('@soltrack.co.za') || false;
-  
+
   const radius = 80;
   const strokeWidth = 12;
   const normalizedRadius = radius - strokeWidth * 2;
   const circumference = normalizedRadius * 2 * Math.PI;
-  const strokeDasharray = `${circumference} ${circumference}`;
-  const strokeDashoffset = circumference - (fuelLevel / 100) * circumference;
 
-  const getStatusColor = (status: string) => {
-    if (!status) return 'bg-gray-100 text-gray-700 border-gray-200';
-    const normalized = status.toUpperCase();
-    if ((normalized.includes('PTO') || normalized.includes('ENGINE')) && normalized.includes('ON')) return 'bg-green-100 text-green-700 border-green-200';
-    if ((normalized.includes('PTO') || normalized.includes('ENGINE')) && normalized.includes('OFF')) return 'bg-gray-100 text-gray-700 border-gray-200';
-    if (normalized.includes('POSSIBLE FUEL FILL')) return 'bg-orange-100 text-orange-700 border-orange-200';
+  const getStatusColor = (nextStatus: string) => {
+    if (!nextStatus) return 'bg-gray-100 text-gray-700 border-gray-200';
+    const normalized = nextStatus.toUpperCase();
+    if ((normalized.includes('PTO') || normalized.includes('ENGINE')) && normalized.includes('ON')) {
+      return 'bg-white/70 text-green-700 border-green-200 shadow-sm';
+    }
+    if ((normalized.includes('PTO') || normalized.includes('ENGINE')) && normalized.includes('OFF')) {
+      return 'bg-gray-100 text-gray-700 border-gray-200';
+    }
+    if (normalized.includes('POSSIBLE FUEL FILL')) {
+      return 'bg-orange-100 text-orange-700 border-orange-200';
+    }
     return 'bg-gray-100 text-gray-700 border-gray-200';
   };
 
-  const getDisplayStatus = (status: string) => {
-    if (!status) return status;
-    const normalized = status.toUpperCase();
-    if ((normalized.includes('PTO') || normalized.includes('ENGINE')) && normalized.includes('ON')) return 'Generator ON';
-    if ((normalized.includes('PTO') || normalized.includes('ENGINE')) && normalized.includes('OFF')) return 'Generator OFF';
-    if (normalized.includes('PTO') || normalized.includes('ENGINE')) return 'Generator';
-    return status;
-  };
+  const getDisplayStatus = (nextStatus: string) => nextStatus;
 
   const getFuelColor = (level: number) => {
     if (!colorCodes) {
@@ -102,19 +94,18 @@ export function FuelGauge({
       if (level <= 60) return '#eab308';
       return '#22c55e';
     }
-    
+
     const colors = {
       low: colorCodes.low || '#FF0000',
       medium: colorCodes.medium || '#FFFF00',
       high: colorCodes.high || '#00FF00',
     };
-    
+
     if (level <= 40) return colors.low;
     if (level <= 60) return colors.medium;
     return colors.high;
   };
 
-  // Update notes when props change
   useEffect(() => {
     setCurrentNote(anomalyNote || '');
     setCurrentClientNote(clientNote || '');
@@ -146,48 +137,61 @@ export function FuelGauge({
     }
   };
 
-  const isEngineOn = status && (status.includes('PTO ON') || status.includes('ENGINE ON'));
+  const normalizedStatus = status?.toUpperCase() || '';
+  const isEngineOn = normalizedStatus.includes('PTO ON') || normalizedStatus.includes('ENGINE ON');
+  const auxTemperature = vehicleData?.fuel_probe_2_temperature;
+  const auxCurrentVolume = vehicleData?.fuel_probe_2_volume_in_tank;
 
   return (
-    <div className={cn(
-      "shadow-sm hover:shadow-md p-2.5 sm:p-3 border rounded-lg transition-all duration-300 relative overflow-visible flex flex-col min-h-[360px] sm:min-h-[420px]",
-      isEngineOn ? "bg-green-200 border-green-400" : "bg-white border-gray-300",
-      className
-    )}>
-      {/* History Button */}
+    <div
+      className={cn(
+        'shadow-sm hover:shadow-md p-2.5 sm:p-3 border rounded-lg transition-all duration-300 relative overflow-visible flex flex-col min-h-[360px] sm:min-h-[420px]',
+        isEngineOn ? 'border-emerald-400 bg-[#b8f3c4]' : 'bg-white border-gray-300',
+        className
+      )}
+    >
       <Button
         variant="ghost"
         size="sm"
-        className="absolute top-2 right-2 w-6 h-6 p-0 hover:bg-gray-100"
+        className={cn(
+          'absolute top-2 right-2 w-6 h-6 p-0',
+          isEngineOn ? 'text-emerald-700 hover:bg-emerald-200/60' : 'hover:bg-gray-100'
+        )}
         onClick={() => setIsHistoryModalOpen(true)}
         title="View Notes History"
       >
         <Clock className="w-3 h-3 text-gray-500" />
       </Button>
+
       <div className="mb-1 text-center">
         <h3 className="mb-1 font-semibold text-gray-900 text-base">{location}</h3>
 
-        <div className={cn(
-          "mb-1 p-1.5 rounded border",
-          currentNote 
-            ? (anomaly ? "bg-red-50 border-red-200" : "bg-blue-50 border-blue-200")
-            : "bg-transparent border-transparent"
-        )}>
-          <div className={cn(
-            "flex items-start gap-1",
-            currentNote 
-              ? (anomaly ? "text-red-800" : "text-blue-800")
-              : "text-transparent"
-          )}>
+        <div
+          className={cn(
+            'mb-1 p-1.5 rounded border',
+            currentNote
+              ? (anomaly ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200')
+              : 'bg-transparent border-transparent'
+          )}
+        >
+          <div
+            className={cn(
+              'flex items-start gap-1',
+              currentNote ? (anomaly ? 'text-red-800' : 'text-blue-800') : 'text-transparent'
+            )}
+          >
             <NotebookPen className="w-2.5 h-2.5 flex-shrink-0 mt-0.5" />
-            <span className={cn(
-              "text-xs text-left break-words line-clamp-1 leading-tight",
-              currentNote 
-                ? (anomaly ? "text-red-700" : "text-blue-700")
-                : "text-transparent"
-            )}>{currentNote || 'No note'}</span>
+            <span
+              className={cn(
+                'text-xs text-left break-words line-clamp-1 leading-tight',
+                currentNote ? (anomaly ? 'text-red-700' : 'text-blue-700') : 'text-transparent'
+              )}
+            >
+              {currentNote || 'No note'}
+            </span>
           </div>
         </div>
+
         {status && (
           <TooltipProvider>
             <Tooltip
@@ -195,9 +199,9 @@ export function FuelGauge({
               onOpenChange={isTouchDevice ? setIsStatusTooltipOpen : undefined}
             >
               <TooltipTrigger asChild>
-                <Badge 
-                  variant="outline" 
-                  className={cn("font-medium text-xs px-2 py-0.5 cursor-help", getStatusColor(status))}
+                <Badge
+                  variant="outline"
+                  className={cn('font-medium text-xs px-2 py-0.5 cursor-help', getStatusColor(status))}
                   onClick={() => {
                     if (!isTouchDevice) return;
                     setIsStatusTooltipOpen((open) => !open);
@@ -206,7 +210,7 @@ export function FuelGauge({
                   {getDisplayStatus(status)}
                 </Badge>
               </TooltipTrigger>
-              <TooltipContent 
+              <TooltipContent
                 className="bg-white border border-gray-200 shadow-lg max-w-xs"
                 side="bottom"
                 align="center"
@@ -222,96 +226,173 @@ export function FuelGauge({
         )}
       </div>
 
-      <div className="flex justify-center mb-1">
-        <div className="relative scale-90 sm:scale-100">
-          <svg
-            height={radius * 2}
-            width={radius * 2}
-            className="-rotate-90 transform"
-          >
-            <circle
-              stroke="#f1f5f9"
-              fill="transparent"
-              strokeWidth={strokeWidth}
-              r={normalizedRadius}
-              cx={radius}
-              cy={radius}
-            />
-            <circle
-              stroke={getFuelColor(fuelLevel)}
-              fill="transparent"
-              strokeWidth={strokeWidth}
-              strokeDasharray={strokeDasharray}
-              style={{ strokeDashoffset }}
-              r={normalizedRadius}
-              cx={radius}
-              cy={radius}
-              className="transition-all duration-1000 ease-out"
-              strokeLinecap="round"
-            />
-          </svg>
-          
-          <div className="absolute inset-0 flex flex-col justify-center items-center">
-            <Gauge className="mb-0.5 w-5 h-5 text-gray-400" />
-            <span className="font-medium text-gray-500 text-sm">Fuel</span>
-            <span className="font-bold text-gray-900 text-xl sm:text-2xl">{fuelLevel}</span>
-            <span className="text-gray-500 text-xs">%</span>
-          </div>
+      <div className="flex justify-center mb-3">
+        <div className="relative">
+          {(() => {
+            const mainPercent = Math.round(fuelLevel || 0);
+            const auxPercent = Math.round(Number(vehicleData?.fuel_probe_2_level_percentage ?? 0) || 0);
+            const mainOffset = circumference - (mainPercent / 100) * circumference;
+            const auxRadius = 46;
+            const auxStrokeWidth = 10;
+            const auxNormalizedRadius = auxRadius - auxStrokeWidth * 2;
+            const auxCircumference = auxNormalizedRadius * 2 * Math.PI;
+            const auxOffset = auxCircumference - (auxPercent / 100) * auxCircumference;
+
+            return (
+              <div className="relative">
+                <svg height={radius * 2} width={radius * 2} className="-rotate-90 transform">
+                  <circle
+                    stroke="#e5e7eb"
+                    fill="transparent"
+                    strokeWidth={strokeWidth}
+                    r={normalizedRadius}
+                    cx={radius}
+                    cy={radius}
+                  />
+                  <circle
+                    stroke={getFuelColor(mainPercent)}
+                    fill="transparent"
+                    strokeWidth={strokeWidth}
+                    strokeDasharray={`${circumference} ${circumference}`}
+                    style={{ strokeDashoffset: mainOffset }}
+                    r={normalizedRadius}
+                    cx={radius}
+                    cy={radius}
+                    className="transition-all duration-1000 ease-out"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <Gauge className="mb-1 h-5 w-5 text-gray-400" />
+                  <span className="text-xs font-medium text-gray-500">Fuel</span>
+                  <span className="text-4xl font-semibold text-gray-900">{mainPercent}</span>
+                  <span className="text-xs font-semibold text-gray-400">%</span>
+                </div>
+
+                <div className="absolute bottom-[-10px] right-[-52px] bg-transparent p-0 shadow-none border-0">
+                  <div className="relative h-[92px] w-[92px]">
+                    <svg height={auxRadius * 2} width={auxRadius * 2} className="-rotate-90 transform">
+                      <circle
+                        stroke="#e5e7eb"
+                        fill="transparent"
+                        strokeWidth={auxStrokeWidth}
+                        r={auxNormalizedRadius}
+                        cx={auxRadius}
+                        cy={auxRadius}
+                      />
+                      <circle
+                        stroke={getFuelColor(auxPercent)}
+                        fill="transparent"
+                        strokeWidth={auxStrokeWidth}
+                        strokeDasharray={`${auxCircumference} ${auxCircumference}`}
+                        style={{ strokeDashoffset: auxOffset }}
+                        r={auxNormalizedRadius}
+                        cx={auxRadius}
+                        cy={auxRadius}
+                        className="transition-all duration-1000 ease-out"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-lg font-semibold text-gray-900">{auxPercent}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
 
       <div className="space-y-1">
-        <div className={cn(
-          "flex justify-start items-center px-1 py-0.5 rounded-lg",
-          isEngineOn ? "bg-green-300" : "bg-gray-50"
-        )}>
+        <div
+          className={cn(
+            'flex justify-start items-center px-1 py-0.5 rounded-lg',
+            isEngineOn ? 'bg-emerald-300/70' : 'bg-gray-50'
+          )}
+        >
           <div className="flex items-center gap-2">
             <Thermometer className="w-4 h-4 text-blue-500" />
-            <span className="font-medium text-xs text-gray-900">Temp: {temperature}°C</span>
+            <span className="font-medium text-xs text-gray-900">Temp: {temperature}&deg;C</span>
           </div>
         </div>
 
-        <div className={cn(
-          "flex justify-start items-center px-1 py-0.5 rounded-lg",
-          isEngineOn ? "bg-green-300" : "bg-gray-50"
-        )}>
+        <div
+          className={cn(
+            'flex justify-start items-center px-1 py-0.5 rounded-lg',
+            isEngineOn ? 'bg-emerald-300/70' : 'bg-gray-50'
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <Thermometer className="w-4 h-4 text-cyan-500" />
+            <span className="font-medium text-xs text-gray-900">Temp 2: {auxTemperature ?? 'N/A'}&deg;C</span>
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            'flex justify-start items-center px-1 py-0.5 rounded-lg',
+            isEngineOn ? 'bg-emerald-300/70' : 'bg-gray-50'
+          )}
+        >
           <div className="flex items-center gap-2">
             <Fuel className="w-4 h-4 text-orange-500" />
-            <span className="font-medium text-xs text-gray-900 truncate whitespace-nowrap">Rem: {currentVolume ? currentVolume.toFixed(1) : 'N/A'}L from {volume ? volume.toFixed(1) : 'N/A'}L</span>
+            <span className="font-medium text-xs text-gray-900 truncate whitespace-nowrap">
+              Rem: {currentVolume ? currentVolume.toFixed(1) : 'N/A'}L from {volume ? volume.toFixed(1) : 'N/A'}L
+            </span>
           </div>
         </div>
 
-        <div className={cn(
-          "flex items-center gap-2 px-1 py-0.5 rounded-lg",
-          isEngineOn ? "bg-green-300" : "bg-gray-50"
-        )}>
+        <div
+          className={cn(
+            'flex justify-start items-center px-1 py-0.5 rounded-lg',
+            isEngineOn ? 'bg-emerald-300/70' : 'bg-gray-50'
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <Fuel className="w-4 h-4 text-amber-500" />
+            <span className="font-medium text-xs text-gray-900 truncate whitespace-nowrap">
+              Rem 2: {auxCurrentVolume != null ? Number(auxCurrentVolume).toFixed(1) : 'N/A'}L
+            </span>
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            'flex items-center gap-2 px-1 py-0.5 rounded-lg',
+            isEngineOn ? 'bg-emerald-300/70' : 'bg-gray-50'
+          )}
+        >
           <Clock className="w-4 h-4 text-gray-400 flex-shrink-0" />
           <span className="text-xs text-gray-900">Comm: {formatForDisplay(updated_at || lastUpdated)}</span>
         </div>
-        
-        <div className={cn(
-          "px-2 py-1.5 border rounded-lg",
-          currentClientNote 
-            ? "bg-blue-50 border-blue-200" 
-            : "bg-transparent border-transparent"
-        )}>
+
+        <div
+          className={cn(
+            'px-2 py-1.5 border rounded-lg',
+            currentClientNote ? 'bg-blue-50 border-blue-200' : 'bg-transparent border-transparent'
+          )}
+        >
           <div className="flex items-start gap-1">
-            <NotebookPen className={cn(
-              "w-3 h-3 flex-shrink-0 mt-0.5",
-              currentClientNote ? "text-blue-600" : "text-transparent"
-            )} />
-            <span className={cn(
-              "text-xs leading-tight",
-              currentClientNote ? "text-blue-800" : "text-transparent"
-            )}>{currentClientNote || 'No note'}</span>
+            <NotebookPen
+              className={cn('w-3 h-3 flex-shrink-0 mt-0.5', currentClientNote ? 'text-blue-600' : 'text-transparent')}
+            />
+            <span className={cn('text-xs leading-tight', currentClientNote ? 'text-blue-800' : 'text-transparent')}>
+              {currentClientNote || 'No note'}
+            </span>
           </div>
         </div>
 
         <div className="mt-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="w-full h-8 text-xs font-medium hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors"
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              'w-full h-8 text-xs font-medium transition-colors',
+              isEngineOn
+                ? 'border-white bg-white text-gray-900 hover:bg-emerald-50 hover:border-emerald-200'
+                : 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700'
+            )}
             onClick={() => setIsNoteModalOpen(true)}
           >
             <NotebookPen className="w-3 h-3 mr-1" />
@@ -325,9 +406,7 @@ export function FuelGauge({
               <span className="font-medium text-green-900 text-sm">Last Fill</span>
               <span className="font-bold text-green-900 text-sm">{lastFuelFill.amount.toFixed(1)}L</span>
             </div>
-            <div className="text-green-700 text-xs">
-              {formatForDisplay(lastFuelFill.time)}
-            </div>
+            <div className="text-green-700 text-xs">{formatForDisplay(lastFuelFill.time)}</div>
             <div className="text-green-600 text-xs">
               From {lastFuelFill.previousLevel.toFixed(1)}% to {fuelLevel.toFixed(1)}%
             </div>
@@ -344,7 +423,7 @@ export function FuelGauge({
         vehicleData={vehicleData}
         onNoteAdded={handleNoteAdded}
       />
-      
+
       <VehicleNotesHistoryModal
         isOpen={isHistoryModalOpen}
         onClose={() => setIsHistoryModalOpen(false)}
@@ -354,4 +433,3 @@ export function FuelGauge({
     </div>
   );
 }
-

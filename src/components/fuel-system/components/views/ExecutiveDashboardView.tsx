@@ -253,7 +253,7 @@ export function ExecutiveDashboardView({ onBack }: ExecutiveDashboardViewProps) 
       
       if (hasActivityData) {
         setActivityData([
-          { label: 'Active Sites', value: Math.max(1, activitySessions), color: '#3B82F6' },
+          { label: 'Active Vehicles', value: Math.max(1, activitySessions), color: '#3B82F6' },
           { label: 'Operating Hours', value: Math.max(1, Math.round(operatingHours)), color: '#D97706' }
         ]);
       } else {
@@ -384,7 +384,7 @@ export function ExecutiveDashboardView({ onBack }: ExecutiveDashboardViewProps) 
       
       setTopSitesData([{ label: 'No Data Available', value: 0, color: '#8B4513' }]);
       setActivityData([
-        { label: 'Active Sites', value: 2200, color: '#8B4513' },
+        { label: 'Active Vehicles', value: 2200, color: '#8B4513' },
         { label: 'Over 24h', value: 600, color: '#A0522D' },
         { label: 'Total', value: 5200, color: '#CD853F' }
       ]);

@@ -75,15 +75,38 @@ interface ActivityReportData {
   };
 }
 
+const toDateTimeInputValue = (date: Date) => {
+  const pad = (num: number) => String(num).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+const toDateOnly = (dateTimeValue: string) => {
+  if (!dateTimeValue) return '';
+  return dateTimeValue.split('T')[0];
+};
+
+const getDefaultDateRange = (initialDate?: string) => {
+  const now = new Date();
+  const startBase = initialDate
+    ? new Date(`${initialDate}T00:00`)
+    : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0);
+
+  return {
+    start: toDateTimeInputValue(startBase),
+    end: toDateTimeInputValue(now),
+  };
+};
+
 export function ActivityReportView({ onBack, initialDate }: ActivityReportViewProps) {
   const { selectedRoute } = useApp();
   const { userCostCode, userSiteId, isAdmin } = useUser();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => {
-    return initialDate || new Date().toISOString().split('T')[0];
-  });
+  const [startDateTime, setStartDateTime] = useState(() => getDefaultDateRange(initialDate).start);
+  const [endDateTime, setEndDateTime] = useState(() => getDefaultDateRange(initialDate).end);
+  const [appliedStartDateTime, setAppliedStartDateTime] = useState(() => getDefaultDateRange(initialDate).start);
+  const [appliedEndDateTime, setAppliedEndDateTime] = useState(() => getDefaultDateRange(initialDate).end);
   const [reportData, setReportData] = useState<ActivityReportData | null>(null);
   const [selectedCostCode, setSelectedCostCode] = useState('');
   const [generatingExcel, setGeneratingExcel] = useState(false);
@@ -93,9 +116,21 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
   };
 
   const getBreadcrumbPath = () => {
-    const dateObj = new Date(selectedDate);
-    const formatted = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    return `Energyrite => Activity Reports - ${formatted}`;
+    const start = new Date(appliedStartDateTime).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const end = new Date(appliedEndDateTime).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return `Energyrite => Activity Reports - ${start} to ${end}`;
   };
 
   // Convert decimal hours to readable format (e.g., 0.92 -> "55m", 2.22 -> "2h 13m")
@@ -146,6 +181,7 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
 
   // Fetch activity reports data
   const fetchActivityData = useCallback(async () => {
+    let loadSucceeded = false;
     try {
       setLoading(true);
       setError(null);
@@ -155,11 +191,14 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
       // Priority: site_id > selectedRoute.costCode > userCostCode
       const costCodeFilter = selectedRoute?.costCode || userCostCode || '';
       const siteIdFilter = userSiteId || null;
+      const startDate = toDateOnly(appliedStartDateTime);
+      const endDate = toDateOnly(appliedEndDateTime);
       
       // Fetch from activity reports endpoint
       const baseUrl = getReportsApiUrl('');
       const params = new URLSearchParams();
-      params.append('date', selectedDate);
+      params.append('start_date', startDate);
+      params.append('end_date', endDate);
       if (siteIdFilter) {
         params.append('site_id', siteIdFilter);
         if (costCodeFilter) {
@@ -318,6 +357,9 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
             }
           };
           setReportData(transformedData);
+        } else if (apiData.site_reports && Array.isArray(apiData.site_reports)) {
+          console.log('Using site_reports API structure');
+          setReportData(apiData);
         } else {
           console.log('⚠️ Using fallback/old API structure');
           // Fallback to old structure
@@ -339,6 +381,7 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
         }
         setReportData(null);
       }
+      loadSucceeded = true;
       
     } catch (err) {
       console.error('❌ Error fetching activity data:', err);
@@ -353,18 +396,23 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
       setReportData(null);
     } finally {
       setLoading(false);
-      if (!error) {
+      if (loadSucceeded) {
         toast({
           title: 'Activity data loaded',
           description: 'Latest reports fetched successfully.'
         });
       }
     }
-  }, [toast, isAdmin, selectedRoute, userCostCode, selectedDate]);
+  }, [toast, isAdmin, selectedRoute, userCostCode, userSiteId, appliedStartDateTime, appliedEndDateTime]);
 
   useEffect(() => {
     fetchActivityData();
   }, [fetchActivityData]);
+
+  const handleApplyDateRange = () => {
+    setAppliedStartDateTime(startDateTime);
+    setAppliedEndDateTime(endDateTime);
+  };
 
   // Generate Activity Excel Report
   const generateActivityExcelReport = async () => {
@@ -376,8 +424,8 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
       
       const requestBody = {
         report_type: 'daily',
-        start_date: selectedDate,
-        end_date: selectedDate,
+        start_date: toDateOnly(appliedStartDateTime),
+        end_date: toDateOnly(appliedEndDateTime),
         ...(siteId && { site_id: siteId }),
         ...(costCode && !siteId && { cost_code: costCode })
       };
@@ -462,23 +510,76 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
     .sort((a, b) => (a.branch || a.generator || '').localeCompare(b.branch || b.generator || ''));
 
   return (
-    <div className="bg-white min-h-screen">
+    <div className="min-h-full bg-slate-50">
 
       {/* Main Content */}
-      <div className="space-y-6 p-3 sm:p-4 lg:p-6">
+      <div className="space-y-4 px-3 pb-6 pt-3 sm:px-4 lg:px-6">
         {/* Header */}
-        <div className="bg-white shadow-sm border-b px-3 sm:px-6 py-4 sm:py-6">
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5 sm:py-4">
           <div className="max-w-7xl mx-auto">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{getCostCenterName()}</h1>
-              <p className="text-gray-600 text-sm sm:text-base break-words">{getBreadcrumbPath()}</p>
+              <h1 className="mb-1 text-xl font-semibold text-gray-900 sm:text-2xl">{getCostCenterName()}</h1>
+              <p className="break-words text-xs text-gray-500 sm:text-sm">{getBreadcrumbPath()}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="sticky top-2 z-20 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur sm:p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Date Range</h2>
+              <p className="text-xs text-gray-500 sm:text-sm">
+                End defaults to the current time. The activity report endpoint currently applies the selected date range by day.
+              </p>
+            </div>
+            <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:items-end">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium uppercase tracking-wide text-gray-500">Start</label>
+                <div className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2">
+                  <Calendar className="h-4 w-4 text-gray-500" />
+                  <input
+                    type="datetime-local"
+                    value={startDateTime}
+                    onChange={(e) => setStartDateTime(e.target.value)}
+                    className="w-full bg-transparent text-sm text-gray-700 outline-none lg:w-[200px]"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium uppercase tracking-wide text-gray-500">End</label>
+                <div className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2">
+                  <Calendar className="h-4 w-4 text-gray-500" />
+                  <input
+                    type="datetime-local"
+                    value={endDateTime}
+                    onChange={(e) => setEndDateTime(e.target.value)}
+                    className="w-full bg-transparent text-sm text-gray-700 outline-none lg:w-[200px]"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-1 lg:pt-0">
+                <Button onClick={handleApplyDateRange} size="sm" className="min-w-[100px]">
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Update
+                </Button>
+                <Button
+                  onClick={generateActivityExcelReport}
+                  size="sm"
+                  variant="outline"
+                  disabled={generatingExcel}
+                  className="min-w-[120px]"
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  {generatingExcel ? 'Generating...' : 'Excel Report'}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Summary Cards: Operating Hours, Fuel Usage, Fuel Fills */}
         {reportData && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 sm:gap-4">
             {/* Total Operating Hours */}
             <Card className="rounded-lg shadow-sm border-0 overflow-hidden">
               <div className="h-1 bg-sky-600" />
@@ -517,7 +618,7 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
               <CardContent className="p-3 sm:p-4">
                 <div className="flex flex-col items-start">
                   <div className="text-xl sm:text-3xl font-extrabold text-indigo-700">{totalSites}</div>
-                  <div className="text-xs sm:text-sm text-gray-500 mt-1">Active Sites</div>
+                  <div className="text-xs sm:text-sm text-gray-500 mt-1">Active Vehicles</div>
                 </div>
               </CardContent>
             </Card>
@@ -527,33 +628,11 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
 
         {/* Site Reports Table */}
         <div>
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-            <h2 className="font-semibold text-gray-900 text-lg sm:text-xl">ALL SITES ({reportData?.site_reports?.length || 0})</h2>
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <Calendar className="w-4 h-4 text-gray-500" />
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full sm:w-auto"
-                />
-              </div>
-              <Button onClick={fetchActivityData} size="sm" className="w-full sm:w-auto sm:min-w-[100px]">
-                <RefreshCw className="mr-2 w-4 h-4" />
-                Update
-              </Button>
-              <Button 
-                onClick={generateActivityExcelReport} 
-                size="sm" 
-                variant="outline"
-                disabled={generatingExcel}
-                className="w-full sm:w-auto sm:min-w-[120px]"
-              >
-                <Download className="mr-2 w-4 h-4" />
-                {generatingExcel ? 'Generating...' : 'Excel Report'}
-              </Button>
-            </div>
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold text-gray-900 sm:text-xl">ALL SITES ({reportData?.site_reports?.length || 0})</h2>
+            <p className="text-xs text-gray-500 sm:text-sm">
+              Showing sites for {toDateOnly(appliedStartDateTime)} to {toDateOnly(appliedEndDateTime)}
+            </p>
           </div>
 
           <div className="sm:hidden space-y-3">
@@ -645,5 +724,3 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
     </div>
   );
 }
-
-
