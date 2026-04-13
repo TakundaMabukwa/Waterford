@@ -79,6 +79,13 @@ const appDataCache: AppDataCache = {
   lastSseUpdate: null,
 };
 
+const allowedTabs = ['dashboard', 'reports', 'activity', 'executive'];
+
+function getInitialActiveTab(searchParams: ReturnType<typeof useSearchParams>): string {
+  const tab = searchParams.get('tab');
+  return tab && allowedTabs.includes(tab) ? tab : 'dashboard';
+}
+
 function flattenCostCenters(centers: CostCenter[]): CostCenter[] {
   return centers.flatMap((center) => [
     center,
@@ -154,7 +161,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [vehicles, setVehicles] = useState<EnergyRiteVehicle[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => getInitialActiveTab(searchParams));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sseConnected, setSseConnected] = useState(false);
@@ -175,7 +182,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const tab = searchParams.get('tab');
     const route = searchParams.get('route');
-    const allowedTabs = ['dashboard', 'reports', 'activity', 'executive'];
 
     if (tab && allowedTabs.includes(tab)) {
       setActiveTab(tab);
@@ -191,7 +197,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Update URL when activeTab changes
   const updateActiveTab = (tab: string) => {
-    const allowedTabs = ['dashboard', 'reports', 'activity', 'executive'];
     const nextTab = allowedTabs.includes(tab) ? tab : 'dashboard';
     setActiveTab(nextTab);
     const params = new URLSearchParams(searchParams.toString());

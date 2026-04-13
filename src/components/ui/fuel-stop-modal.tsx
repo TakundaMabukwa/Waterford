@@ -68,12 +68,14 @@ export function FuelStopForm({
   backLabel = 'Back',
   onCancel,
   onSaved,
+  initialRecord = null,
 }: {
   title?: string
   showBackButton?: boolean
   backLabel?: string
   onCancel?: () => void
   onSaved?: (record: any) => void
+  initialRecord?: any
 }) {
   const supabase = useMemo(() => createClient(), [])
   const mapRef = useRef<any>(null)
@@ -102,6 +104,7 @@ export function FuelStopForm({
   const [polygonPoints, setPolygonPoints] = useState<Point[]>([])
   const [drawMode, setDrawMode] = useState<'station' | 'polygon'>('station')
   const [error, setError] = useState<string | null>(null)
+  const isEditing = Boolean(initialRecord?.id)
 
   const applySelectedLocation = (selection: LocationLookupSelection | null) => {
     if (!selection?.coordinates || selection.coordinates.length < 2) {
@@ -124,6 +127,68 @@ export function FuelStopForm({
     if (!geozoneName) {
       setGeozoneName(selection.name || 'Fuel Stop Zone')
     }
+  }
+
+  const parsePoint = (value: any): Point | null => {
+    if (!value) return null
+
+    if (typeof value === 'string') {
+      const normalized = value.trim()
+      if (!normalized) return null
+
+      if (normalized.startsWith('{') || normalized.startsWith('[')) {
+        try {
+          return parsePoint(JSON.parse(normalized))
+        } catch {
+          return null
+        }
+      }
+
+      const parts = normalized.split(',').map((part) => Number.parseFloat(part.trim()))
+      if (parts.length === 2 && parts.every((part) => Number.isFinite(part))) {
+        return { lat: parts[0], lng: parts[1] }
+      }
+      return null
+    }
+
+    if (Array.isArray(value)) {
+      if (value.length === 2 && value.every((item) => Number.isFinite(Number(item)))) {
+        return { lng: Number(value[0]), lat: Number(value[1]) }
+      }
+      return null
+    }
+
+    if (typeof value === 'object') {
+      const lat = Number(value.lat)
+      const lng = Number(value.lng)
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return { lat, lng }
+      }
+    }
+
+    return null
+  }
+
+  const parsePolygon = (value: any): Point[] => {
+    if (!value) return []
+
+    let parsed = value
+    if (typeof value === 'string') {
+      const normalized = value.trim()
+      if (!normalized) return []
+      try {
+        parsed = JSON.parse(normalized)
+      } catch {
+        return []
+      }
+    }
+
+    if (!Array.isArray(parsed)) return []
+
+    const coordinates = Array.isArray(parsed[0]?.[0]) ? parsed[0] : parsed
+    return coordinates
+      .map((coord) => parsePoint(coord))
+      .filter((point): point is Point => Boolean(point))
   }
 
   useEffect(() => {
@@ -361,6 +426,42 @@ export function FuelStopForm({
     setError(null)
   }
 
+  useEffect(() => {
+    if (!initialRecord) {
+      resetForm()
+      return
+    }
+
+    setLocationQuery(initialRecord.name || initialRecord.name2 || '')
+    setSelectedLocation(null)
+    setName(initialRecord.name || initialRecord.name2 || '')
+    setGeozoneName(initialRecord.geozone_name || initialRecord.name || initialRecord.name2 || '')
+    setAddress(initialRecord.address || '')
+    setCity(initialRecord.city || '')
+    setState(initialRecord.state || '')
+    setCountry(initialRecord.country || '')
+    setFuelPrice(
+      initialRecord.fuel_price_per_liter !== null && initialRecord.fuel_price_per_liter !== undefined
+        ? String(initialRecord.fuel_price_per_liter)
+        : initialRecord.value || ''
+    )
+    setContactPerson(initialRecord.contact_person || '')
+    setContactPhone(initialRecord.contact_phone || '')
+    setContactEmail(initialRecord.contact_email || '')
+    setOperatingHours(initialRecord.operating_hours || '')
+    setNotes(initialRecord.notes || '')
+    setFacilities(Array.isArray(initialRecord.facilities) ? initialRecord.facilities.join(', ') : '')
+    setCenterPoint(
+      parsePoint(initialRecord.location_coordinates) ||
+      parsePoint(initialRecord.coords)
+    )
+    setPolygonPoints(
+      parsePolygon(initialRecord.geozone_coordinates || initialRecord.coordinates)
+    )
+    setDrawMode('polygon')
+    setError(null)
+  }, [initialRecord])
+
   const handleSave = async () => {
     if (!name || !centerPoint) {
       setError('Name and station location are required.')
@@ -402,11 +503,17 @@ export function FuelStopForm({
         updated_at: new Date().toISOString(),
       }
 
-      const { data, error: saveError } = await supabase.from('fuel_stops').insert(payload).select('*').single()
+      const query = isEditing
+        ? supabase.from('fuel_stops').update(payload).eq('id', initialRecord.id).select('*').single()
+        : supabase.from('fuel_stops').insert(payload).select('*').single()
+
+      const { data, error: saveError } = await query
       if (saveError) throw saveError
 
       onSaved?.(data)
-      resetForm()
+      if (!isEditing) {
+        resetForm()
+      }
     } catch (saveError: any) {
       console.error('Error saving fuel stop:', saveError)
       setError(saveError?.message || 'Failed to save fuel stop')
@@ -583,11 +690,11 @@ export function FuelStopForm({
             Reset Form
           </Button>
           <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={onCancel}>
+          <Button type="button" variant="outline" onClick={onCancel}>
               {backLabel}
             </Button>
             <Button type="button" onClick={handleSave} disabled={isSaving}>
-              {isSaving ? 'Saving...' : 'Save Fuel Station'}
+              {isSaving ? 'Saving...' : isEditing ? 'Update Fuel Stop' : 'Save Fuel Station'}
             </Button>
           </div>
       </div>

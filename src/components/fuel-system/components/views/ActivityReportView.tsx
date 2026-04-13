@@ -75,25 +75,20 @@ interface ActivityReportData {
   };
 }
 
-const toDateTimeInputValue = (date: Date) => {
+const toDateInputValue = (date: Date) => {
   const pad = (num: number) => String(num).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-};
-
-const toDateOnly = (dateTimeValue: string) => {
-  if (!dateTimeValue) return '';
-  return dateTimeValue.split('T')[0];
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
 const getDefaultDateRange = (initialDate?: string) => {
   const now = new Date();
-  const startBase = initialDate
+  const baseDate = initialDate
     ? new Date(`${initialDate}T00:00`)
     : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0);
 
   return {
-    start: toDateTimeInputValue(startBase),
-    end: toDateTimeInputValue(now),
+    start: toDateInputValue(baseDate),
+    end: toDateInputValue(baseDate),
   };
 };
 
@@ -116,19 +111,15 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
   };
 
   const getBreadcrumbPath = () => {
-    const start = new Date(appliedStartDateTime).toLocaleString('en-US', {
+    const start = new Date(`${appliedStartDateTime}T00:00:00`).toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
     });
-    const end = new Date(appliedEndDateTime).toLocaleString('en-US', {
+    const end = new Date(`${appliedEndDateTime}T00:00:00`).toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
     });
     return `Energyrite => Activity Reports - ${start} to ${end}`;
   };
@@ -173,10 +164,14 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
 
   const formatSiteTime = (timestamp?: string | null): string => {
     if (!timestamp) return '-';
-    // Use backend-provided time component as-is.
-    const match = timestamp.match(/T(\d{2}):(\d{2})/);
-    if (!match) return '-';
-    return `${match[1]}:${match[2]}`;
+    const [datePart, timePart] = timestamp.split('T');
+    if (!datePart || !timePart) return '-';
+
+    const [year, month, day] = datePart.split('-');
+    const timeMatch = timePart.match(/^(\d{2}):(\d{2})/);
+    if (!year || !month || !day || !timeMatch) return '-';
+
+    return `${year}/${month}/${day} ${timeMatch[1]}:${timeMatch[2]}`;
   };
 
   // Fetch activity reports data
@@ -191,8 +186,8 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
       // Priority: site_id > selectedRoute.costCode > userCostCode
       const costCodeFilter = selectedRoute?.costCode || userCostCode || '';
       const siteIdFilter = userSiteId || null;
-      const startDate = toDateOnly(appliedStartDateTime);
-      const endDate = toDateOnly(appliedEndDateTime);
+      const startDate = appliedStartDateTime;
+      const endDate = appliedEndDateTime;
       
       // Fetch from activity reports endpoint
       const baseUrl = getReportsApiUrl('');
@@ -424,8 +419,8 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
       
       const requestBody = {
         report_type: 'daily',
-        start_date: toDateOnly(appliedStartDateTime),
-        end_date: toDateOnly(appliedEndDateTime),
+        start_date: appliedStartDateTime,
+        end_date: appliedEndDateTime,
         ...(siteId && { site_id: siteId }),
         ...(costCode && !siteId && { cost_code: costCode })
       };
@@ -524,40 +519,34 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
           </div>
         </div>
 
-        <div className="sticky top-2 z-20 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur sm:p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">Date Range</h2>
-              <p className="text-xs text-gray-500 sm:text-sm">
-                End defaults to the current time. The activity report endpoint currently applies the selected date range by day.
-              </p>
-            </div>
+        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:px-4 sm:py-3">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:items-end">
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium uppercase tracking-wide text-gray-500">Start</label>
+                <label className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Start</label>
                 <div className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2">
                   <Calendar className="h-4 w-4 text-gray-500" />
                   <input
-                    type="datetime-local"
+                    type="date"
                     value={startDateTime}
                     onChange={(e) => setStartDateTime(e.target.value)}
-                    className="w-full bg-transparent text-sm text-gray-700 outline-none lg:w-[200px]"
+                    className="w-full bg-transparent text-sm text-gray-700 outline-none lg:w-[220px]"
                   />
                 </div>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium uppercase tracking-wide text-gray-500">End</label>
+                <label className="text-[11px] font-medium uppercase tracking-wide text-gray-500">End</label>
                 <div className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2">
                   <Calendar className="h-4 w-4 text-gray-500" />
                   <input
-                    type="datetime-local"
+                    type="date"
                     value={endDateTime}
                     onChange={(e) => setEndDateTime(e.target.value)}
-                    className="w-full bg-transparent text-sm text-gray-700 outline-none lg:w-[200px]"
+                    className="w-full bg-transparent text-sm text-gray-700 outline-none lg:w-[220px]"
                   />
                 </div>
               </div>
-              <div className="flex gap-2 pt-1 lg:pt-0">
+              <div className="flex gap-2 pt-0.5 lg:pt-0">
                 <Button onClick={handleApplyDateRange} size="sm" className="min-w-[100px]">
                   <RefreshCw className="mr-2 h-4 w-4" />
                   Update
@@ -631,7 +620,7 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold text-gray-900 sm:text-xl">ALL SITES ({reportData?.site_reports?.length || 0})</h2>
             <p className="text-xs text-gray-500 sm:text-sm">
-              Showing sites for {toDateOnly(appliedStartDateTime)} to {toDateOnly(appliedEndDateTime)}
+              Showing sites for {appliedStartDateTime} to {appliedEndDateTime}
             </p>
           </div>
 
@@ -672,8 +661,8 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
               <TableHeader>
                 <TableRow>
             <TableHead className="font-medium">Site</TableHead>
-            <TableHead className="font-medium">Start Time</TableHead>
-            <TableHead className="font-medium">End Time</TableHead>
+            <TableHead className="font-medium">Start Date/Time</TableHead>
+            <TableHead className="font-medium">End Date/Time</TableHead>
             <TableHead className="font-medium">Operating Hours</TableHead>
             <TableHead className="font-medium">Fuel Usage</TableHead>
             <TableHead className="font-medium">Fuel Fills</TableHead>
