@@ -13,6 +13,8 @@ import { VehicleNotesHistoryModal } from '@/components/fuel-system/components/ui
 interface FuelGaugeProps {
   location: string;
   fuelLevel: number;
+  tank1Level?: number;
+  tank2Level?: number;
   temperature: number;
   volume: number;
   currentVolume: number;
@@ -42,6 +44,8 @@ interface FuelGaugeProps {
 export function FuelGauge({
   location,
   fuelLevel,
+  tank1Level = 0,
+  tank2Level = 0,
   temperature,
   volume,
   currentVolume,
@@ -65,11 +69,6 @@ export function FuelGauge({
   const [isStatusTooltipOpen, setIsStatusTooltipOpen] = useState(false);
   const [currentNote, setCurrentNote] = useState(anomalyNote || '');
   const [currentClientNote, setCurrentClientNote] = useState(clientNote || '');
-
-  const radius = 80;
-  const strokeWidth = 12;
-  const normalizedRadius = radius - strokeWidth * 2;
-  const circumference = normalizedRadius * 2 * Math.PI;
 
   const getStatusColor = (nextStatus: string) => {
     if (!nextStatus) return 'bg-gray-100 text-gray-700 border-gray-200';
@@ -227,78 +226,81 @@ export function FuelGauge({
       </div>
 
       <div className="flex justify-center mb-3">
-        <div className="relative">
+        <div className="flex items-center justify-center gap-1">
           {(() => {
-            const mainPercent = Math.round(fuelLevel || 0);
-            const auxPercent = Math.round(Number(vehicleData?.fuel_probe_2_level_percentage ?? 0) || 0);
-            const mainOffset = circumference - (mainPercent / 100) * circumference;
-            const auxRadius = 46;
-            const auxStrokeWidth = 10;
-            const auxNormalizedRadius = auxRadius - auxStrokeWidth * 2;
-            const auxCircumference = auxNormalizedRadius * 2 * Math.PI;
-            const auxOffset = auxCircumference - (auxPercent / 100) * auxCircumference;
+            const tank1Percent = Math.round(tank1Level || 0);
+            const tank2Percent = Math.round(tank2Level || 0);
+            const tankRadius = 48;
+            const tankStrokeWidth = 8;
+            const tankNormalizedRadius = tankRadius - tankStrokeWidth * 2;
+            const tankCircumference = tankNormalizedRadius * 2 * Math.PI;
+            const tank1Offset = tankCircumference - (tank1Percent / 100) * tankCircumference;
+            const tank2Offset = tankCircumference - (tank2Percent / 100) * tankCircumference;
 
             return (
-              <div className="relative">
-                <svg height={radius * 2} width={radius * 2} className="-rotate-90 transform">
-                  <circle
-                    stroke="#e5e7eb"
-                    fill="transparent"
-                    strokeWidth={strokeWidth}
-                    r={normalizedRadius}
-                    cx={radius}
-                    cy={radius}
-                  />
-                  <circle
-                    stroke={getFuelColor(mainPercent)}
-                    fill="transparent"
-                    strokeWidth={strokeWidth}
-                    strokeDasharray={`${circumference} ${circumference}`}
-                    style={{ strokeDashoffset: mainOffset }}
-                    r={normalizedRadius}
-                    cx={radius}
-                    cy={radius}
-                    className="transition-all duration-1000 ease-out"
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <Gauge className="mb-1 h-5 w-5 text-gray-400" />
-                  <span className="text-xs font-medium text-gray-500">Fuel</span>
-                  <span className="text-4xl font-semibold text-gray-900">{mainPercent}</span>
-                  <span className="text-xs font-semibold text-gray-400">%</span>
+              <>
+                <div className="relative h-[96px] w-[96px]">
+                  <svg height={tankRadius * 2} width={tankRadius * 2} className="-rotate-90 transform">
+                    <circle
+                      stroke="#e5e7eb"
+                      fill="transparent"
+                      strokeWidth={tankStrokeWidth}
+                      r={tankNormalizedRadius}
+                      cx={tankRadius}
+                      cy={tankRadius}
+                    />
+                    <circle
+                      stroke={getFuelColor(tank1Percent)}
+                      fill="transparent"
+                      strokeWidth={tankStrokeWidth}
+                      strokeDasharray={`${tankCircumference} ${tankCircumference}`}
+                      style={{ strokeDashoffset: tank1Offset }}
+                      r={tankNormalizedRadius}
+                      cx={tankRadius}
+                      cy={tankRadius}
+                      className="transition-all duration-1000 ease-out"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <Gauge className="mb-0.5 h-2.5 w-2.5 text-gray-400" />
+                    <span className="text-[10px] font-medium leading-none text-gray-500">Tank 1</span>
+                    <span className="text-[1.5rem] font-semibold leading-none text-gray-900">{tank1Percent}</span>
+                    <span className="text-[10px] font-semibold leading-none text-gray-400">%</span>
+                  </div>
                 </div>
 
-                <div className="absolute bottom-[-10px] right-[-52px] bg-transparent p-0 shadow-none border-0">
-                  <div className="relative h-[92px] w-[92px]">
-                    <svg height={auxRadius * 2} width={auxRadius * 2} className="-rotate-90 transform">
+                <div className="relative h-[96px] w-[96px]">
+                  <svg height={tankRadius * 2} width={tankRadius * 2} className="-rotate-90 transform">
                       <circle
                         stroke="#e5e7eb"
                         fill="transparent"
-                        strokeWidth={auxStrokeWidth}
-                        r={auxNormalizedRadius}
-                        cx={auxRadius}
-                        cy={auxRadius}
+                        strokeWidth={tankStrokeWidth}
+                        r={tankNormalizedRadius}
+                        cx={tankRadius}
+                        cy={tankRadius}
                       />
                       <circle
-                        stroke={getFuelColor(auxPercent)}
+                        stroke={getFuelColor(tank2Percent)}
                         fill="transparent"
-                        strokeWidth={auxStrokeWidth}
-                        strokeDasharray={`${auxCircumference} ${auxCircumference}`}
-                        style={{ strokeDashoffset: auxOffset }}
-                        r={auxNormalizedRadius}
-                        cx={auxRadius}
-                        cy={auxRadius}
+                        strokeWidth={tankStrokeWidth}
+                        strokeDasharray={`${tankCircumference} ${tankCircumference}`}
+                        style={{ strokeDashoffset: tank2Offset }}
+                        r={tankNormalizedRadius}
+                        cx={tankRadius}
+                        cy={tankRadius}
                         className="transition-all duration-1000 ease-out"
                         strokeLinecap="round"
                       />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-lg font-semibold text-gray-900">{auxPercent}</span>
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <Gauge className="mb-0.5 h-2.5 w-2.5 text-gray-400" />
+                    <span className="text-[10px] font-medium leading-none text-gray-500">Tank 2</span>
+                    <span className="text-[1.5rem] font-semibold leading-none text-gray-900">{tank2Percent}</span>
+                    <span className="text-[10px] font-semibold leading-none text-gray-400">%</span>
                     </div>
                   </div>
-                </div>
-              </div>
+              </>
             );
           })()}
         </div>

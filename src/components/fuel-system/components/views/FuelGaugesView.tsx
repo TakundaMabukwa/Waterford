@@ -263,7 +263,12 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
     .map((vehicle) => ({
       id: vehicle.id,
       location: vehicle.branch,
-      fuelLevel: vehicle.fuel_probe_1_level_percentage,
+      fuelLevel:
+        vehicle.fuel_probe_2_level_percentage > 0
+          ? (vehicle.fuel_probe_1_level_percentage + vehicle.fuel_probe_2_level_percentage) / 2
+          : vehicle.fuel_probe_1_level_percentage,
+      tank1Level: vehicle.fuel_probe_1_level_percentage,
+      tank2Level: vehicle.fuel_probe_2_level_percentage,
       temperature: vehicle.fuel_probe_1_temperature,
       volume: vehicle.volume,
       currentVolume: vehicle.fuel_probe_1_volume_in_tank,
@@ -336,6 +341,8 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
                 id={data.id}
                 location={data.location}
                 fuelLevel={data.fuelLevel}
+                tank1Level={data.tank1Level}
+                tank2Level={data.tank2Level}
                 temperature={data.temperature}
                 volume={data.volume}
                 currentVolume={data.currentVolume}
