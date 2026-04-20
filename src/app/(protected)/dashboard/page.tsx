@@ -73,6 +73,7 @@ import { EditTripModal } from "@/components/ui/edit-trip-modal";
 import LiveMapView from "@/components/map/live-map-view";
 import { VehicleDashboardModal } from "@/components/ui/vehicle-dashboard-modal";
 import { mapFuelStopToOverlay } from "@/lib/fuel-stop-map";
+import LiveStreamTab from "@/components/dashboard/live-stream-tab";
 
 const normalizePlate = (value: string | undefined | null) =>
   String(value || '')
@@ -1938,6 +1939,12 @@ export default function Dashboard() {
                 Live Map
               </TabsTrigger>
               <TabsTrigger
+                value="live-stream"
+                className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                Live Stream
+              </TabsTrigger>
+              <TabsTrigger
                 value="reports"
                 className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
@@ -2006,6 +2013,12 @@ export default function Dashboard() {
                 Live Map
               </TabsTrigger>
               <TabsTrigger
+                value="live-stream"
+                className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                Live Stream
+              </TabsTrigger>
+              <TabsTrigger
                 value="reports"
                 className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
@@ -2058,6 +2071,12 @@ export default function Dashboard() {
               setCurrentTripForApproval={setCurrentTripForApproval}
               setApprovalModalOpen={setApprovalModalOpen}
             />
+          </div>
+        )}
+
+        {activeTab === "live-stream" && (
+          <div className="space-y-4">
+            <LiveStreamTab />
           </div>
         )}
 

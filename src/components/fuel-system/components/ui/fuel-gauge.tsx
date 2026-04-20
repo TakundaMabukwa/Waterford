@@ -226,10 +226,11 @@ export function FuelGauge({
       </div>
 
       <div className="flex justify-center mb-3">
-        <div className="flex items-center justify-center gap-1">
+        <div className="flex flex-col items-center gap-2">
           {(() => {
             const tank1Percent = Math.round(tank1Level || 0);
             const tank2Percent = Math.round(tank2Level || 0);
+            const totalPercent = Math.round(fuelLevel || 0);
             const tankRadius = 48;
             const tankStrokeWidth = 8;
             const tankNormalizedRadius = tankRadius - tankStrokeWidth * 2;
@@ -239,39 +240,9 @@ export function FuelGauge({
 
             return (
               <>
-                <div className="relative h-[96px] w-[96px]">
-                  <svg height={tankRadius * 2} width={tankRadius * 2} className="-rotate-90 transform">
-                    <circle
-                      stroke="#e5e7eb"
-                      fill="transparent"
-                      strokeWidth={tankStrokeWidth}
-                      r={tankNormalizedRadius}
-                      cx={tankRadius}
-                      cy={tankRadius}
-                    />
-                    <circle
-                      stroke={getFuelColor(tank1Percent)}
-                      fill="transparent"
-                      strokeWidth={tankStrokeWidth}
-                      strokeDasharray={`${tankCircumference} ${tankCircumference}`}
-                      style={{ strokeDashoffset: tank1Offset }}
-                      r={tankNormalizedRadius}
-                      cx={tankRadius}
-                      cy={tankRadius}
-                      className="transition-all duration-1000 ease-out"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <Gauge className="mb-0.5 h-2.5 w-2.5 text-gray-400" />
-                    <span className="text-[10px] font-medium leading-none text-gray-500">Tank 1</span>
-                    <span className="text-[1.5rem] font-semibold leading-none text-gray-900">{tank1Percent}</span>
-                    <span className="text-[10px] font-semibold leading-none text-gray-400">%</span>
-                  </div>
-                </div>
-
-                <div className="relative h-[96px] w-[96px]">
-                  <svg height={tankRadius * 2} width={tankRadius * 2} className="-rotate-90 transform">
+                <div className="flex items-center justify-center gap-1">
+                  <div className="relative h-[96px] w-[96px]">
+                    <svg height={tankRadius * 2} width={tankRadius * 2} className="-rotate-90 transform">
                       <circle
                         stroke="#e5e7eb"
                         fill="transparent"
@@ -281,25 +252,63 @@ export function FuelGauge({
                         cy={tankRadius}
                       />
                       <circle
-                        stroke={getFuelColor(tank2Percent)}
+                        stroke={getFuelColor(tank1Percent)}
                         fill="transparent"
                         strokeWidth={tankStrokeWidth}
                         strokeDasharray={`${tankCircumference} ${tankCircumference}`}
-                        style={{ strokeDashoffset: tank2Offset }}
+                        style={{ strokeDashoffset: tank1Offset }}
                         r={tankNormalizedRadius}
                         cx={tankRadius}
                         cy={tankRadius}
                         className="transition-all duration-1000 ease-out"
                         strokeLinecap="round"
                       />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <Gauge className="mb-0.5 h-2.5 w-2.5 text-gray-400" />
-                    <span className="text-[10px] font-medium leading-none text-gray-500">Tank 2</span>
-                    <span className="text-[1.5rem] font-semibold leading-none text-gray-900">{tank2Percent}</span>
-                    <span className="text-[10px] font-semibold leading-none text-gray-400">%</span>
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <Gauge className="mb-0.5 h-2.5 w-2.5 text-gray-400" />
+                      <span className="text-[10px] font-medium leading-none text-gray-500">Tank 1</span>
+                      <span className="text-[1.5rem] font-semibold leading-none text-gray-900">{tank1Percent}</span>
+                      <span className="text-[10px] font-semibold leading-none text-gray-400">%</span>
                     </div>
                   </div>
+
+                  <div className="relative h-[96px] w-[96px]">
+                    <svg height={tankRadius * 2} width={tankRadius * 2} className="-rotate-90 transform">
+                        <circle
+                          stroke="#e5e7eb"
+                          fill="transparent"
+                          strokeWidth={tankStrokeWidth}
+                          r={tankNormalizedRadius}
+                          cx={tankRadius}
+                          cy={tankRadius}
+                        />
+                        <circle
+                          stroke={getFuelColor(tank2Percent)}
+                          fill="transparent"
+                          strokeWidth={tankStrokeWidth}
+                          strokeDasharray={`${tankCircumference} ${tankCircumference}`}
+                          style={{ strokeDashoffset: tank2Offset }}
+                          r={tankNormalizedRadius}
+                          cx={tankRadius}
+                          cy={tankRadius}
+                          className="transition-all duration-1000 ease-out"
+                          strokeLinecap="round"
+                        />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <Gauge className="mb-0.5 h-2.5 w-2.5 text-gray-400" />
+                      <span className="text-[10px] font-medium leading-none text-gray-500">Tank 2</span>
+                      <span className="text-[1.5rem] font-semibold leading-none text-gray-900">{tank2Percent}</span>
+                      <span className="text-[10px] font-semibold leading-none text-gray-400">%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex min-w-[52px] items-center justify-center rounded-md border border-emerald-500 bg-white px-2 py-0.5 shadow-sm">
+                  <div className="flex flex-col items-center leading-none">
+                    <span className="text-sm font-bold text-emerald-600">{totalPercent}%</span>
+                  </div>
+                </div>
               </>
             );
           })()}
