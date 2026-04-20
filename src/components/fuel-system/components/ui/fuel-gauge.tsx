@@ -10,6 +10,52 @@ import { formatForDisplay } from '@/lib/utils/date-formatter';
 import { AddNoteModal } from '@/components/fuel-system/components/ui/add-note-modal';
 import { VehicleNotesHistoryModal } from '@/components/fuel-system/components/ui/vehicle-notes-history-modal';
 
+const WATERFORD_TANK_CAPACITIES: Record<string, { tank1: number; tank2: number }> = {
+  YWX933GP: { tank1: 0, tank2: 500 },
+  FW28SMGP: { tank1: 250, tank2: 590 },
+  HW65MMGP: { tank1: 620, tank2: 580 },
+  JM39BBGP: { tank1: 540, tank2: 360 },
+  JP29YVGP: { tank1: 540, tank2: 360 },
+  JP29YTGP: { tank1: 540, tank2: 360 },
+  JP88KFGP: { tank1: 540, tank2: 360 },
+  JW59VYGP: { tank1: 540, tank2: 360 },
+  JW59WDGP: { tank1: 540, tank2: 360 },
+  JW59WJGP: { tank1: 540, tank2: 360 },
+  KC31RGGP: { tank1: 540, tank2: 360 },
+  KD57TSGP: { tank1: 540, tank2: 360 },
+  KL33HWGP: { tank1: 540, tank2: 360 },
+  FV26GTGP: { tank1: 850, tank2: 430 },
+  KN41XSGP: { tank1: 540, tank2: 360 },
+  KP48MNGP: { tank1: 540, tank2: 360 },
+  KP48MWGP: { tank1: 540, tank2: 360 },
+  KP48NCGP: { tank1: 540, tank2: 360 },
+  KP48NFGP: { tank1: 540, tank2: 360 },
+  KZ89MRGP: { tank1: 540, tank2: 360 },
+  LF60RGGP: { tank1: 540, tank2: 360 },
+  LC62WSGP: { tank1: 540, tank2: 360 },
+  LD08SLGP: { tank1: 540, tank2: 360 },
+  LD08STGP: { tank1: 540, tank2: 360 },
+  LD08SSGP: { tank1: 540, tank2: 360 },
+  LD08SWGP: { tank1: 540, tank2: 360 },
+  LS34PRGP: { tank1: 540, tank2: 360 },
+  LS34PMGP: { tank1: 540, tank2: 360 },
+  LS34PGGP: { tank1: 540, tank2: 360 },
+  LR78XJGP: { tank1: 540, tank2: 360 },
+  LR78YGGP: { tank1: 540, tank2: 360 },
+  LR78ZBGP: { tank1: 540, tank2: 360 },
+  LR81ZZGP: { tank1: 540, tank2: 360 },
+  LV75FKGP: { tank1: 540, tank2: 360 },
+  LV75GCGP: { tank1: 540, tank2: 360 },
+  MD69KJGP: { tank1: 450, tank2: 450 },
+  MD69KRGP: { tank1: 450, tank2: 450 },
+  MF56SKGP: { tank1: 450, tank2: 450 },
+  MG45YNGP: { tank1: 450, tank2: 450 },
+};
+
+function normalizePlate(value?: string | null) {
+  return String(value || '').replace(/\s+/g, '').toUpperCase();
+}
+
 interface FuelGaugeProps {
   location: string;
   fuelLevel: number;
@@ -140,6 +186,9 @@ export function FuelGauge({
   const isEngineOn = normalizedStatus.includes('PTO ON') || normalizedStatus.includes('ENGINE ON');
   const auxTemperature = vehicleData?.fuel_probe_2_temperature;
   const auxCurrentVolume = vehicleData?.fuel_probe_2_volume_in_tank;
+  const tankCapacities = WATERFORD_TANK_CAPACITIES[normalizePlate(location)];
+  const tank1Capacity = tankCapacities?.tank1 ?? volume ?? 0;
+  const tank2Capacity = tankCapacities?.tank2 ?? 0;
 
   return (
     <div
@@ -349,7 +398,7 @@ export function FuelGauge({
           <div className="flex items-center gap-2">
             <Fuel className="w-4 h-4 text-orange-500" />
             <span className="font-medium text-xs text-gray-900 truncate whitespace-nowrap">
-              Rem: {currentVolume ? currentVolume.toFixed(1) : 'N/A'}L from {volume ? volume.toFixed(1) : 'N/A'}L
+              Rem: {currentVolume != null ? Number(currentVolume).toFixed(1) : 'N/A'}L from {tank1Capacity ? tank1Capacity.toFixed(1) : 'N/A'}L
             </span>
           </div>
         </div>
@@ -363,7 +412,7 @@ export function FuelGauge({
           <div className="flex items-center gap-2">
             <Fuel className="w-4 h-4 text-amber-500" />
             <span className="font-medium text-xs text-gray-900 truncate whitespace-nowrap">
-              Rem 2: {auxCurrentVolume != null ? Number(auxCurrentVolume).toFixed(1) : 'N/A'}L
+              Rem 2: {auxCurrentVolume != null ? Number(auxCurrentVolume).toFixed(1) : 'N/A'}L from {tank2Capacity ? tank2Capacity.toFixed(1) : 'N/A'}L
             </span>
           </div>
         </div>
