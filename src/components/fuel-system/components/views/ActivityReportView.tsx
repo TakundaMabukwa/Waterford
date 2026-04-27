@@ -416,6 +416,8 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
   const handleApplyDateRange = () => {
     setAppliedStartDateTime(startDateTime);
     setAppliedEndDateTime(endDateTime);
+    // Trigger re-fetch after state updates
+    setTimeout(() => fetchActivityData(), 0);
   };
 
   // Generate Activity Excel Report
@@ -684,6 +686,7 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
             
             <TableHead className="font-medium">Total Usage</TableHead>
             <TableHead className="font-medium">Fuel Fills</TableHead>
+             <TableHead className="font-medium">Total</TableHead>
             <TableHead className="font-medium">Peak Usage Time</TableHead>
                 </TableRow>
               </TableHeader>
