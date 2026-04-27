@@ -279,7 +279,7 @@ export function FuelGauge({
           {(() => {
             const tank1Percent = Math.round(tank1Level || 0);
             const tank2Percent = Math.round(tank2Level || 0);
-            const totalPercent = Math.round(fuelLevel || 0);
+            const totalPercent = fuelLevel || 0;
             const tankRadius = 48;
             const tankStrokeWidth = 8;
             const tankNormalizedRadius = tankRadius - tankStrokeWidth * 2;
@@ -493,3 +493,4 @@ export function FuelGauge({
     </div>
   );
 }
+

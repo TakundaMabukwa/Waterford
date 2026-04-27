@@ -204,7 +204,7 @@ export function ExecutiveDashboardView({ onBack }: ExecutiveDashboardViewProps) 
       setScoreCardData([
         {
           value: totalSites,
-          label: 'Total Sites',
+          label: 'Total Vehicles',
           barColor: 'bg-blue-500'
         },
         {
@@ -540,7 +540,7 @@ export function ExecutiveDashboardView({ onBack }: ExecutiveDashboardViewProps) 
         </div>
 
         <div className="gap-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
-          <ChartCard title="Top 10 sites by usage">
+          <ChartCard title="Top 10 vehicles by usage">
             {topSitesData.length > 0 ? (
               <div className="w-full overflow-x-auto overflow-y-hidden">
                 <div className="min-w-[320px]">
@@ -636,4 +636,5 @@ export function ExecutiveDashboardView({ onBack }: ExecutiveDashboardViewProps) 
     </div>
   );
 }
+
 

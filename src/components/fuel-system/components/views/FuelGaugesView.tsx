@@ -271,7 +271,7 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
       tank2Level: vehicle.fuel_probe_2_level_percentage,
       temperature: vehicle.fuel_probe_1_temperature,
       volume: vehicle.volume,
-      currentVolume: vehicle.fuel_probe_1_volume_in_tank,
+      currentVolume: vehicle.fuel_probe_2_volume_in_tank > 0 ? (vehicle.fuel_probe_1_volume_in_tank + vehicle.fuel_probe_2_volume_in_tank) / 2 : vehicle.fuel_probe_1_volume_in_tank,
       remaining: `${vehicle.fuel_probe_1_volume_in_tank}L`,
       status: vehicle.current_status,
       lastUpdated: formatForDisplay(vehicle.last_message_date),
@@ -374,3 +374,4 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
     </div>
   );
 }
+

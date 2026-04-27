@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { X, Search, MapPin, Navigation, Loader2, Video, Fuel, FileText, User } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { X, Search, MapPin, Navigation, Loader2, Video, Fuel, FileText, User, ArrowLeft, Truck, ChevronDown, ChevronRight } from "lucide-react";
+import { FuelGauge } from "@/components/fuel-system/components/ui/fuel-gauge";
+import { UserProvider } from "@/components/fuel-system/contexts/UserContext";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { mapFuelStopToOverlay, type FuelStopOverlay } from "@/lib/fuel-stop-map";
@@ -35,6 +38,24 @@ interface Vehicle {
   hasVideo?: boolean;
 }
 
+interface VehicleFuelData {
+  plate: string;
+  fuelPct: number;
+  fuelVol: number;
+  fuelTemp: number | null;
+  fuelLevel: number;
+  lastUpdated: string;
+  updated_at: string;
+  tank1Pct: number;
+  tank2Pct: number;
+  tank1Vol: number;
+  tank2Vol: number;
+  tank1Temp: number;
+  tank2Temp: number;
+  driverName: string;
+  rawVehicle: any;
+}
+
 export default function LiveMapView() {
   const router = useRouter();
   const supabase = createClient();
@@ -47,6 +68,14 @@ export default function LiveMapView() {
   const [mapLoaded, setMapLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [vehiclesWithVideo, setVehiclesWithVideo] = useState<Set<string>>(new Set());
+  const [fuelView, setFuelView] = useState(false);
+  const [reportsView, setReportsView] = useState(false);
+  const [tripLogData, setTripLogData] = useState<any[]>([]);
+  const [tripLogLoading, setTripLogLoading] = useState(false);
+  const [expandedTrip, setExpandedTrip] = useState<string | null>(null);
+  const [fuelData, setFuelData] = useState<VehicleFuelData | null>(null);
+  const [fuelLoading, setFuelLoading] = useState(false);
+  const [fuelNoteUpdate, setFuelNoteUpdate] = useState<Record<string, string>>({});
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<any>(null);
   const markers = useRef<any[]>([]);
@@ -448,6 +477,9 @@ export default function LiveMapView() {
 
         el.addEventListener("click", () => {
           setSelectedVehicle(vehicle);
+          setFuelView(false);
+          setReportsView(false);
+          setFuelData(null);
           setSidebarOpen(true);
           map.current.flyTo({
             center: [vehicle.location!.lng, vehicle.location!.lat],
@@ -650,10 +682,152 @@ export default function LiveMapView() {
       {/* Map Container */}
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
 
+      {/* Floating Fuel Panel - appears left of sidebar */}
+      {fuelView && selectedVehicle && sidebarOpen && (
+        <div className="absolute top-28 right-[22rem] bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-gray-200 transition-all duration-300 max-h-[calc(100%-8rem)] w-64 flex flex-col overflow-hidden">
+          <div className="p-2 border-b border-gray-200 bg-gradient-to-r from-green-50 to-white flex items-center justify-between rounded-t-xl">
+            <div className="flex items-center gap-1.5">
+              <div className="p-0.5 bg-green-600 rounded">
+                <Fuel className="w-3 h-3 text-white" />
+              </div>
+              <h3 className="font-bold text-xs text-gray-900">Fuel Data</h3>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-1.5" style={{ maxHeight: 'calc(100vh - 10rem)' }}>
+            {fuelLoading && (
+              <div className="flex justify-center py-6">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+              </div>
+            )}
+            {!fuelLoading && !fuelData && (
+              <p className="text-xs text-center text-gray-400 py-4">No fuel probe data available.</p>
+            )}
+            {!fuelLoading && fuelData && (
+              <UserProvider>
+                <FuelGauge
+                  id={fuelData.plate}
+                  location={fuelData.plate}
+                  fuelLevel={fuelData.fuelPct}
+                  tank1Level={fuelData.tank1Pct}
+                  tank2Level={fuelData.tank2Pct}
+                  temperature={fuelData.tank1Temp}
+                  volume={fuelData.tank1Vol}
+                  currentVolume={fuelData.tank1Vol}
+                  remaining={`${fuelData.tank1Vol.toFixed(1)}L`}
+                  status={fuelData.driverName}
+                  lastUpdated={fuelData.lastUpdated}
+                  updated_at={fuelData.updated_at}
+                  vehicleData={fuelData.rawVehicle}
+                  onNoteUpdate={(_, note) => setFuelNoteUpdate(prev => ({ ...prev, [fuelData.plate]: note }))}
+                />
+              </UserProvider>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Floating Trip Reports Panel - appears left of sidebar */}
+      {reportsView && selectedVehicle && sidebarOpen && (
+        <div className="absolute top-28 right-[22rem] bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-gray-200 transition-all duration-300 max-h-[calc(100%-8rem)] w-96 flex flex-col overflow-hidden">
+          <div className="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-white flex items-center justify-between rounded-t-xl">
+            <div className="flex items-center gap-2">
+              <div className="p-1 bg-blue-600 rounded">
+                <FileText className="w-4 h-4 text-white" />
+              </div>
+              <h3 className="font-bold text-sm text-gray-900">Trip Reports - {selectedVehicle.plate}</h3>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3" style={{ maxHeight: 'calc(100vh - 10rem)' }}>
+            {tripLogLoading && (
+              <div className="flex justify-center py-6">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+              </div>
+            )}
+            {!tripLogLoading && tripLogData.length === 0 && (
+              <p className="text-sm text-center text-gray-400 py-4">No trip data available.</p>
+            )}
+            {!tripLogLoading && tripLogData.length > 0 && (
+              <div className="space-y-2">
+                {tripLogData.map((trip) => {
+                  const isExpanded = expandedTrip === trip.id;
+                  const clientDetails = typeof trip.clientdetails === 'string' ? JSON.parse(trip.clientdetails) : trip.clientdetails;
+                  
+                  return (
+                    <div key={trip.id} className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                      <div 
+                        className="p-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                        onClick={() => setExpandedTrip(isExpanded ? null : trip.id)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <div className="w-8 h-8 bg-slate-100 rounded flex items-center justify-center flex-shrink-0">
+                              <Truck className="w-4 h-4 text-slate-600" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-semibold text-slate-900 truncate">
+                                {clientDetails?.name || 'Unknown'} - #{trip.trip_id || trip.id}
+                              </div>
+                              <div className="text-xs text-slate-600 truncate">
+                                {trip.origin} → {trip.destination}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <Badge className={cn('px-2 py-0.5 text-xs', 
+                              trip.status === 'delivered' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                            )}>
+                              {trip.status}
+                            </Badge>
+                            {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {isExpanded && (
+                        <div className="p-3 border-t bg-slate-50">
+                          <div className="text-sm font-semibold text-slate-900 mb-2">Performance</div>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-slate-600">Status:</span>
+                              <span className="font-medium">{trip.status}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-600">Distance:</span>
+                              <span className="font-medium">{trip.total_distance || trip.estimated_distance || 'N/A'} km</span>
+                            </div>
+                            {trip.rate && (
+                              <div className="flex justify-between">
+                                <span className="text-slate-600">Rate:</span>
+                                <span className="font-medium text-green-600">R{parseFloat(trip.rate).toLocaleString()}</span>
+                              </div>
+                            )}
+                            {trip.unauthorized_stops_count > 0 && (
+                              <div className="flex justify-between">
+                                <span className="text-slate-600">Violations:</span>
+                                <span className="font-medium text-red-600">{trip.unauthorized_stops_count} stops</span>
+                              </div>
+                            )}
+                            {trip.notes && (
+                              <div className="mt-2 p-2 bg-white rounded border text-sm text-slate-600">
+                                {trip.notes}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Right Sidebar */}
       <div
         className={cn(
-          "absolute top-28 right-8 w-72 bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-gray-200 transition-transform duration-300 max-h-[calc(100%-8rem)] flex flex-col",
+          "absolute top-28 right-8 bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-gray-200 transition-all duration-300 max-h-[calc(100%-8rem)] flex flex-col w-72",
           !sidebarOpen && "translate-x-[calc(100%+1rem)]"
         )}
       >
@@ -705,146 +879,189 @@ export default function LiveMapView() {
         <div className="flex-1 overflow-y-auto">
           {selectedVehicle ? (
             <div className="space-y-2 p-2">
-              {/* Selected Vehicle Card */}
-              <div className="p-3 bg-white rounded-lg border-2 border-blue-200">
-                <div className="mb-2">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-bold text-lg text-blue-900">
-                      {selectedVehicle.plate}
-                    </h4>
-                    {selectedVehicle.hasVideo && (
-                      <span className={cn(
-                        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
-                        selectedVehicle.status === 'online' 
-                          ? "bg-blue-600 text-white" 
-                          : "bg-gray-400 text-white"
-                      )}>
-                        <Video className="w-3 h-3" />
-                        Video {selectedVehicle.status === 'offline' && '(Offline)'}
-                      </span>
-                    )}
-                  </div>
-                  <span
-                    className={cn(
+
+              {/* Vehicle Card */}
+              {!reportsView && (
+                <div className="p-3 bg-white rounded-lg border-2 border-blue-200">
+                  <div className="mb-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-lg text-blue-900">{selectedVehicle.plate}</h4>
+                      {selectedVehicle.hasVideo && (
+                        <span className={cn(
+                          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+                          selectedVehicle.status === 'online' ? "bg-blue-600 text-white" : "bg-gray-400 text-white"
+                        )}>
+                          <Video className="w-3 h-3" />
+                          Video {selectedVehicle.status === 'offline' && '(Offline)'}
+                        </span>
+                      )}
+                    </div>
+                    <span className={cn(
                       "inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium",
-                      selectedVehicle.status === "online"
-                        ? "bg-green-100 text-green-700"
-                        : selectedVehicle.status === "idle"
-                        ? "bg-amber-100 text-amber-700"
+                      selectedVehicle.status === "online" ? "bg-green-100 text-green-700"
+                        : selectedVehicle.status === "idle" ? "bg-amber-100 text-amber-700"
                         : "bg-gray-100 text-gray-700"
-                    )}
-                  >
-                    {selectedVehicle.status}
-                  </span>
-                </div>
-                
-                {selectedVehicle.location && (
-                  <div className="space-y-1.5 text-xs text-gray-600">
-                    <div className="flex items-center gap-1.5">
-                      <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      <span>{selectedVehicle.speed !== undefined ? selectedVehicle.speed.toFixed(1) : '0.0'} km/h</span>
-                    </div>
-                    
-                    <div className="flex items-start gap-1.5">
-                      <svg className="w-3.5 h-3.5 text-gray-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                      </svg>
-                      <span className="line-clamp-1">{selectedVehicle.driver}</span>
-                    </div>
-                    
-                    <div className="flex items-start gap-1.5">
-                      <svg className="w-3.5 h-3.5 text-gray-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <span className="flex-1 line-clamp-2">
-                        {selectedVehicle.location.address || selectedVehicle.address || "Unknown location"}
-                      </span>
-                    </div>
-                    
-                    <div className="text-xs text-gray-500 mt-1">
-                      {Number(selectedVehicle.location.lat).toFixed(6)}, {Number(selectedVehicle.location.lng).toFixed(6)}
-                    </div>
-                    
-                    <div className="text-xs text-gray-500 mt-1">
-                      Last Update: {selectedVehicle.lastUpdate ? new Date(selectedVehicle.lastUpdate).toLocaleString('en-US', { 
-                        month: 'short', 
-                        day: 'numeric',
-                        year: 'numeric',
-                        hour: '2-digit', 
-                        minute: '2-digit',
-                        second: '2-digit'
-                      }) : 'N/A'}
-                    </div>
+                    )}>
+                      {selectedVehicle.status}
+                    </span>
                   </div>
-                )}
-              </div>
-
-              {/* Quick Actions Buttons */}
-              <div className="space-y-2">
-                <button
-                  onClick={() => {
-                    router.push(`/video-feeds?driver=${encodeURIComponent(selectedVehicle.driver || 'Unassigned')}&vehicle=${encodeURIComponent(selectedVehicle.plate)}`);
-                  }}
-                  disabled={!selectedVehicle.hasVideo}
-                  className="w-full inline-flex items-center justify-start gap-3 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4"
-                >
-                  <Video className="w-4 h-4" />
-                  <span>Video</span>
-                  {selectedVehicle.hasVideo && (
-                    <span className="ml-auto px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">Available</span>
+                  {selectedVehicle.location && (
+                    <div className="space-y-1.5 text-xs text-gray-600">
+                      <div className="flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        <span>{selectedVehicle.speed !== undefined ? selectedVehicle.speed.toFixed(1) : '0.0'} km/h</span>
+                      </div>
+                      <div className="flex items-start gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-gray-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                        <span className="line-clamp-1">{selectedVehicle.driver}</span>
+                      </div>
+                      <div className="flex items-start gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-gray-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        <span className="flex-1 line-clamp-2">{selectedVehicle.location.address || selectedVehicle.address || "Unknown location"}</span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {Number(selectedVehicle.location.lat).toFixed(6)}, {Number(selectedVehicle.location.lng).toFixed(6)}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Last Update: {selectedVehicle.lastUpdate ? new Date(selectedVehicle.lastUpdate).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'N/A'}
+                      </div>
+                    </div>
                   )}
-                </button>
+                </div>
+              )}
 
-                <button
-                  onClick={() => {
-                    console.log('Fuel clicked for', selectedVehicle.plate);
-                  }}
-                  className="w-full inline-flex items-center justify-start gap-3 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4"
-                >
-                  <Fuel className="w-4 h-4" />
-                  <span>Fuel</span>
-                </button>
 
-                <button
-                  onClick={() => {
-                    console.log('Reports clicked for', selectedVehicle.plate);
-                  }}
-                  className="w-full inline-flex items-center justify-start gap-3 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4"
-                >
-                  <FileText className="w-4 h-4" />
-                  <span>Reports</span>
-                </button>
 
-                <button
-                  onClick={() => {
-                    console.log('Driver clicked for', selectedVehicle.plate);
-                  }}
-                  className="w-full inline-flex items-center justify-start gap-3 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4"
-                >
-                  <User className="w-4 h-4" />
-                  <span>Driver</span>
-                </button>
-              </div>
+              {/* Action Buttons — hidden when fuel or reports view is open */}
+              {!fuelView && !reportsView && (
+                <div className="space-y-2">
+                  <button
+                    onClick={() => router.push(`/video-feeds?driver=${encodeURIComponent(selectedVehicle.driver || 'Unassigned')}&vehicle=${encodeURIComponent(selectedVehicle.plate)}`)}
+                    disabled={!selectedVehicle.hasVideo}
+                    className="w-full inline-flex items-center justify-start gap-3 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4"
+                  >
+                    <Video className="w-4 h-4" />
+                    <span>Video</span>
+                    {selectedVehicle.hasVideo && (
+                      <span className="ml-auto px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">Available</span>
+                    )}
+                  </button>
 
-              <div className="pt-2">
+                  <button
+                    onClick={async () => {
+                      setFuelView(true);
+                      setFuelData(null);
+                      setFuelLoading(true);
+                      try {
+                        const res = await fetch('/api/energy-rite/vehicles', { cache: 'no-store' });
+                        if (res.ok) {
+                          const json = await res.json();
+                          const list: any[] = Array.isArray(json) ? json : json?.data || [];
+                          const normalizedTarget = selectedVehicle.plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+                          const match = list.find((v: any) => {
+                            const p = String(v.Plate || v.plate || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+                            return p === normalizedTarget;
+                          });
+                          if (match) {
+                            const t1pct = parseFloat(match.fuel_probe_1_level_percentage) || 0;
+                            const t2pct = parseFloat(match.fuel_probe_2_level_percentage) || 0;
+                            setFuelData({
+                              plate: match.Plate || match.plate,
+                              fuelPct: t2pct > 0 ? (t1pct + t2pct) / 2 : t1pct,
+                              fuelVol: parseFloat(match.fuel_probe_1_volume_in_tank) || 0,
+                              fuelTemp: match.fuel_probe_1_temperature != null ? parseFloat(match.fuel_probe_1_temperature) : null,
+                              fuelLevel: parseFloat(match.fuel_probe_1_level) || 0,
+                              lastUpdated: match.last_message_date || match.LocTime || '',
+                              updated_at: match.updated_at || '',
+                              tank1Pct: t1pct,
+                              tank2Pct: t2pct,
+                              tank1Vol: parseFloat(match.fuel_probe_1_volume_in_tank) || 0,
+                              tank2Vol: parseFloat(match.fuel_probe_2_volume_in_tank) || 0,
+                              tank1Temp: parseFloat(match.fuel_probe_1_temperature) || 0,
+                              tank2Temp: parseFloat(match.fuel_probe_2_temperature) || 0,
+                              driverName: match.DriverName || match.drivername || '',
+                              rawVehicle: match,
+                            });
+                          }
+                        }
+                      } catch {}
+                      setFuelLoading(false);
+                    }}
+                    className="w-full inline-flex items-center justify-start gap-3 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4"
+                  >
+                    <Fuel className="w-4 h-4" />
+                    <span>Fuel</span>
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      setReportsView(true);
+                      setFuelView(false);
+                      setFuelData(null);
+                      setTripLogData([]);
+                      setTripLogLoading(true);
+                      try {
+                        const { data, error } = await supabase
+                          .from('trips')
+                          .select('id, trip_id, origin, destination, status, clientdetails, total_distance, estimated_distance, rate, unauthorized_stops_count, notes, vehicleassignments, vehicle_assignments, updated_at')
+                          .not('status', 'eq', 'pending')
+                          .order('updated_at', { ascending: false })
+                          .limit(100);
+                        
+                        if (error) {
+                          console.error('Error fetching trips:', error);
+                          setTripLogData([]);
+                        } else if (data) {
+                          // Filter trips that have this vehicle assigned
+                          const targetPlate = selectedVehicle.plate.toUpperCase().trim();
+                          const vehicleTrips = data.filter((trip: any) => {
+                            const assignments = trip.vehicleassignments || trip.vehicle_assignments || [];
+                            if (!Array.isArray(assignments)) return false;
+                            return assignments.some((assignment: any) => {
+                              const vehicleName = assignment.vehicle?.name || '';
+                              return vehicleName.toUpperCase().trim() === targetPlate;
+                            });
+                          }).slice(0, 20);
+                          console.log('Found', vehicleTrips.length, 'trips for vehicle', selectedVehicle.plate);
+                          setTripLogData(vehicleTrips);
+                        }
+                      } catch (err) {
+                        console.error('Error fetching trip reports:', err);
+                        setTripLogData([]);
+                      }
+                      setTripLogLoading(false);
+                    }}
+                    className="w-full inline-flex items-center justify-start gap-3 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Reports</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Footer buttons */}
+              <div className="space-y-2 pt-1">
+                {(fuelView || reportsView) && (
+                  <Button variant="outline" className="w-full" onClick={() => { setFuelView(false); setReportsView(false); setFuelData(null); setTripLogData([]); }}>
+                    <ArrowLeft className="w-4 h-4 mr-2" /> Back to Actions
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   className="w-full"
                   onClick={() => {
                     setSelectedVehicle(null);
-                    map.current?.flyTo({
-                      center: [28.0473, -26.2041],
-                      zoom: 10,
-                      duration: 1000
-                    });
+                    setFuelView(false);
+                    setReportsView(false);
+                    setFuelData(null);
+                    setTripLogData([]);
+                    map.current?.flyTo({ center: [28.0473, -26.2041], zoom: 10, duration: 1000 });
                   }}
                 >
                   Back to All Vehicles
                 </Button>
               </div>
+
             </div>
           ) : (
             <div className="space-y-2 p-2">
@@ -854,6 +1071,10 @@ export default function LiveMapView() {
                     key={vehicle.id}
                     onClick={() => {
                       setSelectedVehicle(vehicle);
+                      setFuelView(false);
+                      setReportsView(false);
+                      setFuelData(null);
+                      setTripLogData([]);
                       if (vehicle.location) {
                         map.current?.flyTo({
                           center: [vehicle.location.lng, vehicle.location.lat],

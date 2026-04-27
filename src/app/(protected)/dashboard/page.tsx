@@ -2084,6 +2084,12 @@ export default function Dashboard() {
           <TripReportsSection />
         )}
 
+        {activeTab === "fuel-canbus" && (
+          <div className="h-[calc(100vh-12rem)]">
+            <FuelCanBusDisplay />
+          </div>
+        )}
+
         {activeTab === "financials" && (
           <div className="space-y-4">
             <div className="mb-4">
@@ -3120,7 +3126,7 @@ export default function Dashboard() {
                 </Card>
               </div>
 
-              {selectedTrip.notes && (
+      {selectedTrip.notes && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Trip Notes</CardTitle>
@@ -3130,6 +3136,95 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trip Note Modal */}
+      {noteOpen && currentTripForNote && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-lg bg-white shadow-lg">
+            <div className="flex items-center justify-between border-b p-4">
+              <div>
+                <h3 className="text-lg font-semibold">Trip Note</h3>
+                <p className="text-sm text-gray-600">
+                  Trip #{currentTripForNote.trip_id || currentTripForNote.id}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setNoteOpen(false)
+                  setCurrentTripForNote(null)
+                  setNoteText('')
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="space-y-4 p-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">
+                  Add or update trip note
+                </label>
+                <textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  rows={5}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Type your note here..."
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setNoteOpen(false)
+                    setCurrentTripForNote(null)
+                    setNoteText('')
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="flex-1"
+                  onClick={async () => {
+                    try {
+                      const supabase = createClient()
+                      const { error } = await supabase
+                        .from('trips')
+                        .update({
+                          status_notes: noteText,
+                          statusnotes: noteText,
+                        })
+                        .eq('id', currentTripForNote.id)
+
+                      if (error) throw error
+
+                      setTrips((prev) =>
+                        prev.map((trip) =>
+                          trip.id === currentTripForNote.id
+                            ? { ...trip, status_notes: noteText, statusnotes: noteText }
+                            : trip
+                        )
+                      )
+                      setRefreshTrigger((prev) => prev + 1)
+                      setNoteOpen(false)
+                      setCurrentTripForNote(null)
+                      setNoteText('')
+                    } catch (error) {
+                      console.error('Error saving trip note:', error)
+                    }
+                  }}
+                >
+                  Save Note
+                </Button>
+              </div>
             </div>
           </div>
         </div>

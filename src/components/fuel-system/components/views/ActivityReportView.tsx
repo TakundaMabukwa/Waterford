@@ -581,7 +581,7 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
 
         {/* Summary Cards: Operating Hours, Fuel Usage, Fuel Fills */}
         {reportData && (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-6 sm:gap-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 sm:gap-4">
             {/* Total Operating Hours */}
             <Card className="rounded-lg shadow-sm border-0 overflow-hidden">
               <div className="h-1 bg-sky-600" />
@@ -589,28 +589,6 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
                 <div className="flex flex-col items-start">
                   <div className="text-xl sm:text-3xl font-extrabold text-sky-700">{formatHours(totalOperatingHours || 0)}</div>
                   <div className="text-xs sm:text-sm text-gray-500 mt-1">Operating Hours</div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Tank 1 Fuel Usage */}
-            <Card className="rounded-lg shadow-sm border-0 overflow-hidden">
-              <div className="h-1 bg-blue-500" />
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex flex-col items-start">
-                  <div className="text-xl sm:text-3xl font-extrabold text-blue-700">{(totalFuelUsageProbe1 || 0).toFixed(1)}L</div>
-                  <div className="mt-1 text-xs sm:text-sm text-gray-500">Tank 1 Usage</div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Tank 2 Fuel Usage */}
-            <Card className="rounded-lg shadow-sm border-0 overflow-hidden">
-              <div className="h-1 bg-cyan-500" />
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex flex-col items-start">
-                  <div className="text-xl sm:text-3xl font-extrabold text-cyan-700">{(totalFuelUsageProbe2 || 0).toFixed(1)}L</div>
-                  <div className="mt-1 text-xs sm:text-sm text-gray-500">Tank 2 Usage</div>
                 </div>
               </CardContent>
             </Card>
@@ -653,9 +631,9 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
         {/* Site Reports Table */}
         <div>
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-lg font-semibold text-gray-900 sm:text-xl">ALL SITES ({reportData?.site_reports?.length || 0})</h2>
+            <h2 className="text-lg font-semibold text-gray-900 sm:text-xl">ALL VEHICLES ({reportData?.site_reports?.length || 0})</h2>
             <p className="text-xs text-gray-500 sm:text-sm">
-              Showing sites for {formatRangeBoundary(appliedStartDateTime, 'start')} to {formatRangeBoundary(appliedEndDateTime, 'end')}
+              Showing vehicles for {formatRangeBoundary(appliedStartDateTime, 'start')} to {formatRangeBoundary(appliedEndDateTime, 'end')}
             </p>
           </div>
 
@@ -699,12 +677,11 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
             <Table className="min-w-[760px]">
               <TableHeader>
                 <TableRow>
-            <TableHead className="font-medium">Site</TableHead>
+            <TableHead className="font-medium">Vehicle</TableHead>
             <TableHead className="font-medium">Start Date/Time</TableHead>
             <TableHead className="font-medium">End Date/Time</TableHead>
             <TableHead className="font-medium">Operating Hours</TableHead>
-            <TableHead className="font-medium">Tank 1 Usage</TableHead>
-            <TableHead className="font-medium">Tank 2 Usage</TableHead>
+            
             <TableHead className="font-medium">Total Usage</TableHead>
             <TableHead className="font-medium">Fuel Fills</TableHead>
             <TableHead className="font-medium">Peak Usage Time</TableHead>
@@ -747,7 +724,7 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
                     ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                       No activity data available for the selected date range
                     </TableCell>
                   </TableRow>
@@ -760,3 +737,5 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
     </div>
   );
 }
+
+
