@@ -103,6 +103,30 @@ const formatRangeBoundary = (dateValue: string, boundary: 'start' | 'end') => {
   return `${year}/${month}/${day} ${boundary === 'start' ? '00:00' : '23:59'}`;
 };
 
+const toFiniteNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getSiteUsageLiters = (site: SiteReport): number => {
+  const totalUsage = toFiniteNumber(site.total_fuel_usage);
+  if (totalUsage > 0) return totalUsage;
+
+  const probe1 = toFiniteNumber(site.total_fuel_usage_probe_1);
+  const probe2 = toFiniteNumber(site.total_fuel_usage_probe_2);
+  const probeTotal = probe1 + probe2;
+
+  return probeTotal > 0 ? probeTotal : 0;
+};
+
+const getSiteTank1Usage = (site: SiteReport): number => toFiniteNumber(site.total_fuel_usage_probe_1);
+
+const getSiteTank2Usage = (site: SiteReport): number => toFiniteNumber(site.total_fuel_usage_probe_2);
+
+const getSiteFillLiters = (site: SiteReport): number => toFiniteNumber(site.total_fuel_filled);
+
+const getSiteTotalLiters = (site: SiteReport): number => getSiteUsageLiters(site) + getSiteFillLiters(site);
+
 export function ActivityReportView({ onBack, initialDate }: ActivityReportViewProps) {
   const { selectedRoute } = useApp();
   const { userCostCode, userSiteId, isAdmin } = useUser();
@@ -653,13 +677,15 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
                       <div className="text-gray-500">Op Hours</div>
                       <div className="font-medium text-sky-700">{formatHours(site.total_operating_hours || 0)}</div>
                       <div className="text-gray-500">Fuel Usage</div>
-                      <div className="space-y-1 font-medium">
-                        <div className="text-blue-600">T1 {(site.total_fuel_usage_probe_1 || 0).toFixed(1)}L</div>
-                        <div className="text-cyan-600">T2 {(site.total_fuel_usage_probe_2 || 0).toFixed(1)}L</div>
-                        <div className="text-indigo-600">Total {(site.total_fuel_usage || 0).toFixed(1)}L</div>
-                      </div>
+                      <div className="font-medium text-indigo-600">{getSiteUsageLiters(site).toFixed(1)}L</div>
+                      <div className="text-gray-500">Tank 1</div>
+                      <div className="font-medium text-blue-600">{getSiteTank1Usage(site).toFixed(1)}L</div>
+                      <div className="text-gray-500">Tank 2</div>
+                      <div className="font-medium text-cyan-600">{getSiteTank2Usage(site).toFixed(1)}L</div>
                       <div className="text-gray-500">Fuel Fills</div>
-                      <div className="font-medium text-green-600">{(site.total_fuel_filled || 0).toFixed(1)}L</div>
+                      <div className="font-medium text-green-600">{getSiteFillLiters(site).toFixed(1)}L</div>
+                      <div className="text-gray-500">Total</div>
+                      <div className="font-medium text-violet-700">{getSiteTotalLiters(site).toFixed(1)}L</div>
                       <div className="text-gray-500">Peak Time</div>
                       <div className="font-medium text-orange-600">{formatPeakTime(site.peak_usage_session || '')}</div>
                     </div>
@@ -676,15 +702,17 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
           </div>
 
           <div className="hidden sm:block rounded-md border overflow-x-auto">
-            <Table className="min-w-[760px]">
+            <Table className="min-w-[980px]">
               <TableHeader>
                 <TableRow>
             <TableHead className="font-medium">Vehicle</TableHead>
             <TableHead className="font-medium">Start Date/Time</TableHead>
             <TableHead className="font-medium">End Date/Time</TableHead>
             <TableHead className="font-medium">Operating Hours</TableHead>
-            
+             
             <TableHead className="font-medium">Total Usage</TableHead>
+            <TableHead className="font-medium">Tank 1</TableHead>
+            <TableHead className="font-medium">Tank 2</TableHead>
             <TableHead className="font-medium">Fuel Fills</TableHead>
              <TableHead className="font-medium">Total</TableHead>
             <TableHead className="font-medium">Peak Usage Time</TableHead>
@@ -709,16 +737,19 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
                             <span className="font-medium text-sky-700">{formatHours(site.total_operating_hours || 0)}</span>
                           </TableCell>
                           <TableCell className="py-2">
-                            <span className="font-medium text-blue-600">{(site.total_fuel_usage_probe_1 || 0).toFixed(1)}L</span>
+                            <span className="font-medium text-indigo-600">{getSiteUsageLiters(site).toFixed(1)}L</span>
                           </TableCell>
                           <TableCell className="py-2">
-                            <span className="font-medium text-cyan-600">{(site.total_fuel_usage_probe_2 || 0).toFixed(1)}L</span>
+                            <span className="font-medium text-blue-600">{getSiteTank1Usage(site).toFixed(1)}L</span>
                           </TableCell>
                           <TableCell className="py-2">
-                            <span className="font-medium text-indigo-600">{(site.total_fuel_usage || 0).toFixed(1)}L</span>
+                            <span className="font-medium text-cyan-600">{getSiteTank2Usage(site).toFixed(1)}L</span>
                           </TableCell>
-                          <TableCell className="font-medium py-2">
-                            <span className="text-green-600">{(site.total_fuel_filled || 0).toFixed(1)}L</span>
+                          <TableCell className="py-2">
+                            <span className="font-medium text-green-600">{getSiteFillLiters(site).toFixed(1)}L</span>
+                          </TableCell>
+                          <TableCell className="py-2">
+                            <span className="font-medium text-violet-700">{getSiteTotalLiters(site).toFixed(1)}L</span>
                           </TableCell>
                           <TableCell className="py-2">
                             <span className="font-medium text-orange-600">{formatPeakTime(site.peak_usage_session)}</span>
@@ -727,7 +758,7 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
                     ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                       No activity data available for the selected date range
                     </TableCell>
                   </TableRow>
