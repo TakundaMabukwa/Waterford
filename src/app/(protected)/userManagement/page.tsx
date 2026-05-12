@@ -597,7 +597,7 @@ export default function SettingsPage() {
                                                         <div className="space-y-1.5">
                                                             <Label htmlFor="driverCode" className="text-xs font-medium">Driver Code *</Label>
                                                             <div className="flex">
-                                                                <span className="inline-flex items-center px-2 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-xs">EPS</span>
+                                                                <span className="inline-flex items-center px-2 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-xs">WF</span>
                                                                 <Input id="driverCode" type="text" placeholder="12345" required value={newUserDriverCode} onChange={(e) => setNewUserDriverCode(e.target.value.replace(/[^0-9]/g, ''))} className="h-9 rounded-l-none text-sm" />
                                                             </div>
                                                         </div>

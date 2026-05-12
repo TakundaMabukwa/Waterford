@@ -26,7 +26,7 @@ export async function CreateUser(formData: FormData) {
     }
 
     // Generate password - use driver code for drivers, temp password for others
-    const tempPassword = role === 'driver' ? `EPS${driverCode}` : generateTempPassword();
+    const tempPassword = role === 'driver' ? `WF${driverCode}` : generateTempPassword();
     console.log('Generated password for role', role, ':', tempPassword);
 
     // Create Supabase client with service role
@@ -97,7 +97,7 @@ export async function CreateUser(formData: FormData) {
         permissions: permissions,
         energyrite: false,
         cost_code: "",
-        company: "EPS Courier Services"
+        company: "Waterford Carriers"
     });
 
     if (insertError) {
@@ -107,7 +107,7 @@ export async function CreateUser(formData: FormData) {
 
     // Handle driver creation
     if (role === 'driver') {
-        const fullDriverCode = `EPS${driverCode}`;
+        const fullDriverCode = `WF${driverCode}`;
         const firstName = formData.get("driverFirstName") as string || email;
         const surname = formData.get("driverSurname") as string || "";
         const idNumber = formData.get("driverIdNumber") as string || "";
@@ -197,7 +197,7 @@ export async function CreateUser(formData: FormData) {
             phone,
             password: tempPassword,
             role: "Driver",
-            company: "EPS Courier Services"
+            company: "Waterford Carriers"
         });
         
         const emailStatus = emailResult.success ? 'Email sent' : 'Email failed';
@@ -211,7 +211,7 @@ export async function CreateUser(formData: FormData) {
         phone,
         password: tempPassword,
         role,
-        company: "EPS Courier Services",
+        company: "Waterford Carriers",
         cost_code: "",
         site_id: ""
     });

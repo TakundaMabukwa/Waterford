@@ -31,7 +31,7 @@ export async function resetUserPassword(userId: string, email: string) {
             .eq('user_id', userId)
             .single();
         
-        newPassword = driverData?.driver_code || 'EPS83782';
+        newPassword = driverData?.driver_code || 'WF83782';
         
         // Update user password to driver_code
         const { error } = await supabase.auth.admin.updateUserById(userId, {
@@ -47,7 +47,7 @@ export async function resetUserPassword(userId: string, email: string) {
             phone: driverData.cell_number || userData.phone,
             password: newPassword,
             role: "Driver",
-            company: "EPS Courier Services"
+            company: "Waterford Carriers"
         });
 
         return { 
@@ -75,7 +75,7 @@ export async function resetUserPassword(userId: string, email: string) {
             phone: userData?.phone,
             password: newPassword,
             role: "User",
-            company: "EPS Courier Services"
+            company: "Waterford Carriers"
         });
 
         return { 
