@@ -25,6 +25,7 @@ export function DriverDropdown({
   const [searchTerm, setSearchTerm] = useState('')
   const dropdownRef = useRef(null)
   const searchInputRef = useRef(null)
+  const normalizeId = (id) => (id === null || id === undefined ? '' : String(id))
 
   const filteredDrivers = sortedDrivers.filter(driver =>
     `${driver.first_name} ${driver.surname}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -51,12 +52,12 @@ export function DriverDropdown({
   }, [isOpen])
 
   const handleSelect = (driver) => {
-    onChange(driver.id)
+    onChange(normalizeId(driver.id))
     setIsOpen(false)
     setSearchTerm('')
   }
 
-  const selectedDriver = sortedDrivers.find(d => d.id === value)
+  const selectedDriver = sortedDrivers.find(d => normalizeId(d.id) === normalizeId(value))
   const displayValue = selectedDriver ? `${selectedDriver.first_name} ${selectedDriver.surname}` : ''
 
   return (
@@ -111,7 +112,7 @@ export function DriverDropdown({
                     key={driver.id}
                     className={cn(
                       "relative flex cursor-default select-none items-center justify-between rounded-sm px-2 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
-                      value === driver.id && "bg-accent text-accent-foreground",
+                      normalizeId(value) === normalizeId(driver.id) && "bg-accent text-accent-foreground",
                       isClosest && "bg-blue-50 border border-blue-200"
                     )}
                     onClick={() => handleSelect(driver)}

@@ -95,7 +95,7 @@ export default function LoadPlanPage() {
   const [isOptimizing, setIsOptimizing] = useState(false)
 
   // Driver assignments state
-  const [driverAssignments, setDriverAssignments] = useState([{ id: '', name: '' }])
+  const [driverAssignments, setDriverAssignments] = useState([{ id: '', name: '', first_name: '', surname: '' }])
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [selectedTrailerId, setSelectedTrailerId] = useState('')
   const [selectedTrailer2Id, setSelectedTrailer2Id] = useState('')
@@ -693,6 +693,23 @@ export default function LoadPlanPage() {
   const driverMap = useMemo(() => 
     new Map(drivers.map(d => [d.id, `${d.first_name} ${d.surname}`])), [drivers]
   )
+
+  const getNormalizedDriverAssignment = useCallback((driverId, fallbackDriver = {}) => {
+    const normalizedId =
+      driverId !== null && driverId !== undefined ? String(driverId).trim() : ''
+    const selectedDriver = drivers.find((d) => String(d.id) === normalizedId)
+    const firstName = String(selectedDriver?.first_name || fallbackDriver?.first_name || '').trim()
+    const surname = String(selectedDriver?.surname || fallbackDriver?.surname || '').trim()
+    const fullName = `${firstName} ${surname}`.replace(/\s+/g, ' ').trim()
+    const fallbackName = String(selectedDriver?.name || fallbackDriver?.name || '').trim()
+
+    return {
+      id: normalizedId,
+      name: fullName || fallbackName,
+      first_name: firstName,
+      surname
+    }
+  }, [drivers])
 
   const selectedVehicleTelemetry = useMemo(() => {
     if (!selectedVehicleId) return null
@@ -1593,15 +1610,11 @@ export default function LoadPlanPage() {
 
   // Optimized handlers with useCallback
   const handleDriverChange = useCallback((driverIndex, driverId) => {
-    const selectedDriver = drivers.find(d => d.id === driverId)
+    const normalizedId = driverId !== null && driverId !== undefined ? String(driverId).trim() : ''
+    const selectedDriver = drivers.find(d => String(d.id) === normalizedId)
     setDriverAssignments(prev => {
       const updated = [...prev]
-      updated[driverIndex] = { 
-        id: driverId, 
-        name: selectedDriver?.surname || '',
-        first_name: selectedDriver?.first_name || '',
-        surname: selectedDriver?.surname || ''
-      }
+      updated[driverIndex] = getNormalizedDriverAssignment(normalizedId, updated[driverIndex] || {})
       return updated
     })
     
@@ -1630,10 +1643,10 @@ export default function LoadPlanPage() {
     } else {
       setSelectedDriverLocation(null)
     }
-  }, [drivers, vehicleTrackingData])
+  }, [drivers, vehicleTrackingData, getNormalizedDriverAssignment])
 
   const addDriver = useCallback(() => {
-    setDriverAssignments(prev => [...prev, { id: '', name: '' }])
+    setDriverAssignments(prev => [...prev, { id: '', name: '', first_name: '', surname: '' }])
   }, [])
 
   // Auto-select closest driver when dropdown is opened
@@ -1696,7 +1709,9 @@ export default function LoadPlanPage() {
   }
 
   const buildCurrentAssignment = () => ({
-    drivers: driverAssignments,
+    drivers: (driverAssignments || []).map((driver) =>
+      getNormalizedDriverAssignment(driver?.id, driver)
+    ),
     vehicle: {
       id: selectedVehicleId,
       name: getVehicleNameById(selectedVehicleId)
@@ -1770,16 +1785,10 @@ export default function LoadPlanPage() {
   }
 
   const handleHandoverDriverChange = (setIndex, driverIndex, driverId) => {
-    const selectedDriver = drivers.find(d => String(d.id) === String(driverId))
     setHandoverAssignments(prev => prev.map((set, idx) => {
       if (idx !== setIndex) return set
       const nextDrivers = [...(set.drivers || [])]
-      nextDrivers[driverIndex] = {
-        id: driverId,
-        name: selectedDriver ? `${selectedDriver.first_name} ${selectedDriver.surname}`.trim() : '',
-        first_name: selectedDriver?.first_name || '',
-        surname: selectedDriver?.surname || ''
-      }
+      nextDrivers[driverIndex] = getNormalizedDriverAssignment(driverId, nextDrivers[driverIndex] || {})
       return { ...set, drivers: nextDrivers }
     }))
   }
@@ -1787,7 +1796,9 @@ export default function LoadPlanPage() {
   const buildHandoverAssignments = () => {
     return handoverAssignments
       .map((set) => ({
-        drivers: (set.drivers || []).filter((driver) => driver?.id),
+        drivers: (set.drivers || [])
+          .map((driver) => getNormalizedDriverAssignment(driver?.id, driver))
+          .filter((driver) => driver?.id),
         vehicle: {
           id: set.vehicleId || '',
           name: getVehicleNameById(set.vehicleId)
@@ -1977,6 +1988,7 @@ export default function LoadPlanPage() {
         }],
         
         vehicleassignments: [currentAssignment],
+        vehicle_assignments: [currentAssignment],
         handed_vehicleassignments: handedVehicleAssignments,
         
         trip_type: tripType,
@@ -2087,6 +2099,7 @@ export default function LoadPlanPage() {
           scheduled_time: etaDropoff || ''
         }],
         vehicleassignments: [currentAssignment],
+        vehicle_assignments: [currentAssignment],
         handed_vehicleassignments: handedVehicleAssignments,
         trip_type: tripType,
         selected_stop_points: stopPoints.map((pointId, index) => {
@@ -2140,7 +2153,7 @@ export default function LoadPlanPage() {
       // Reset form
       setClient(''); setSelectedClient(null); setManualClientName(''); setCommodity(''); setRate('0'); setOrderNumber(''); setComment('')
       setEtaPickup(''); setLoadingLocation(''); setEtaDropoff(''); setDropOffPoint('')
-      setDriverAssignments([{ id: '', name: '' }])
+      setDriverAssignments([{ id: '', name: '', first_name: '', surname: '' }])
       setSelectedVehicleId('')
       setSelectedTrailerId('')
       setSelectedTrailer2Id('') // Reset second trailer

@@ -204,6 +204,135 @@ const vehicleDataCache = {
   }
 };
 
+type CoordinatePair = [number, number]
+
+type TripEtaState = {
+  status: 'loading' | 'ready' | 'unavailable'
+  minutes?: number
+  arrivalIso?: string
+  distanceKm?: number
+}
+
+const mapboxGeocodeCache = new Map<string, CoordinatePair | null>()
+
+const parseJsonValue = (value: any) => {
+  if (typeof value !== 'string') return value
+
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
+const ensureArray = (value: any): any[] => {
+  const parsed = parseJsonValue(value)
+  return Array.isArray(parsed) ? parsed : []
+}
+
+const parseCoordinatePair = (value: any): CoordinatePair | null => {
+  if (!value) return null
+
+  const parsed = parseJsonValue(value)
+
+  if (Array.isArray(parsed) && parsed.length >= 2) {
+    const lng = Number(parsed[0])
+    const lat = Number(parsed[1])
+    if (!Number.isNaN(lng) && !Number.isNaN(lat)) {
+      return [lng, lat]
+    }
+  }
+
+  if (parsed && typeof parsed === 'object') {
+    const lng = Number(parsed.lng ?? parsed.lon ?? parsed.longitude ?? parsed[0])
+    const lat = Number(parsed.lat ?? parsed.latitude ?? parsed[1])
+    if (!Number.isNaN(lng) && !Number.isNaN(lat)) {
+      return [lng, lat]
+    }
+  }
+
+  if (typeof parsed === 'string' && parsed.includes(',')) {
+    const [first, second] = parsed.split(',').map((part) => Number(part.trim()))
+    if (!Number.isNaN(first) && !Number.isNaN(second)) {
+      // Handle likely "lat,lng" records for local ZA coordinates
+      const looksLikeZaLatLng =
+        first >= -36 &&
+        first <= -21 &&
+        second >= 15 &&
+        second <= 35
+
+      if (looksLikeZaLatLng) {
+        return [second, first]
+      }
+      return [first, second]
+    }
+  }
+
+  return null
+}
+
+const getTripDropoffAddress = (trip: any): string | null => {
+  const dropoffLocations = ensureArray(trip.dropoff_locations || trip.dropofflocations)
+  const firstDropoff = dropoffLocations[0]
+  return firstDropoff?.address || firstDropoff?.location || trip.destination || null
+}
+
+const getTripVehiclePlate = (trip: any): string | null => {
+  const assignments = ensureArray(trip.vehicleassignments || trip.vehicle_assignments)
+  const assignment = assignments[0]
+  return assignment?.vehicle?.name || assignment?.vehicle?.registration_number || assignment?.vehicle?.plate || null
+}
+
+const getTripCurrentCoordinates = (trip: any, liveVehicles: any[]): CoordinatePair | null => {
+  const plate = getTripVehiclePlate(trip)
+  if (plate) {
+    const matchedVehicle = matchVehicleByPlate(liveVehicles || [], plate)
+    if (matchedVehicle) {
+      const lat = Number(matchedVehicle.latitude ?? matchedVehicle.Latitude)
+      const lng = Number(matchedVehicle.longitude ?? matchedVehicle.Longitude)
+
+      const liveCoords: CoordinatePair = [lng, lat]
+      if (isValidCoordinatePair(liveCoords)) return liveCoords
+    }
+  }
+
+  // Fallback to trip table coordinates when no live endpoint coordinates are available.
+  const tripLat = Number(trip.current_latitude)
+  const tripLng = Number(trip.current_longitude)
+  const tripCoords: CoordinatePair = [tripLng, tripLat]
+  if (isValidCoordinatePair(tripCoords)) {
+    return tripCoords
+  }
+
+  return null
+}
+
+const getTripKey = (trip: any): string =>
+  String(trip.id || trip.trip_id || trip.ordernumber || `${trip.destination || 'trip'}-${trip.created_at || ''}`)
+
+const isValidCoordinatePair = (coords: CoordinatePair | null): coords is CoordinatePair => {
+  if (!coords) return false
+  const [lng, lat] = coords
+  if (Number.isNaN(lng) || Number.isNaN(lat)) return false
+  if (Math.abs(lng) > 180 || Math.abs(lat) > 90) return false
+  if (lng === 0 && lat === 0) return false
+  return true
+}
+
+const formatFullDateTime = (isoValue?: string) => {
+  if (!isoValue) return ''
+  const date = new Date(isoValue)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+}
+
 // Driver Card Component with fetched driver info
 function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, isVisible = true }: any) {
   const router = useRouter()
@@ -800,6 +929,7 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
 function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, refreshTrigger, setRefreshTrigger, setPickupTimeOpen, setDropoffTimeOpen, setCurrentTripForTime, setTimeType, setSelectedTime, currentUnauthorizedTrip, setCurrentUnauthorizedTrip, setUnauthorizedStopModalOpen, loadingPhotos, setLoadingPhotos, setCurrentTripPhotos, setPhotosModalOpen, setCurrentTripAlerts, setAlertsModalOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, isVisible = true }: any) {
   const [trips, setTrips] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [dropoffEtaByTrip, setDropoffEtaByTrip] = useState<Record<string, TripEtaState>>({})
 
   useEffect(() => {
     async function fetchTrips() {
@@ -856,6 +986,152 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
       // Then by creation date (newest first)
       return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
     })
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchTripEtas() {
+      if (!isVisible) return
+
+      const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+      if (!mapboxToken) {
+        setDropoffEtaByTrip({})
+        return
+      }
+
+      const activeTrips = trips.filter(
+        (trip) => trip.status?.toLowerCase() !== 'delivered' && trip.status?.toLowerCase() !== 'completed'
+      )
+
+      if (activeTrips.length === 0) {
+        setDropoffEtaByTrip({})
+        return
+      }
+
+      const loadingState = Object.fromEntries(
+        activeTrips
+          .map((trip) => getTripKey(trip))
+          .filter(Boolean)
+          .map((tripKey) => [tripKey, { status: 'loading' as const }])
+      )
+
+      setDropoffEtaByTrip((prev) => ({ ...prev, ...loadingState }))
+
+      let liveVehicles: any[] = []
+      try {
+        liveVehicles = await vehicleDataCache.fetch()
+      } catch (error) {
+        console.error('Failed to fetch live vehicle data for ETA calculation:', error)
+      }
+
+      const etaEntries = await Promise.all(
+        activeTrips.map(async (trip) => {
+          const tripKey = getTripKey(trip)
+          if (!tripKey) return null
+
+          const currentCoordinates = getTripCurrentCoordinates(trip, liveVehicles)
+          if (!currentCoordinates) {
+            return [tripKey, { status: 'unavailable' as const }] as [string, TripEtaState]
+          }
+
+          let dropoffCoordinates =
+            parseCoordinatePair(trip.destination_coordinates) ||
+            parseCoordinatePair(trip.destinationCoordinates)
+
+          if (!isValidCoordinatePair(dropoffCoordinates)) {
+            const dropoffAddress = getTripDropoffAddress(trip)
+            if (!dropoffAddress) {
+              return [tripKey, { status: 'unavailable' as const }] as [string, TripEtaState]
+            }
+
+            const geocodeCacheKey = `${dropoffAddress}|${currentCoordinates[0].toFixed(2)},${currentCoordinates[1].toFixed(2)}`
+
+            if (mapboxGeocodeCache.has(geocodeCacheKey)) {
+              dropoffCoordinates = mapboxGeocodeCache.get(geocodeCacheKey) || null
+            } else {
+              try {
+                const geocodeResponse = await fetch(
+                  `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(dropoffAddress)}.json?access_token=${mapboxToken}&limit=1&country=za&proximity=${currentCoordinates[0]},${currentCoordinates[1]}`
+                )
+                const geocodeData = await geocodeResponse.json()
+                const coords = geocodeData?.features?.[0]?.center
+                const resolvedCoords: CoordinatePair | null = Array.isArray(coords) && coords.length >= 2
+                  ? [Number(coords[0]), Number(coords[1])] as CoordinatePair
+                  : null
+                const safeResolvedCoords = isValidCoordinatePair(resolvedCoords) ? resolvedCoords : null
+                mapboxGeocodeCache.set(geocodeCacheKey, safeResolvedCoords)
+                dropoffCoordinates = safeResolvedCoords
+              } catch (error) {
+                console.error('Error geocoding drop-off for ETA:', error)
+                mapboxGeocodeCache.set(geocodeCacheKey, null)
+              }
+            }
+          }
+
+          if (!isValidCoordinatePair(dropoffCoordinates)) {
+            return [tripKey, { status: 'unavailable' as const }] as [string, TripEtaState]
+          }
+
+          try {
+            const waypointSegment = `${currentCoordinates[0]},${currentCoordinates[1]};${dropoffCoordinates[0]},${dropoffCoordinates[1]}`
+            const routeQuery = `access_token=${mapboxToken}&overview=false&alternatives=false&steps=false&exclude=ferry`
+
+            const fetchRoute = async (profile: 'driving-traffic' | 'driving') => {
+              const response = await fetch(
+                `https://api.mapbox.com/directions/v5/mapbox/${profile}/${waypointSegment}?${routeQuery}`
+              )
+              const data = await response.json()
+              const route = data?.routes?.[0]
+              return response.ok && route ? route : null
+            }
+
+            // Prefer traffic-aware ETA, fallback to driving when traffic profile is unavailable.
+            const route = (await fetchRoute('driving-traffic')) || (await fetchRoute('driving'))
+
+            if (!route || typeof route.duration !== 'number') {
+              return [tripKey, { status: 'unavailable' as const }] as [string, TripEtaState]
+            }
+
+            const etaSeconds = Math.max(0, route.duration)
+            const minutes = Math.max(1, Math.ceil(etaSeconds / 60))
+            const arrivalIso = new Date(Date.now() + etaSeconds * 1000).toISOString()
+            const distanceKm = typeof route.distance === 'number' ? route.distance / 1000 : undefined
+
+            return [
+              tripKey,
+              {
+                status: 'ready' as const,
+                minutes,
+                arrivalIso,
+                distanceKm
+              }
+            ] as [string, TripEtaState]
+          } catch (error) {
+            console.error('Error fetching Mapbox ETA:', error)
+            return [tripKey, { status: 'unavailable' as const }] as [string, TripEtaState]
+          }
+        })
+      )
+
+      if (cancelled) return
+
+      setDropoffEtaByTrip((prev) => {
+        const next = { ...prev }
+        etaEntries.forEach((entry) => {
+          if (!entry) return
+          const [tripKey, etaState] = entry
+          next[tripKey] = etaState
+        })
+        return next
+      })
+    }
+
+    fetchTripEtas()
+
+    return () => {
+      cancelled = true
+    }
+  }, [trips, isVisible])
 
   const STATUS_OPTIONS = [
     { label: "Pending", value: "pending" },
@@ -950,16 +1226,16 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
 
   return (
     <div className="space-y-6">
-      {tripsList.map((trip: any) => {
-        const waypoints = getWaypointsWithStops(trip)
-        const progress = getTripProgress(trip.status)
+	      {tripsList.map((trip: any) => {
+	        const waypoints = getWaypointsWithStops(trip)
+	        const progress = getTripProgress(trip.status)
 
-        const clientDetails = typeof trip.clientdetails === 'string' ? JSON.parse(trip.clientdetails) : trip.clientdetails
-        const title = clientDetails?.name || trip.selectedClient || trip.clientDetails?.name || `Trip ${trip.trip_id || trip.id}`
-        const hasUnauthorizedStops = trip.unauthorized_stops_count > 0
-
-        return (
-          <div key={trip.id || trip.trip_id} className="flex gap-4 border-b-gray-500 border-b-2 pb-10">
+	        const clientDetails = typeof trip.clientdetails === 'string' ? JSON.parse(trip.clientdetails) : trip.clientdetails
+	        const title = clientDetails?.name || trip.selectedClient || trip.clientDetails?.name || `Trip ${trip.trip_id || trip.id}`
+	        const tripKey = getTripKey(trip)
+	        const dropoffEta = dropoffEtaByTrip[tripKey]
+	        return (
+	          <div key={tripKey} className="flex gap-4 border-b-gray-500 border-b-2 pb-10">
             {/* Driver Card - 30% */}
             <DriverCard 
               trip={trip} 
@@ -1106,22 +1382,41 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
               </div>
 
               {/* Route Information */}
-              <div className="grid grid-cols-2 gap-1 mb-2">
-              <div className="bg-white rounded-lg p-1.5 border border-slate-100">
-              <div className="flex items-center gap-1 mb-0.5">
-              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-              <span className="text-xs font-medium text-gray-700 uppercase">Pickup</span>
-              </div>
-              <p className="text-xs font-medium text-black truncate">{trip.origin || 'Not specified'}</p>
-              </div>
-              <div className="bg-white rounded-lg p-1.5 border border-slate-100">
-              <div className="flex items-center gap-1 mb-0.5">
-              <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-              <span className="text-xs font-medium text-gray-700 uppercase">Drop-off</span>
-              </div>
-              <p className="text-xs font-medium text-black truncate">{trip.destination || 'Not specified'}</p>
-              </div>
-              </div>
+	              <div className="grid grid-cols-2 gap-1 mb-2">
+	              <div className="bg-white rounded-lg p-1.5 border border-slate-100">
+	              <div className="flex items-center gap-1 mb-0.5">
+	              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
+	              <span className="text-xs font-medium text-gray-700 uppercase">Pickup</span>
+	              </div>
+	              <p className="text-xs font-medium text-black truncate">{trip.origin || 'Not specified'}</p>
+	              </div>
+		              <div className="bg-white rounded-lg p-1.5 border border-slate-100">
+		              <div className="flex items-center justify-between gap-2 mb-0.5">
+		              <div className="flex items-center gap-1">
+		              <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
+		              <span className="text-xs font-medium text-gray-700 uppercase">Drop-off</span>
+		              </div>
+		              {dropoffEta?.status === 'loading' && (
+		                <span className="text-xs font-semibold text-slate-500">ETA calculating...</span>
+		              )}
+		              {dropoffEta?.status === 'ready' && (
+		                <span className="text-xs font-semibold text-sky-700">
+		                  ETA {dropoffEta.minutes}m
+		                </span>
+		              )}
+		              </div>
+		              <p className="text-xs font-medium text-black truncate">{trip.destination || 'Not specified'}</p>
+		              {dropoffEta?.status === 'ready' && dropoffEta.arrivalIso && (
+		                <p className="mt-0.5 text-xs font-semibold text-black">
+		                  Arrives {formatFullDateTime(dropoffEta.arrivalIso)}
+		                  {typeof dropoffEta.distanceKm === 'number' ? ` - ${dropoffEta.distanceKm.toFixed(1)} km` : ''}
+		                </p>
+		              )}
+		              {dropoffEta?.status === 'unavailable' && (
+		                <p className="mt-0.5 text-xs text-slate-500">Live ETA unavailable</p>
+		              )}
+		              </div>
+		              </div>
 
               {/* Enhanced Timeline */}
               <div className="mb-3">
@@ -1191,43 +1486,72 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
 
 
 
-              {/* Time Information */}
-              {(() => {
-              const pickupTime = trip.pickup_locations?.[0]?.scheduled_time || trip.pickuplocations?.[0]?.scheduled_time;
-              const dropoffTime = trip.dropoff_locations?.[0]?.scheduled_time || trip.dropofflocations?.[0]?.scheduled_time;
-              return (pickupTime || dropoffTime) && (
-              <div className="bg-white rounded p-2 mb-2 border border-slate-100">
-              <div className="flex items-center gap-1 mb-1">
-              <Clock className="w-3 h-3 text-sky-500" />
-              <span className="text-xs font-medium text-gray-700">Schedule</span>
-              </div>
-              <div className="space-y-1">
-              {pickupTime && (
-              <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-1">
-                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                <span className="font-medium text-gray-800">Pickup</span>
-              </div>
-              <span className="font-semibold text-black">
-                {new Date(pickupTime).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} {new Date(pickupTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-              </div>
-              )}
-              {dropoffTime && (
-              <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-1">
-                <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-                <span className="font-medium text-gray-800">Drop-off</span>
-              </div>
-              <span className="font-semibold text-black">
-                {new Date(dropoffTime).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} {new Date(dropoffTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-              </div>
-              )}
-              </div>
-              </div>
-              );
-              })()}
+		              {/* Time Information */}
+		              {(() => {
+		              const pickupTime = trip.pickup_locations?.[0]?.scheduled_time || trip.pickuplocations?.[0]?.scheduled_time;
+		              const dropoffTime = trip.dropoff_locations?.[0]?.scheduled_time || trip.dropofflocations?.[0]?.scheduled_time;
+		              const showLiveEta = Boolean(dropoffEta?.status);
+		              return (pickupTime || dropoffTime || showLiveEta) && (
+		              <div className="mb-2 flex flex-col gap-2 md:flex-row">
+		              <div className="w-full rounded border border-slate-100 bg-white p-2 md:w-4/5">
+		              <div className="mb-1 flex items-center gap-1">
+		              <Clock className="h-3 w-3 text-sky-500" />
+		              <span className="text-xs font-medium text-gray-700">Schedule</span>
+		              </div>
+	              <div className="space-y-1">
+	              {pickupTime && (
+		              <div className="flex items-center justify-between text-xs">
+		              <div className="flex items-center gap-1">
+		                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500"></div>
+		                <span className="font-medium text-gray-800">Pickup</span>
+		              </div>
+		              <span className="font-semibold text-black">
+		                {formatFullDateTime(pickupTime)}
+		              </span>
+		              </div>
+		              )}
+		              {dropoffTime && (
+		              <div className="flex items-center justify-between text-xs">
+		              <div className="flex items-center gap-1">
+		                <div className="h-1.5 w-1.5 rounded-full bg-red-500"></div>
+		                <span className="font-medium text-gray-800">Drop-off</span>
+		              </div>
+		              <span className="font-semibold text-black">
+		                {formatFullDateTime(dropoffTime)}
+		              </span>
+		              </div>
+		              )}
+		              {!pickupTime && !dropoffTime && (
+		                <div className="text-xs font-medium text-slate-500">No pickup/drop-off schedule set</div>
+		              )}
+		              </div>
+		              </div>
+		              <div className="w-full rounded border border-slate-100 bg-white p-2 md:w-1/5">
+		              <div className="mb-1 flex items-center gap-1">
+		              <div className="h-1.5 w-1.5 rounded-full bg-sky-500"></div>
+		              <span className="text-xs font-medium text-gray-700">Live ETA</span>
+		              </div>
+		              {dropoffEta?.status === 'loading' && (
+		                <div className="text-sm font-semibold text-black">Calculating...</div>
+		              )}
+		              {dropoffEta?.status === 'ready' && dropoffEta.arrivalIso && (
+		                <div className="space-y-0.5">
+		                  <div className="text-sm font-semibold text-black">{formatFullDateTime(dropoffEta.arrivalIso)}</div>
+		                  <div className="text-xs font-medium text-sky-700">
+		                    In {dropoffEta.minutes} min{typeof dropoffEta.distanceKm === 'number' ? ` - ${dropoffEta.distanceKm.toFixed(1)} km` : ''}
+		                  </div>
+		                </div>
+		              )}
+		              {dropoffEta?.status === 'unavailable' && (
+		                <div className="text-sm font-medium text-slate-500">Unavailable</div>
+		              )}
+		              {!showLiveEta && (
+		                <div className="text-sm font-medium text-slate-500">Not available</div>
+		              )}
+		              </div>
+		              </div>
+		              );
+		              })()}
 
               {/* Action Buttons */}
               <div className="flex flex-wrap gap-2 mt-1">
