@@ -10,8 +10,9 @@ export async function CreateUser(formData: FormData) {
         const email = formData.get("email") as string;
         const phone = formData.get("phone") as string;
         const driverCode = formData.get("driverCode") as string;
+        const clientId = formData.get("clientId") as string;
         
-        console.log('Extracted values:', { role, email, phone, driverCode });
+        console.log('Extracted values:', { role, email, phone, driverCode, clientId });
     
     // Validate role
     if (
@@ -19,17 +20,13 @@ export async function CreateUser(formData: FormData) {
         role !== "fleet manager" &&
         role !== "fc" &&
         role !== "customer" &&
-        role !== "driver"
+        role !== "driver" &&
+        role !== "client"
     ) {
         console.log('Invalid role:', role);
         return { success: false, message: "Invalid role selected" };
     }
 
-    // Generate password - use driver code for drivers, temp password for others
-    const tempPassword = role === 'driver' ? `WF${driverCode}` : generateTempPassword();
-    console.log('Generated password for role', role, ':', tempPassword);
-
-    // Create Supabase client with service role
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!,
@@ -41,6 +38,30 @@ export async function CreateUser(formData: FormData) {
         }
     );
 
+    let selectedClient: { id: number; name: string; client_id: string | null } | null = null;
+
+    if (role === 'client') {
+        if (!clientId) {
+            return { success: false, message: "Please select an existing client" };
+        }
+
+        const { data: clientRecord, error: clientError } = await supabase
+            .from('eps_client_list')
+            .select('id, name, client_id')
+            .eq('id', Number(clientId))
+            .single();
+
+        if (clientError || !clientRecord) {
+            return { success: false, message: clientError?.message || 'Selected client was not found' };
+        }
+
+        selectedClient = clientRecord;
+    }
+
+    // Generate password - use driver code for drivers, temp password for others
+    const tempPassword = role === 'driver' ? `WF${driverCode}` : generateTempPassword();
+    console.log('Generated password for role', role, ':', tempPassword);
+
     // Create user using service role
     console.log('Creating auth user with email:', email);
     const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
@@ -49,6 +70,8 @@ export async function CreateUser(formData: FormData) {
         email_confirm: true,
         user_metadata: {
             role,
+            clientId: selectedClient?.client_id ?? null,
+            clientName: selectedClient?.name ?? null,
         },
     });
     console.log('Auth user creation result:', { newUser: !!newUser, error: createError });
@@ -96,8 +119,8 @@ export async function CreateUser(formData: FormData) {
         first_login: true,
         permissions: permissions,
         energyrite: false,
-        cost_code: "",
-        company: "Waterford Carriers"
+        cost_code: selectedClient?.client_id || "",
+        company: selectedClient?.name || "Waterford Carriers"
     });
 
     if (insertError) {

@@ -886,7 +886,7 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
       </div>
 
       {/* Full-width Video Button */}
-      <Button
+      {/* <Button
         size="sm"
         variant="default"
         className="h-10 text-sm font-semibold w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 border-0"
@@ -901,7 +901,7 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
       >
         <Video className="w-4 h-4 mr-2" />
         View Live Camera Feeds
-      </Button>
+      </Button> */}
 
       <Button
         size="sm"

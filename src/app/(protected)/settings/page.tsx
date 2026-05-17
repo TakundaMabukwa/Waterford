@@ -49,6 +49,7 @@ export default function SettingsPage() {
     const [users, setUsers] = useState<User[]>([])
     const [roles, setRoles] = useState<Role[]>([])
     const [settings, setSettings] = useState<SystemSetting[]>([])
+    const [currentRole, setCurrentRole] = useState<string>("")
     const supabase = createClient()
 
     useEffect(() => {
@@ -71,6 +72,14 @@ export default function SettingsPage() {
             }
         }
         UserData();
+
+        const roleCookie = document.cookie
+            .split('; ')
+            .find((row) => row.startsWith('role='))
+            ?.split('=')[1];
+
+        setCurrentRole(decodeURIComponent(roleCookie || ""));
+
         setRoles([
             {
                 id: "1",
@@ -171,6 +180,34 @@ export default function SettingsPage() {
         },
         {} as Record<string, SystemSetting[]>,
     )
+
+    if (currentRole === 'client') {
+        return (
+            <>
+                <div className="flex-1 space-y-4 p-4 pt-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h2 className="text-3xl font-bold tracking-tight">Settings</h2>
+                            <p className="text-sm text-gray-600">Client accounts use a limited settings view.</p>
+                        </div>
+                    </div>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Profile access</CardTitle>
+                            <CardDescription>
+                                Your client account is kept intentionally simple.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-3 text-sm text-gray-600">
+                            <p>Contact Waterford support if your linked client, email, or phone number needs updating.</p>
+                            <p>Password resets are still handled through the support team.</p>
+                        </CardContent>
+                    </Card>
+                </div>
+            </>
+        )
+    }
 
     return (
         <>

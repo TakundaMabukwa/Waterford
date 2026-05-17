@@ -212,6 +212,7 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
     if (userPermissions.length > 0) {
       const pageToNavMap = {
         dashboard: { name: "Dashboard", href: "/dashboard", Icon: <ChartBar /> },
+        clientDashboard: { name: "Trips", href: "/client-dashboard", Icon: <ChartBar /> },
         fleetJobs: { name: "Fleet Jobs", href: "/jobsFleet", Icon: <Briefcase /> },
         loadPlan: { name: "Load Plan", href: "/load-plan", Icon: <Route /> },
         fuel: { name: "Fuel Can Bus", href: "/fuel", Icon: <Fuel /> },
@@ -243,7 +244,7 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
       <div className="flex h-screen bg-gray-100 text-gray-900">
         {/* Sidebar */}
         <aside
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col justify-between bg-gradient-to-b from-[#0C1E3D] via-[#0b1a34] to-[#122a4f] text-white shadow-2xl transition-width duration-300 ease-in-out overflow-hidden ${sidebarExpanded ? "w-64" : "w-20"
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col justify-between bg-linear-to-b from-[#0C1E3D] via-[#0b1a34] to-[#122a4f] text-white shadow-2xl transition-width duration-300 ease-in-out overflow-hidden ${sidebarExpanded ? "w-64" : "w-20"
           }`}
       >
         {/* Top: logo + toggle */}
@@ -281,7 +282,7 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
                   >
                     <span
                       title={item.name}
-                      className={`flex-shrink-0 flex items-center justify-center ${sidebarExpanded ? "ml-1" : "mx-auto"
+                      className={`shrink-0 flex items-center justify-center ${sidebarExpanded ? "ml-1" : "mx-auto"
                         }`}
                     >
                       <span

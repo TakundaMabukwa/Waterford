@@ -52,6 +52,14 @@ interface User {
     is_active?: boolean
 }
 
+interface ClientRecord {
+    id: number
+    name: string
+    client_id: string | null
+    email: string | null
+    phone: string | null
+}
+
 interface Role {
     id: string
     name: string
@@ -71,6 +79,7 @@ interface SystemSetting {
 
 export default function SettingsPage() {
     const [users, setUsers] = useState<User[]>([])
+    const [clients, setClients] = useState<ClientRecord[]>([])
     const [roles, setRoles] = useState<Role[]>([])
     const [settings, setSettings] = useState<SystemSetting[]>([])
     const [isAddUserOpen, setIsAddUserOpen] = useState(false)
@@ -94,6 +103,7 @@ export default function SettingsPage() {
     const [newUserPhone, setNewUserPhone] = useState("");
     const [newUserRole, setNewUserRole] = useState("");
     const [newUserDriverCode, setNewUserDriverCode] = useState("");
+    const [newUserClientId, setNewUserClientId] = useState("");
     const [newUserPermissions, setNewUserPermissions] = useState<Permission[]>([]);
     const [driverFirstName, setDriverFirstName] = useState("");
     const [driverSurname, setDriverSurname] = useState("");
@@ -137,7 +147,7 @@ export default function SettingsPage() {
 
         const { error } = await supabase
             .from("users")
-            .update({ email: editEmail, role: editRole })
+            .update({ email: editEmail, role: editRole } as any)
             .eq("id", (editingUser as { id: string }).id);
 
         console.log("Update user : " + editEmail + " " + editRole);
@@ -198,8 +208,29 @@ export default function SettingsPage() {
         }
     }
 
+    const fetchClients = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('eps_client_list')
+                .select('id, name, client_id, email, phone')
+                .order('name', { ascending: true })
+
+            if (error) {
+                console.error('Error fetching clients:', error)
+                setClients([])
+                return
+            }
+
+            setClients((data || []) as ClientRecord[])
+        } catch (err) {
+            console.error('Error in fetchClients:', err)
+            setClients([])
+        }
+    }
+
     useEffect(() => {
         fetchUsers();
+        fetchClients();
 
         setRoles([
             {
@@ -300,6 +331,8 @@ export default function SettingsPage() {
                 return "bg-orange-100 text-orange-800"
             case "customer":
                 return "bg-gray-100 text-gray-800"
+            case "client":
+                return "bg-emerald-100 text-emerald-800"
             default:
                 return "bg-gray-100 text-gray-800"
         }
@@ -377,7 +410,7 @@ export default function SettingsPage() {
 
     async function handleCreateUser(e: React.FormEvent) {
         e.preventDefault();
-        console.log('Form submitted with:', { newUserEmail, newUserPhone, newUserRole, newUserDriverCode });
+        console.log('Form submitted with:', { newUserEmail, newUserPhone, newUserRole, newUserDriverCode, newUserClientId });
         setIsCreatingUser(true);
 
         try {
@@ -387,6 +420,9 @@ export default function SettingsPage() {
             formData.append('role', newUserRole);
             formData.append('driverCode', newUserDriverCode);
             formData.append('permissions', JSON.stringify(newUserPermissions));
+            if (newUserRole === 'client') {
+                formData.append('clientId', newUserClientId);
+            }
             if (newUserRole === 'driver') {
                 formData.append('driverFirstName', driverFirstName);
                 formData.append('driverSurname', driverSurname);
@@ -415,6 +451,7 @@ export default function SettingsPage() {
                 setNewUserPhone('');
                 setNewUserRole('');
                 setNewUserDriverCode('');
+                setNewUserClientId('');
                 setNewUserPermissions([]);
                 setDriverFirstName('');
                 setDriverSurname('');
@@ -521,6 +558,7 @@ export default function SettingsPage() {
                                         <SelectItem value="driver">Driver</SelectItem>
                                         <SelectItem value="fc">Fleet Controller</SelectItem>
                                         <SelectItem value="customer">External</SelectItem>
+                                        <SelectItem value="client">Client</SelectItem>
                                     </SelectContent>
                                 </Select>
                                 <Dialog open={isAddUserOpen} onOpenChange={(open) => {
@@ -530,6 +568,7 @@ export default function SettingsPage() {
                                         setNewUserPhone('');
                                         setNewUserRole('');
                                         setNewUserDriverCode('');
+                                        setNewUserClientId('');
                                         setNewUserPermissions([]);
                                         setDriverFirstName('');
                                         setDriverSurname('');
@@ -553,7 +592,7 @@ export default function SettingsPage() {
                                         Add User
                                     </SecureButton>
                                 </DialogTrigger>
-                                <DialogContent className="!max-w-none w-[80vw] max-h-[90vh] overflow-y-auto sm:!max-w-none">
+                                <DialogContent className="max-w-none! w-[80vw] max-h-[90vh] overflow-y-auto sm:max-w-none!">
                                     <DialogHeader className="pb-4">
                                         <div className="flex items-center gap-2">
                                             <div className="p-1.5 bg-blue-100 rounded-lg">
@@ -567,6 +606,7 @@ export default function SettingsPage() {
                                             <input type="hidden" name="email" value={newUserEmail} />
                                             <input type="hidden" name="phone" value={newUserPhone} />
                                             <input type="hidden" name="role" value={newUserRole} />
+                                            <input type="hidden" name="clientId" value={newUserClientId} />
                                             <input type="hidden" name="permissions" value={JSON.stringify(newUserPermissions)} />
                                             
                                             <div className="bg-gray-50 rounded-lg p-4 space-y-4">
@@ -582,7 +622,7 @@ export default function SettingsPage() {
                                                     </div>
                                                     <div className="space-y-1.5">
                                                         <Label htmlFor="role" className="text-xs font-medium">User Role *</Label>
-                                                        <Select value={newUserRole} onValueChange={(value) => { setNewUserRole(value); setNewUserPermissions(DEFAULT_ROLE_PERMISSIONS[value] || []); }}>
+                                                        <Select value={newUserRole} onValueChange={(value) => { setNewUserRole(value); setNewUserPermissions(DEFAULT_ROLE_PERMISSIONS[value] || []); if (value !== 'client') setNewUserClientId(''); }}>
                                                             <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Choose role" /></SelectTrigger>
                                                             <SelectContent>
                                                                 <SelectItem value="admin"><div className="text-sm">Administrator</div></SelectItem>
@@ -590,6 +630,7 @@ export default function SettingsPage() {
                                                                 <SelectItem value="driver"><div className="text-sm">Driver</div></SelectItem>
                                                                 <SelectItem value="fc"><div className="text-sm">Fleet Controller</div></SelectItem>
                                                                 <SelectItem value="customer"><div className="text-sm">External User</div></SelectItem>
+                                                                <SelectItem value="client"><div className="text-sm">Client</div></SelectItem>
                                                             </SelectContent>
                                                         </Select>
                                                     </div>
@@ -600,6 +641,25 @@ export default function SettingsPage() {
                                                                 <span className="inline-flex items-center px-2 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-xs">WF</span>
                                                                 <Input id="driverCode" type="text" placeholder="12345" required value={newUserDriverCode} onChange={(e) => setNewUserDriverCode(e.target.value.replace(/[^0-9]/g, ''))} className="h-9 rounded-l-none text-sm" />
                                                             </div>
+                                                        </div>
+                                                    )}
+                                                    {newUserRole === 'client' && (
+                                                        <div className="space-y-1.5 md:col-span-2">
+                                                            <Label htmlFor="clientId" className="text-xs font-medium">Existing Client *</Label>
+                                                            <Select value={newUserClientId} onValueChange={setNewUserClientId}>
+                                                                <SelectTrigger className="h-9 text-sm">
+                                                                    <SelectValue placeholder="Choose an existing client" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {clients.map((client) => (
+                                                                        <SelectItem key={client.id} value={String(client.id)}>
+                                                                            <div className="text-sm">
+                                                                                {client.name}{client.client_id ? ` (${client.client_id})` : ''}
+                                                                            </div>
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
                                                         </div>
                                                     )}
                                                 </div>
@@ -679,7 +739,7 @@ export default function SettingsPage() {
                                                 </div>
                                             )}
                                         
-                                            {newUserRole && newUserRole !== 'driver' && (
+                                            {newUserRole && newUserRole !== 'driver' && newUserRole !== 'client' && (
                                                 <div className="bg-white border rounded-lg p-6 space-y-6">
                                                     <div className="flex items-center justify-between">
                                                         <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -858,7 +918,7 @@ export default function SettingsPage() {
                                             
                                             <div className="flex justify-end gap-2 pt-4 border-t">
                                                 <Button type="button" variant="outline" onClick={() => setIsAddUserOpen(false)} className="px-4 h-9 text-sm" disabled={isCreatingUser}>Cancel</Button>
-                                                <Button type="submit" disabled={!newUserEmail || !newUserPhone || !newUserRole || (newUserRole === 'driver' && (!newUserDriverCode || !driverFirstName || !driverSurname)) || isCreatingUser} className="px-4 h-9 text-sm bg-blue-600 hover:bg-blue-700">
+                                                <Button type="submit" disabled={!newUserEmail || !newUserPhone || !newUserRole || (newUserRole === 'driver' && (!newUserDriverCode || !driverFirstName || !driverSurname)) || (newUserRole === 'client' && !newUserClientId) || isCreatingUser} className="px-4 h-9 text-sm bg-blue-600 hover:bg-blue-700">
                                                     {isCreatingUser ? (
                                                         <>
                                                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
@@ -1146,7 +1206,7 @@ export default function SettingsPage() {
 
                 {/* User Permissions Modal */}
                 <Dialog open={isPermissionOpen} onOpenChange={setIsPermissionOpen}>
-                    <DialogContent className="!max-w-none w-[70vw] max-h-[90vh] overflow-y-auto sm:!max-w-none">
+                    <DialogContent className="max-w-none! w-[70vw] max-h-[90vh] overflow-y-auto sm:max-w-none!">
                         <DialogHeader>
                             <DialogTitle>View User Permissions</DialogTitle>
                             <DialogDescription>

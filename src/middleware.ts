@@ -26,6 +26,10 @@ const roles = [
     name: 'cost centre',
     path: ['*'], // All users have access to all routes
   },
+  {
+    name: 'client',
+    path: ['*'],
+  }
 ]
 
 const publicRoutes = ['/login', '/signup', '/', '/logout', '/register',
@@ -81,15 +85,17 @@ export async function middleware(req: NextRequest) {
         .eq("id", (user?.id) as string)
         .single();
 
+      const typedUserRecord = userRecord as { role?: string } | null
+
 
       if (error || userError) {
         return NextResponse.redirect(new URL('/login', req.url))
       }
       console.log("The user id is", user?.id)
-      console.log("The user role is", userRecord?.role)
+      console.log("The user role is", typedUserRecord?.role || 'unknown')
 
       if (user) {
-        const role = decodeURIComponent(userRecord?.role || '')
+        const role = decodeURIComponent(typedUserRecord?.role || '')
         if (role) {
           const allowedPaths = getAllowedPaths(role)
           const isAllowed = allowedPaths.includes('*') || allowedPaths.some(p => path.startsWith(p))
