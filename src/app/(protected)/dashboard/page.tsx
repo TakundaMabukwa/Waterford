@@ -1362,7 +1362,7 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
               </div>
               <div className="min-w-0">
               <h3 className="font-semibold text-black text-xs truncate">{title}</h3>
-              <p className="text-xs text-gray-700">Trip #{trip.trip_id || trip.id}</p>
+              <p className="text-xs text-gray-700">Trip #{trip.ordernumber || trip.id}</p>
               </div>
               </div>
               </div>
@@ -1386,7 +1386,7 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
 	              <div className="bg-white rounded-lg p-1.5 border border-slate-100">
 	              <div className="flex items-center gap-1 mb-0.5">
 	              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-	              <span className="text-xs font-medium text-gray-700 uppercase">Pickup</span>
+	              <span className="text-xs font-medium text-gray-700 uppercase">Pickup: ETA date to loading point</span>
 	              </div>
 	              <p className="text-xs font-medium text-black truncate">{trip.origin || 'Not specified'}</p>
 	              </div>
@@ -1394,7 +1394,7 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
 		              <div className="flex items-center justify-between gap-2 mb-0.5">
 		              <div className="flex items-center gap-1">
 		              <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-		              <span className="text-xs font-medium text-gray-700 uppercase">Drop-off</span>
+		              <span className="text-xs font-medium text-gray-700 uppercase">Drop-off: ETA date of completion of trip </span>
 		              </div>
 		              {dropoffEta?.status === 'loading' && (
 		                <span className="text-xs font-semibold text-slate-500">ETA calculating...</span>
@@ -1415,6 +1415,8 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
 		              {dropoffEta?.status === 'unavailable' && (
 		                <p className="mt-0.5 text-xs text-slate-500">Live ETA unavailable</p>
 		              )}
+                                <p className="text-xs text-gray-700">Trip #{trip.ordernumber || trip.id}</p>
+
 		              </div>
 		              </div>
 
