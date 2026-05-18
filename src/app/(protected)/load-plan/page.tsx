@@ -2408,12 +2408,14 @@ export default function LoadPlanPage() {
                       value={etaDropoff}
                       onChange={handleEtaDropoffChange}
                       placeholder="Select drop-off date and time"
+                      required={true}
                     />
                   </div>
                   <div>
                     <LocationAutocomplete
                       label="Drop Off Point"
                       value={dropOffPoint}
+                      required={true}
                       onChange={(value) => {
                         console.log('Drop off location changed to:', value)
                         setDropOffPoint(value)
