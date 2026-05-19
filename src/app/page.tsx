@@ -3,6 +3,17 @@ import { redirect } from 'next/navigation'
 import React, { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
+const getLandingRoute = (role: string | undefined | null) => {
+  switch (role) {
+    case 'client':
+      return '/client-dashboard'
+    case 'customer':
+      return '/drivers'
+    default:
+      return '/dashboard'
+  }
+}
+
 export default async function Home() {
   const cookieStore = await cookies()
   const access_token = cookieStore.get('access_token')?.value
@@ -12,11 +23,7 @@ export default async function Home() {
     redirect('/login')
   }
 
-  if (role === 'customer') {
-    redirect('/drivers')
-  }
-
-  redirect('/dashboard')
+  redirect(getLandingRoute(role))
 }
 
 // import { redirect } from 'next/navigation'

@@ -35,6 +35,14 @@ type ClientIdentity = {
   client_id: string | null;
 };
 
+type TripSourceRow = {
+  client_id?: string | null;
+  company?: string | null;
+  cost_code?: string | null;
+  clientId?: string | null;
+  clientName?: string | null;
+};
+
 const statusTone = (status: string) => {
   const normalized = (status || "").toLowerCase();
   if (normalized.includes("complete") || normalized.includes("done")) return "bg-emerald-100 text-emerald-800";
@@ -49,12 +57,29 @@ export default function ClientDashboardPage() {
   const [profile, setProfile] = useState<ClientProfile | null>(null);
   const [trips, setTrips] = useState<ClientTrip[]>([]);
 
+  const fetchTripsForKey = async (key: string) => {
+    const tripColumns = 'id, trip_id, selected_client, status, start_date, end_date, origin, destination, route, driver, vehicle, notes, client_details';
+
+    const [selectedClientResult, clientIdResult, clientNameResult] = await Promise.all([
+      supabase.from('trips').select(tripColumns).eq('selected_client', key).order('id', { ascending: false }),
+      supabase.from('trips').select(tripColumns).contains('client_details', { client_id: key }).order('id', { ascending: false }),
+      supabase.from('trips').select(tripColumns).contains('client_details', { name: key }).order('id', { ascending: false }),
+    ]);
+
+    return [
+      ...(selectedClientResult.data || []),
+      ...(clientIdResult.data || []),
+      ...(clientNameResult.data || []),
+    ] as ClientTrip[];
+  };
+
   useEffect(() => {
     const loadClientTrips = async () => {
       setLoading(true);
 
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData.user?.id;
+      const userMetadata = (authData.user?.user_metadata || {}) as TripSourceRow;
 
       if (!userId) {
         setTrips([]);
@@ -71,11 +96,16 @@ export default function ClientDashboardPage() {
       const currentProfile = (userRow || null) as ClientProfile | null;
       setProfile(currentProfile);
 
-      const clientLookupKey = currentProfile?.cost_code || currentProfile?.company || null;
+      const clientLookupKeys = Array.from(new Set([
+        currentProfile?.cost_code,
+        currentProfile?.company,
+        userMetadata.clientId,
+        userMetadata.clientName,
+      ].filter((value): value is string => Boolean(value && value.trim()))));
 
       let clientIdentity: ClientIdentity | null = null;
 
-      if (clientLookupKey) {
+      for (const clientLookupKey of clientLookupKeys) {
         const { data: clientByCode } = await supabase
           .from('eps_client_list')
           .select('id, name, client_id')
@@ -84,47 +114,39 @@ export default function ClientDashboardPage() {
 
         clientIdentity = (clientByCode || null) as ClientIdentity | null;
 
-        if (!clientIdentity) {
-          const { data: clientByName } = await supabase
-            .from('eps_client_list')
-            .select('id, name, client_id')
-            .eq('name', clientLookupKey)
-            .maybeSingle();
+        if (clientIdentity) {
+          break;
+        }
 
-          clientIdentity = (clientByName || null) as ClientIdentity | null;
+        const { data: clientByName } = await supabase
+          .from('eps_client_list')
+          .select('id, name, client_id')
+          .eq('name', clientLookupKey)
+          .maybeSingle();
+
+        clientIdentity = (clientByName || null) as ClientIdentity | null;
+
+        if (clientIdentity) {
+          break;
         }
       }
 
-      const clientKey = clientIdentity?.client_id || clientIdentity?.name || clientLookupKey;
+      const clientKeys = Array.from(new Set([
+        clientIdentity?.client_id,
+        clientIdentity?.name,
+        ...clientLookupKeys,
+      ].filter((value): value is string => Boolean(value && value.trim()))));
 
-      if (!clientKey) {
+      if (clientKeys.length === 0) {
         setTrips([]);
         setLoading(false);
         return;
       }
 
-      const tripColumns = 'id, trip_id, selected_client, status, start_date, end_date, origin, destination, route, driver, vehicle, notes';
-      const [tripsByCodeResult, tripsByNameResult] = await Promise.all([
-        clientIdentity?.client_id
-          ? supabase.from('trips').select(tripColumns).eq('selected_client', clientIdentity.client_id).order('id', { ascending: false })
-          : Promise.resolve({ data: [], error: null }),
-        clientIdentity?.name && clientIdentity.name !== clientIdentity.client_id
-          ? supabase.from('trips').select(tripColumns).eq('selected_client', clientIdentity.name).order('id', { ascending: false })
-          : Promise.resolve({ data: [], error: null }),
-      ]);
+      const tripRows = (await Promise.all(clientKeys.map((key) => fetchTripsForKey(key)))).flat();
+      const uniqueTripRows = tripRows.filter((trip, index, allTrips) => allTrips.findIndex((candidate) => candidate.id === trip.id) === index);
 
-      const mergedTrips = [
-        ...((tripsByCodeResult.data || []) as ClientTrip[]),
-        ...((tripsByNameResult.data || []) as ClientTrip[]),
-      ].filter((trip, index, allTrips) => allTrips.findIndex((candidate) => candidate.id === trip.id) === index);
-
-      const tripRows = mergedTrips.length > 0
-        ? mergedTrips
-        : clientKey
-          ? (await supabase.from('trips').select(tripColumns).eq('selected_client', clientKey).order('id', { ascending: false })).data || []
-          : [];
-
-      setTrips(tripRows as ClientTrip[]);
+      setTrips(uniqueTripRows);
       setProfile({
         ...currentProfile,
         company: clientIdentity?.name || currentProfile?.company || null,

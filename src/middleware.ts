@@ -28,9 +28,20 @@ const roles = [
   },
   {
     name: 'client',
-    path: ['*'],
+    path: ['/client-dashboard', '/settings'],
   }
 ]
+
+function getLandingPath(role: string): string {
+  switch (role) {
+    case 'client':
+      return '/client-dashboard'
+    case 'customer':
+      return '/drivers'
+    default:
+      return '/dashboard'
+  }
+}
 
 const publicRoutes = ['/login', '/signup', '/', '/logout', '/register',
   '/register/company', '/register/workshop',
@@ -97,11 +108,16 @@ export async function middleware(req: NextRequest) {
       if (user) {
         const role = decodeURIComponent(typedUserRecord?.role || '')
         if (role) {
+          if (path === '/') {
+            return NextResponse.redirect(new URL(getLandingPath(role), req.url))
+          }
+
           const allowedPaths = getAllowedPaths(role)
           const isAllowed = allowedPaths.includes('*') || allowedPaths.some(p => path.startsWith(p))
           if (!isAllowed) {
-            console.log(`Role "${role}" is not allowed to access "${path}" — redirecting to /dashboard`)
-            return NextResponse.redirect(new URL('/login', req.url))
+            const landingPath = getLandingPath(role)
+            console.log(`Role "${role}" is not allowed to access "${path}" — redirecting to ${landingPath}`)
+            return NextResponse.redirect(new URL(landingPath, req.url))
           }
           // switch (role) {
           //   case "call center":
