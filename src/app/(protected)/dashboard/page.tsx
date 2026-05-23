@@ -75,7 +75,7 @@ import GoogleLiveMapView from "@/components/map/google-live-map-view";
 import { VehicleDashboardModal } from "@/components/ui/vehicle-dashboard-modal";
 import { mapFuelStopToOverlay } from "@/lib/fuel-stop-map";
 import LiveStreamTab from "@/components/dashboard/live-stream-tab";
-import { geocodeAddress, getDirectionsByCoords } from "@/lib/google-maps-utils";
+import { geocodeAddress, getDirectionsByCoords } from "@/lib/mapbox-directions";
 
 const normalizePlate = (value: string | undefined | null) =>
   String(value || '')
@@ -638,25 +638,24 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
             const pickup = pickupLocs[0]?.address || trip.origin;
             const dropoff = dropoffLocs[0]?.address || trip.destination;
             
-            if (pickup && dropoff) {
+            if (pickup || dropoff) {
               try {
                 const [pickupResult, dropoffResult] = await Promise.all([
-                  geocodeAddress(pickup),
-                  geocodeAddress(dropoff),
+                  pickup ? geocodeAddress(pickup) : null,
+                  dropoff ? geocodeAddress(dropoff) : null,
                 ]);
 
-                if (!pickupResult || !dropoffResult) {
-                  console.error('Failed to geocode addresses');
-                  throw new Error('Geocoding failed');
-                }
+                if (pickupResult && dropoffResult) {
+                  const pickupCoords: CoordinatePair = [pickupResult.lng, pickupResult.lat];
+                  const dropoffCoords: CoordinatePair = [dropoffResult.lng, dropoffResult.lat];
 
-                const pickupCoords: CoordinatePair = [pickupResult.lng, pickupResult.lat];
-                const dropoffCoords: CoordinatePair = [dropoffResult.lng, dropoffResult.lat];
-
-                const routeResult = await getDirectionsByCoords(pickupCoords, dropoffCoords);
-                if (routeResult?.coordinates?.length) {
-                  routeCoords = routeResult.coordinates;
-                  console.log('Generated preplanned route with', routeCoords.length, 'points');
+                  const routeResult = await getDirectionsByCoords(pickupCoords, dropoffCoords);
+                  if (routeResult?.coordinates?.length) {
+                    routeCoords = routeResult.coordinates;
+                    console.log('Generated preplanned route with', routeCoords.length, 'points');
+                  }
+                } else {
+                  console.log('Geocoding not available for pickup or dropoff, will use stored route');
                 }
               } catch (error) {
                 console.error('Error generating preplanned route:', error);
@@ -685,10 +684,10 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
                 const origin = pickup || trip.origin;
                 const destination = dropoff || trip.destination;
 
-                if (origin && destination) {
+                if (origin || destination) {
                   const [originResult, destResult] = await Promise.all([
-                    geocodeAddress(origin),
-                    geocodeAddress(destination),
+                    origin ? geocodeAddress(origin) : null,
+                    destination ? geocodeAddress(destination) : null,
                   ]);
 
                   if (originResult && destResult) {
@@ -987,55 +986,54 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
         console.error('Failed to fetch live vehicle data for ETA calculation:', error)
       }
 
-      const originDestPairs: { key: string; origin: CoordinatePair; dest: CoordinatePair }[] = []
-
-      for (const trip of activeTrips) {
-        const tripKey = getTripKey(trip)
-        if (!tripKey) continue
-
-        const currentCoordinates = getTripCurrentCoordinates(trip, liveVehicles)
-        if (!currentCoordinates) continue
-
-        let dropoffCoordinates =
-          parseCoordinatePair(trip.destination_coordinates) ||
-          parseCoordinatePair(trip.destinationCoordinates)
-
-        if (!isValidCoordinatePair(dropoffCoordinates)) {
-          const dropoffAddress = getTripDropoffAddress(trip)
-          if (!dropoffAddress) continue
-
-          const cacheKey = `${dropoffAddress}|${currentCoordinates[0].toFixed(2)}`
-          if (geocodeCache.has(cacheKey)) {
-            const cached = geocodeCache.get(cacheKey)
-            if (cached) {
-              originDestPairs.push({ key: tripKey, origin: currentCoordinates, dest: cached })
-            }
-          } else {
-            try {
-              const result = await geocodeAddress(dropoffAddress)
-              if (result) {
-                const coords: CoordinatePair = [result.lng, result.lat]
-                geocodeCache.set(cacheKey, coords)
-                originDestPairs.push({ key: tripKey, origin: currentCoordinates, dest: coords })
-              } else {
-                geocodeCache.set(cacheKey, null)
-              }
-            } catch {
-              // skip this trip
-            }
-          }
-        } else {
-          originDestPairs.push({ key: tripKey, origin: currentCoordinates, dest: dropoffCoordinates })
-        }
-      }
-
-      if (cancelled) return
+      const tripsToProcess = activeTrips
+        .map((trip) => {
+          const tripKey = getTripKey(trip)
+          if (!tripKey) return null
+          const currentCoordinates = getTripCurrentCoordinates(trip, liveVehicles)
+          if (!currentCoordinates) return null
+          return { trip, tripKey, currentCoordinates }
+        })
+        .filter(Boolean) as { trip: any; tripKey: string; currentCoordinates: CoordinatePair }[]
 
       const etaMap = new Map<string, TripEtaState>()
 
-      const results = await Promise.allSettled(
-        originDestPairs.map(async ({ key: tripKey, origin, dest }) => {
-          const result = await getDirectionsByCoords(origin, dest)
+      await Promise.allSettled(
+        tripsToProcess.map(async ({ trip, tripKey, currentCoordinates }) => {
+          let dropoffCoordinates =
+            parseCoordinatePair(trip.destination_coordinates) ||
+            parseCoordinatePair(trip.destinationCoordinates)
+
+          if (!isValidCoordinatePair(dropoffCoordinates)) {
+            const dropoffAddress = getTripDropoffAddress(trip)
+            if (!dropoffAddress) {
+              etaMap.set(tripKey, { status: "unavailable" })
+              return
+            }
+            const cacheKey = `${dropoffAddress}|${currentCoordinates[0].toFixed(2)}`
+            const cached = geocodeCache.get(cacheKey)
+            if (cached) {
+              dropoffCoordinates = cached
+            } else {
+              try {
+                const result = await geocodeAddress(dropoffAddress)
+                if (result) {
+                  dropoffCoordinates = [result.lng, result.lat] as CoordinatePair
+                  geocodeCache.set(cacheKey, dropoffCoordinates)
+                } else {
+                  geocodeCache.set(cacheKey, null)
+                  etaMap.set(tripKey, { status: "unavailable" })
+                  return
+                }
+              } catch {
+                etaMap.set(tripKey, { status: "unavailable" })
+                return
+              }
+            }
+          }
+
+          if (cancelled) return
+          const result = await getDirectionsByCoords(currentCoordinates, dropoffCoordinates)
           if (!result) {
             etaMap.set(tripKey, { status: "unavailable" })
           } else {
