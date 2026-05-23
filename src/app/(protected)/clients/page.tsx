@@ -17,8 +17,7 @@ import { SecureButton } from "@/components/SecureButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -29,6 +28,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FuelStopForm } from "@/components/ui/fuel-stop-modal";
+import { ClientFormDialog } from "@/components/ui/client-form-dialog";
 import { toast } from "sonner";
 
 type ClientRecord = {
@@ -58,6 +58,8 @@ type ClientRecord = {
   operating_hours?: string | null;
   capacity?: string | null;
   notes?: string | null;
+  coordinates?: string | null;
+  coords?: string | null;
 };
 
 type FuelStopRecord = {
@@ -85,59 +87,7 @@ type FuelStopRecord = {
   coordinates?: string | null;
 };
 
-type ClientFormState = {
-  name: string;
-  client_id: string;
-  address: string;
-  city: string;
-  state: string;
-  country: string;
-  contact_person: string;
-  contact_phone: string;
-  contact_email: string;
-  email: string;
-  phone: string;
-  industry: string;
-  credit_limit: string;
-  status: string;
-  postal_code: string;
-  registration_number: string;
-  registration_name: string;
-  ck_number: string;
-  tax_number: string;
-  vat_number: string;
-  fax_number: string;
-  operating_hours: string;
-  capacity: string;
-  notes: string;
-};
 
-const defaultFormState: ClientFormState = {
-  name: "",
-  client_id: "",
-  address: "",
-  city: "",
-  state: "",
-  country: "",
-  contact_person: "",
-  contact_phone: "",
-  contact_email: "",
-  email: "",
-  phone: "",
-  industry: "",
-  credit_limit: "",
-  status: "Active",
-  postal_code: "",
-  registration_number: "",
-  registration_name: "",
-  ck_number: "",
-  tax_number: "",
-  vat_number: "",
-  fax_number: "",
-  operating_hours: "",
-  capacity: "",
-  notes: "",
-};
 
 export default function ClientsPage() {
   const supabase = useMemo(() => createSupabaseClient(), []);
@@ -146,10 +96,8 @@ export default function ClientsPage() {
 
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
-  const [isSavingClient, setIsSavingClient] = useState(false);
   const [isClientSheetOpen, setIsClientSheetOpen] = useState(false);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
-  const [clientFormState, setClientFormState] = useState<ClientFormState>(defaultFormState);
 
   const [stops, setStops] = useState<FuelStopRecord[]>([]);
   const [isLoadingStops, setIsLoadingStops] = useState(true);
@@ -249,77 +197,19 @@ export default function ClientsPage() {
   const stopWithPrice = filteredStops.filter((stop) => Number(stop.fuel_price_per_liter || 0) > 0).length;
   const stopWithContacts = filteredStops.filter((stop) => Boolean(stop.contact_person || stop.contact_phone || stop.contact_email)).length;
 
-  const updateClientField = (field: keyof ClientFormState, value: string) => {
-    setClientFormState((prev) => ({ ...prev, [field]: value }));
-  };
-
   const openCreateClient = () => {
     setEditingClientId(null);
-    setClientFormState(defaultFormState);
     setIsClientSheetOpen(true);
   };
 
   const openEditClient = (client: ClientRecord) => {
     setEditingClientId(client.id);
-    setClientFormState({
-      name: client.name || "",
-      client_id: client.client_id || "",
-      address: client.address || "",
-      city: client.city || "",
-      state: client.state || "",
-      country: client.country || "",
-      contact_person: client.contact_person || "",
-      contact_phone: client.contact_phone || "",
-      contact_email: client.contact_email || "",
-      email: client.email || "",
-      phone: client.phone || "",
-      industry: client.industry || "",
-      credit_limit: client.credit_limit?.toString() || "",
-      status: client.status || "Active",
-      postal_code: client.postal_code || "",
-      registration_number: client.registration_number || "",
-      registration_name: client.registration_name || "",
-      ck_number: client.ck_number || "",
-      tax_number: client.tax_number || "",
-      vat_number: client.vat_number || "",
-      fax_number: client.fax_number || "",
-      operating_hours: client.operating_hours || "",
-      capacity: client.capacity || "",
-      notes: client.notes || "",
-    });
     setIsClientSheetOpen(true);
   };
 
   const closeClientForm = () => {
     setIsClientSheetOpen(false);
     setEditingClientId(null);
-    setClientFormState(defaultFormState);
-  };
-
-  const handleSaveClient = async () => {
-    if (!clientFormState.name.trim() && !clientFormState.client_id.trim()) {
-      toast.error("Enter at least a client name or client ID");
-      return;
-    }
-
-    setIsSavingClient(true);
-    try {
-      const response = await fetch("/api/eps-client-list", {
-        method: editingClientId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editingClientId ? { id: editingClientId, ...clientFormState } : clientFormState),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Failed to save client");
-      toast.success(editingClientId ? "Client updated successfully" : "Client added successfully");
-      closeClientForm();
-      await fetchClients();
-    } catch (error) {
-      console.error("Failed to save client:", error);
-      toast.error("Could not save client right now");
-    } finally {
-      setIsSavingClient(false);
-    }
   };
 
   const closeStopForm = () => {
@@ -440,18 +330,12 @@ export default function ClientsPage() {
         </TabsContent>
       </Tabs>
 
-      <Sheet open={isClientSheetOpen} onOpenChange={(open) => { if (!open) { closeClientForm(); return; } setIsClientSheetOpen(true); }}>
-        <SheetContent className="w-[920px] max-w-[96vw] overflow-y-auto px-0">
-          <SheetHeader className="border-b border-slate-200 px-6 py-5"><SheetTitle>{editingClientId ? "Edit Client" : "Add Client"}</SheetTitle></SheetHeader>
-          <div className="space-y-8 px-6 py-6">
-            <section className="space-y-4"><div><h3 className="text-sm font-semibold text-slate-900">Basic Details</h3><p className="text-xs text-slate-500">Core client identity and location details.</p></div><div className="grid gap-4 md:grid-cols-2"><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Client Name</Label><Input value={clientFormState.name} onChange={(e) => updateClientField("name", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Client ID</Label><Input value={clientFormState.client_id} onChange={(e) => updateClientField("client_id", e.target.value)} /></div><div className="space-y-2 md:col-span-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Address</Label><Input value={clientFormState.address} onChange={(e) => updateClientField("address", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">City</Label><Input value={clientFormState.city} onChange={(e) => updateClientField("city", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">State</Label><Input value={clientFormState.state} onChange={(e) => updateClientField("state", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Country</Label><Input value={clientFormState.country} onChange={(e) => updateClientField("country", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Status</Label><Input value={clientFormState.status} onChange={(e) => updateClientField("status", e.target.value)} /></div></div></section>
-            <section className="space-y-4"><div><h3 className="text-sm font-semibold text-slate-900">Contacts</h3><p className="text-xs text-slate-500">Primary people and communication channels.</p></div><div className="grid gap-4 md:grid-cols-3"><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Contact Person</Label><Input value={clientFormState.contact_person} onChange={(e) => updateClientField("contact_person", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Contact Phone</Label><Input value={clientFormState.contact_phone} onChange={(e) => updateClientField("contact_phone", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Contact Email</Label><Input value={clientFormState.contact_email} onChange={(e) => updateClientField("contact_email", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">General Email</Label><Input value={clientFormState.email} onChange={(e) => updateClientField("email", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">General Phone</Label><Input value={clientFormState.phone} onChange={(e) => updateClientField("phone", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Industry</Label><Input value={clientFormState.industry} onChange={(e) => updateClientField("industry", e.target.value)} /></div></div></section>
-            <section className="space-y-4"><div><h3 className="text-sm font-semibold text-slate-900">Business Info</h3><p className="text-xs text-slate-500">Commercial, tax, and registration details.</p></div><div className="grid gap-4 md:grid-cols-3"><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Credit Limit</Label><Input value={clientFormState.credit_limit} onChange={(e) => updateClientField("credit_limit", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Postal Code</Label><Input value={clientFormState.postal_code} onChange={(e) => updateClientField("postal_code", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Fax Number</Label><Input value={clientFormState.fax_number} onChange={(e) => updateClientField("fax_number", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Registration Number</Label><Input value={clientFormState.registration_number} onChange={(e) => updateClientField("registration_number", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Registration Name</Label><Input value={clientFormState.registration_name} onChange={(e) => updateClientField("registration_name", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">CK Number</Label><Input value={clientFormState.ck_number} onChange={(e) => updateClientField("ck_number", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Tax Number</Label><Input value={clientFormState.tax_number} onChange={(e) => updateClientField("tax_number", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">VAT Number</Label><Input value={clientFormState.vat_number} onChange={(e) => updateClientField("vat_number", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Operating Hours</Label><Input value={clientFormState.operating_hours} onChange={(e) => updateClientField("operating_hours", e.target.value)} /></div></div></section>
-            <section className="space-y-4"><div><h3 className="text-sm font-semibold text-slate-900">Additional Notes</h3><p className="text-xs text-slate-500">Operational notes and capacity details.</p></div><div className="grid gap-4"><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Capacity</Label><Input value={clientFormState.capacity} onChange={(e) => updateClientField("capacity", e.target.value)} /></div><div className="space-y-2"><Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Notes</Label><Input value={clientFormState.notes} onChange={(e) => updateClientField("notes", e.target.value)} /></div></div></section>
-            <div className="sticky bottom-0 flex gap-3 border-t border-slate-200 bg-white pt-4"><Button onClick={handleSaveClient} disabled={isSavingClient}>{isSavingClient ? "Saving..." : editingClientId ? "Update Client" : "Save Client"}</Button><Button type="button" variant="outline" onClick={closeClientForm}>Cancel</Button></div>
-          </div>
-        </SheetContent>
-      </Sheet>
+      <ClientFormDialog
+        open={isClientSheetOpen}
+        onOpenChange={(open) => { if (!open) closeClientForm(); else setIsClientSheetOpen(true) }}
+        onSaved={async () => { await fetchClients() }}
+        initialRecord={editingClientId ? clients.find(c => c.id === editingClientId) : null}
+      />
 
       <Sheet open={isStopSheetOpen} onOpenChange={(open) => { if (!open) { closeStopForm(); return; } setIsStopSheetOpen(true); }}>
         <SheetContent className="w-[min(1100px,96vw)] max-w-[96vw] overflow-y-auto p-0 sm:max-w-[96vw]">

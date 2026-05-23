@@ -173,6 +173,7 @@ export function LocationAutocomplete({
   const inputRef = useRef(null)
   const suggestionsRef = useRef(null)
   const lookupCacheRef = useRef(new Map())
+  const justSelectedRef = useRef(false)
 
   const getDisplayValue = (suggestion) => {
     if (suggestion?.type === 'place' && suggestion?.name) return suggestion.name
@@ -185,6 +186,8 @@ export function LocationAutocomplete({
       setShowSuggestions(false)
       return
     }
+
+    if (justSelectedRef.current) return
 
     const timeoutId = setTimeout(async () => {
       setIsLoading(true)
@@ -237,11 +240,13 @@ export function LocationAutocomplete({
   }, [value])
 
   const handleSuggestionClick = (suggestion) => {
+    justSelectedRef.current = true
     onChange(getDisplayValue(suggestion))
     onSelect?.(suggestion)
     setSuggestions([])
     setShowSuggestions(false)
     inputRef.current?.blur()
+    setTimeout(() => { justSelectedRef.current = false }, 500)
   }
 
   const handleInputChange = (e) => {

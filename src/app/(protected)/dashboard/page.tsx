@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Card,
@@ -67,13 +67,15 @@ import { FuelGaugesView } from "@/components/fuelGauge/FuelGaugesView";
 import FuelCanBusDisplay from "@/components/FuelCanBusDisplay";
 import DriverPerformanceDashboard from "@/components/dashboard/DriverPerformanceDashboard";
 import TestRouteMap from "@/components/map/test-route-map";
+import GoogleMapView from "@/components/map/google-map-view";
 import { DateTimePicker } from "@/components/ui/datetime-picker";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Area, AreaChart } from 'recharts';
 import { EditTripModal } from "@/components/ui/edit-trip-modal";
-import LiveMapView from "@/components/map/live-map-view";
+import GoogleLiveMapView from "@/components/map/google-live-map-view";
 import { VehicleDashboardModal } from "@/components/ui/vehicle-dashboard-modal";
 import { mapFuelStopToOverlay } from "@/lib/fuel-stop-map";
 import LiveStreamTab from "@/components/dashboard/live-stream-tab";
+import { geocodeAddress, getDirectionsByCoords } from "@/lib/google-maps-utils";
 
 const normalizePlate = (value: string | undefined | null) =>
   String(value || '')
@@ -213,7 +215,7 @@ type TripEtaState = {
   distanceKm?: number
 }
 
-const mapboxGeocodeCache = new Map<string, CoordinatePair | null>()
+const geocodeCache = new Map<string, CoordinatePair | null>()
 
 const parseJsonValue = (value: any) => {
   if (typeof value !== 'string') return value
@@ -334,7 +336,7 @@ const formatFullDateTime = (isoValue?: string) => {
 }
 
 // Driver Card Component with fetched driver info
-function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, isVisible = true }: any) {
+const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, isVisible = true }: any) {
   const router = useRouter()
   const [driverInfo, setDriverInfo] = useState<any>(null)
   const [vehicleInfo, setVehicleInfo] = useState<any>(null)
@@ -638,53 +640,22 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
             
             if (pickup && dropoff) {
               try {
-                const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-                
-                // Geocode pickup and dropoff addresses to coordinates
-                const geocodeAddress = async (address) => {
-                  const geocodeResponse = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${mapboxToken}&limit=1`);
-                  const geocodeData = await geocodeResponse.json();
-                  if (geocodeData.features && geocodeData.features[0]) {
-                    return geocodeData.features[0].center; // [lng, lat]
-                  }
-                  return null;
-                };
-                
-                const pickupCoords = await geocodeAddress(pickup);
-                const dropoffCoords = await geocodeAddress(dropoff);
-                
-                if (!pickupCoords || !dropoffCoords) {
+                const [pickupResult, dropoffResult] = await Promise.all([
+                  geocodeAddress(pickup),
+                  geocodeAddress(dropoff),
+                ]);
+
+                if (!pickupResult || !dropoffResult) {
                   console.error('Failed to geocode addresses');
                   throw new Error('Geocoding failed');
                 }
-                
-                let waypoints = `${pickupCoords[0]},${pickupCoords[1]};${dropoffCoords[0]},${dropoffCoords[1]}`;
-                
-                // Add stop points if available
-                const selectedStopPoints = trip.selected_stop_points || trip.selectedstoppoints || [];
-                if (selectedStopPoints.length > 0) {
-                  const stopPointIds = selectedStopPoints.map(stop => typeof stop === 'object' ? stop.id : stop);
-                  const { data: stopPointsData } = await supabase
-                    .from('stop_points')
-                    .select('coordinates')
-                    .in('id', stopPointIds);
-                  
-                  const stopWaypoints = (stopPointsData || []).map(point => {
-                    if (point.coordinates) {
-                      const coords = point.coordinates.split(' ')[0].split(',');
-                      return `${coords[0]},${coords[1]}`; // lng,lat
-                    }
-                  }).filter(Boolean);
-                  
-                  if (stopWaypoints.length > 0) {
-                    waypoints = `${pickupCoords[0]},${pickupCoords[1]};${stopWaypoints.join(';')};${dropoffCoords[0]},${dropoffCoords[1]}`;
-                  }
-                }
-                
-                const response = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${waypoints}?access_token=${mapboxToken}&geometries=geojson&overview=full&exclude=ferry`);
-                const routeData = await response.json();
-                if (routeData.routes && routeData.routes[0]) {
-                  routeCoords = routeData.routes[0].geometry.coordinates;
+
+                const pickupCoords: CoordinatePair = [pickupResult.lng, pickupResult.lat];
+                const dropoffCoords: CoordinatePair = [dropoffResult.lng, dropoffResult.lat];
+
+                const routeResult = await getDirectionsByCoords(pickupCoords, dropoffCoords);
+                if (routeResult?.coordinates?.length) {
+                  routeCoords = routeResult.coordinates;
                   console.log('Generated preplanned route with', routeCoords.length, 'points');
                 }
               } catch (error) {
@@ -709,33 +680,24 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
               }
             }
             
-            // Generate best route if no route available
             if (!routeCoords && (pickup || dropoff || trip.origin || trip.destination)) {
               try {
                 const origin = pickup || trip.origin;
                 const destination = dropoff || trip.destination;
-                
+
                 if (origin && destination) {
-                  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-                  
-                  // Geocode addresses first
-                  const geocodeAddress = async (address) => {
-                    const geocodeResponse = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${mapboxToken}&limit=1`);
-                    const geocodeData = await geocodeResponse.json();
-                    if (geocodeData.features && geocodeData.features[0]) {
-                      return geocodeData.features[0].center;
-                    }
-                    return null;
-                  };
-                  
-                  const originCoords = await geocodeAddress(origin);
-                  const destCoords = await geocodeAddress(destination);
-                  
-                  if (originCoords && destCoords) {
-                    const response = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${originCoords[0]},${originCoords[1]};${destCoords[0]},${destCoords[1]}?access_token=${mapboxToken}&geometries=geojson&overview=full&alternatives=true`);
-                    const routeData = await response.json();
-                    if (routeData.routes && routeData.routes[0]) {
-                      routeCoords = routeData.routes[0].geometry.coordinates;
+                  const [originResult, destResult] = await Promise.all([
+                    geocodeAddress(origin),
+                    geocodeAddress(destination),
+                  ]);
+
+                  if (originResult && destResult) {
+                    const originCoords: CoordinatePair = [originResult.lng, originResult.lat];
+                    const destCoords: CoordinatePair = [destResult.lng, destResult.lat];
+
+                    const routeResult = await getDirectionsByCoords(originCoords, destCoords);
+                    if (routeResult?.coordinates?.length) {
+                      routeCoords = routeResult.coordinates;
                       console.log('Generated fallback route:', routeCoords.length, 'points');
                     }
                   }
@@ -923,20 +885,28 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
       />
     </div>
   )
-}
+});
 
 // Enhanced routing components with proper waypoints
-function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, refreshTrigger, setRefreshTrigger, setPickupTimeOpen, setDropoffTimeOpen, setCurrentTripForTime, setTimeType, setSelectedTime, currentUnauthorizedTrip, setCurrentUnauthorizedTrip, setUnauthorizedStopModalOpen, loadingPhotos, setLoadingPhotos, setCurrentTripPhotos, setPhotosModalOpen, setCurrentTripAlerts, setAlertsModalOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, isVisible = true }: any) {
+const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, refreshTrigger, setRefreshTrigger, setPickupTimeOpen, setDropoffTimeOpen, setCurrentTripForTime, setTimeType, setSelectedTime, currentUnauthorizedTrip, setCurrentUnauthorizedTrip, setUnauthorizedStopModalOpen, loadingPhotos, setLoadingPhotos, setCurrentTripPhotos, setPhotosModalOpen, setCurrentTripAlerts, setAlertsModalOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, isVisible = true }: any) {
   const [trips, setTrips] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [dropoffEtaByTrip, setDropoffEtaByTrip] = useState<Record<string, TripEtaState>>({})
 
   useEffect(() => {
+    let cancelled = false
+
     async function fetchTrips() {
       try {
         const supabase = createClient()
-        const { data, error } = await supabase.from('trips').select('*')
+        const { data, error } = await supabase
+          .from('trips')
+          .select('*')
+          .not('status', 'in', '("delivered","completed")')
+          .order('updated_at', { ascending: false })
+          .limit(100)
         if (error) throw error
+        if (cancelled) return
         setTrips(data || [])
         
         // Check for most recent unauthorized stop
@@ -946,29 +916,28 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
         
         if (recentUnauthorized && !currentUnauthorizedTrip) {
           setCurrentUnauthorizedTrip(recentUnauthorized)
-          // Removed automatic modal opening
         }
       } catch (err) {
         console.error('Error fetching trips:', err)
-        setTrips([])
+        if (!cancelled) setTrips([])
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     
     fetchTrips()
     
-    // Real-time subscription
     const supabase = createClient()
     const channel = supabase
       .channel('trips-changes')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'trips' },
-        () => fetchTrips()
+        () => { if (!cancelled) fetchTrips() }
       )
       .subscribe()
     
     return () => {
+      cancelled = true
       supabase.removeChannel(channel)
     }
   }, [refreshTrigger])
@@ -992,12 +961,6 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
 
     async function fetchTripEtas() {
       if (!isVisible) return
-
-      const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-      if (!mapboxToken) {
-        setDropoffEtaByTrip({})
-        return
-      }
 
       const activeTrips = trips.filter(
         (trip) => trip.status?.toLowerCase() !== 'delivered' && trip.status?.toLowerCase() !== 'completed'
@@ -1024,91 +987,64 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
         console.error('Failed to fetch live vehicle data for ETA calculation:', error)
       }
 
-      const etaEntries = await Promise.all(
-        activeTrips.map(async (trip) => {
-          const tripKey = getTripKey(trip)
-          if (!tripKey) return null
+      const originDestPairs: { key: string; origin: CoordinatePair; dest: CoordinatePair }[] = []
 
-          const currentCoordinates = getTripCurrentCoordinates(trip, liveVehicles)
-          if (!currentCoordinates) {
-            return [tripKey, { status: 'unavailable' as const }] as [string, TripEtaState]
-          }
+      for (const trip of activeTrips) {
+        const tripKey = getTripKey(trip)
+        if (!tripKey) continue
 
-          let dropoffCoordinates =
-            parseCoordinatePair(trip.destination_coordinates) ||
-            parseCoordinatePair(trip.destinationCoordinates)
+        const currentCoordinates = getTripCurrentCoordinates(trip, liveVehicles)
+        if (!currentCoordinates) continue
 
-          if (!isValidCoordinatePair(dropoffCoordinates)) {
-            const dropoffAddress = getTripDropoffAddress(trip)
-            if (!dropoffAddress) {
-              return [tripKey, { status: 'unavailable' as const }] as [string, TripEtaState]
+        let dropoffCoordinates =
+          parseCoordinatePair(trip.destination_coordinates) ||
+          parseCoordinatePair(trip.destinationCoordinates)
+
+        if (!isValidCoordinatePair(dropoffCoordinates)) {
+          const dropoffAddress = getTripDropoffAddress(trip)
+          if (!dropoffAddress) continue
+
+          const cacheKey = `${dropoffAddress}|${currentCoordinates[0].toFixed(2)}`
+          if (geocodeCache.has(cacheKey)) {
+            const cached = geocodeCache.get(cacheKey)
+            if (cached) {
+              originDestPairs.push({ key: tripKey, origin: currentCoordinates, dest: cached })
             }
-
-            const geocodeCacheKey = `${dropoffAddress}|${currentCoordinates[0].toFixed(2)},${currentCoordinates[1].toFixed(2)}`
-
-            if (mapboxGeocodeCache.has(geocodeCacheKey)) {
-              dropoffCoordinates = mapboxGeocodeCache.get(geocodeCacheKey) || null
-            } else {
-              try {
-                const geocodeResponse = await fetch(
-                  `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(dropoffAddress)}.json?access_token=${mapboxToken}&limit=1&country=za&proximity=${currentCoordinates[0]},${currentCoordinates[1]}`
-                )
-                const geocodeData = await geocodeResponse.json()
-                const coords = geocodeData?.features?.[0]?.center
-                const resolvedCoords: CoordinatePair | null = Array.isArray(coords) && coords.length >= 2
-                  ? [Number(coords[0]), Number(coords[1])] as CoordinatePair
-                  : null
-                const safeResolvedCoords = isValidCoordinatePair(resolvedCoords) ? resolvedCoords : null
-                mapboxGeocodeCache.set(geocodeCacheKey, safeResolvedCoords)
-                dropoffCoordinates = safeResolvedCoords
-              } catch (error) {
-                console.error('Error geocoding drop-off for ETA:', error)
-                mapboxGeocodeCache.set(geocodeCacheKey, null)
+          } else {
+            try {
+              const result = await geocodeAddress(dropoffAddress)
+              if (result) {
+                const coords: CoordinatePair = [result.lng, result.lat]
+                geocodeCache.set(cacheKey, coords)
+                originDestPairs.push({ key: tripKey, origin: currentCoordinates, dest: coords })
+              } else {
+                geocodeCache.set(cacheKey, null)
               }
+            } catch {
+              // skip this trip
             }
           }
+        } else {
+          originDestPairs.push({ key: tripKey, origin: currentCoordinates, dest: dropoffCoordinates })
+        }
+      }
 
-          if (!isValidCoordinatePair(dropoffCoordinates)) {
-            return [tripKey, { status: 'unavailable' as const }] as [string, TripEtaState]
-          }
+      if (cancelled) return
 
-          try {
-            const waypointSegment = `${currentCoordinates[0]},${currentCoordinates[1]};${dropoffCoordinates[0]},${dropoffCoordinates[1]}`
-            const routeQuery = `access_token=${mapboxToken}&overview=false&alternatives=false&steps=false&exclude=ferry`
+      const etaMap = new Map<string, TripEtaState>()
 
-            const fetchRoute = async (profile: 'driving-traffic' | 'driving') => {
-              const response = await fetch(
-                `https://api.mapbox.com/directions/v5/mapbox/${profile}/${waypointSegment}?${routeQuery}`
-              )
-              const data = await response.json()
-              const route = data?.routes?.[0]
-              return response.ok && route ? route : null
-            }
-
-            // Prefer traffic-aware ETA, fallback to driving when traffic profile is unavailable.
-            const route = (await fetchRoute('driving-traffic')) || (await fetchRoute('driving'))
-
-            if (!route || typeof route.duration !== 'number') {
-              return [tripKey, { status: 'unavailable' as const }] as [string, TripEtaState]
-            }
-
-            const etaSeconds = Math.max(0, route.duration)
-            const minutes = Math.max(1, Math.ceil(etaSeconds / 60))
-            const arrivalIso = new Date(Date.now() + etaSeconds * 1000).toISOString()
-            const distanceKm = typeof route.distance === 'number' ? route.distance / 1000 : undefined
-
-            return [
-              tripKey,
-              {
-                status: 'ready' as const,
-                minutes,
-                arrivalIso,
-                distanceKm
-              }
-            ] as [string, TripEtaState]
-          } catch (error) {
-            console.error('Error fetching Mapbox ETA:', error)
-            return [tripKey, { status: 'unavailable' as const }] as [string, TripEtaState]
+      const results = await Promise.allSettled(
+        originDestPairs.map(async ({ key: tripKey, origin, dest }) => {
+          const result = await getDirectionsByCoords(origin, dest)
+          if (!result) {
+            etaMap.set(tripKey, { status: "unavailable" })
+          } else {
+            etaMap.set(tripKey, {
+              status: "ready",
+              minutes: Math.max(1, Math.ceil(result.durationSeconds / 60)),
+              arrivalIso: new Date(Date.now() + result.durationSeconds * 1000).toISOString(),
+              distanceKm: result.distanceMeters ? result.distanceMeters / 1000 : undefined,
+            })
           }
         })
       )
@@ -1117,11 +1053,9 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
 
       setDropoffEtaByTrip((prev) => {
         const next = { ...prev }
-        etaEntries.forEach((entry) => {
-          if (!entry) return
-          const [tripKey, etaState] = entry
-          next[tripKey] = etaState
-        })
+        for (const [tripKey, state] of etaMap) {
+          next[tripKey] = state
+        }
         return next
       })
     }
@@ -1653,7 +1587,7 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
       })}
     </div>
   )
-}
+});
 
 // Trip Reports Section Component
 function TripReportsSection() {
@@ -2241,7 +2175,7 @@ export default function Dashboard() {
     return (
       <>
         <div className="absolute inset-0 -m-6 z-0">
-          <LiveMapView />
+          <GoogleLiveMapView />
         </div>
         
         {/* Overlay Tabs */}
@@ -2846,476 +2780,7 @@ export default function Dashboard() {
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <div className="flex flex-col lg:flex-row gap-4 p-4 flex-1 min-h-0">
-              {/* Render Map First - Priority Loading */}
-              <div className="flex-1 min-h-0 order-1 lg:order-2">
-                <div 
-                  id="driver-map" 
-                  className="w-full h-full min-h-[400px] rounded border bg-slate-100"
-                  ref={(el) => {
-                    if (el && mapData) {
-                      // Show loading state
-                      el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:14px;"><div>Loading map...</div></div>';
-                      
-                      // Load map immediately with priority
-                      const loadMap = () => {
-                        const script = document.createElement('script');
-                        script.src = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js';
-                        script.async = true;
-                        script.onload = () => {
-                          const link = document.createElement('link');
-                          link.href = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css';
-                          link.rel = 'stylesheet';
-                          document.head.appendChild(link);
-                          
-                          // Clear loading state
-                          el.innerHTML = '';
-                          
-                          if (window.mapboxgl) {
-                            window.mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-                            const map = new window.mapboxgl.Map({
-                              container: el,
-                              style: 'mapbox://styles/mapbox/streets-v12',
-                              center: mapData.longitude && mapData.latitude ? 
-                                [parseFloat(mapData.longitude), parseFloat(mapData.latitude)] : 
-                                [28.0473, -26.2041],
-                              zoom: mapData.showBasicRoute ? 10 : 15,
-                              preserveDrawingBuffer: true,
-                              attributionControl: false
-                            });
-                            
-                            map.on('load', () => {
-                            let vehicleMarker = null
-                            
-                            // Prioritize vehicle marker for immediate visibility
-                            if (!mapData.showRouteOnly && !mapData.showBasicRoute && mapData.longitude && mapData.latitude) {
-                              const vehicleEl = document.createElement('div')
-                              vehicleEl.innerHTML = '🚛'
-                              vehicleEl.style.cssText = `
-                                font-size: 24px; width: 32px; height: 32px;
-                                display: flex; align-items: center; justify-content: center;
-                                background: #3b82f6; border: 3px solid #fff;
-                                border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                              `
-                              
-                              vehicleMarker = new window.mapboxgl.Marker(vehicleEl)
-                                .setLngLat([parseFloat(mapData.longitude), parseFloat(mapData.latitude)])
-                                .addTo(map)
-                            }
-                            
-                            // Load additional features after map is visible
-                            requestAnimationFrame(() => {
-                              // Add high risk zones
-                              if (mapData.highRiskZones && mapData.highRiskZones.length > 0) {
-                                mapData.highRiskZones.forEach((area, index) => {
-                                if (!area.polygon || area.polygon.length < 3) return;
-                                
-                                const sourceId = `risk-zone-${index}`;
-                                
-                                if (!map.getSource(sourceId)) {
-                                  map.addSource(sourceId, {
-                                    type: 'geojson',
-                                    data: {
-                                      type: 'Feature',
-                                      properties: { name: area.name },
-                                      geometry: {
-                                        type: 'Polygon',
-                                        coordinates: [area.polygon]
-                                      }
-                                    }
-                                  });
-                                  
-                                  map.addLayer({
-                                    id: `${sourceId}-fill`,
-                                    type: 'fill',
-                                    source: sourceId,
-                                    paint: {
-                                      'fill-color': '#ef4444',
-                                      'fill-opacity': 0.5
-                                    }
-                                  });
-                                  
-                                  map.addLayer({
-                                    id: `${sourceId}-border`,
-                                    type: 'line',
-                                    source: sourceId,
-                                    paint: {
-                                      'line-color': '#dc2626',
-                                      'line-width': 3
-                                    }
-                                  });
-                                  console.log('Added risk zone:', sourceId);
-                                }
-                              });
-                            }
-
-                            if (mapData.fuelStopZones && mapData.fuelStopZones.length > 0) {
-                              mapData.fuelStopZones.forEach((fuelStop, index) => {
-                                const sourceId = `fuel-stop-zone-${index}`;
-                                const fillLayerId = `${sourceId}-fill`;
-                                const lineLayerId = `${sourceId}-line`;
-                                const circleLayerId = `${sourceId}-circle`;
-
-                                if (fuelStop.polygon && fuelStop.polygon.length > 2) {
-                                  if (!map.getSource(sourceId)) {
-                                    map.addSource(sourceId, {
-                                      type: 'geojson',
-                                      data: {
-                                        type: 'Feature',
-                                        properties: { name: fuelStop.name },
-                                        geometry: {
-                                          type: 'Polygon',
-                                          coordinates: [fuelStop.polygon]
-                                        }
-                                      }
-                                    });
-                                  }
-
-                                  if (!map.getLayer(fillLayerId)) {
-                                    map.addLayer({
-                                      id: fillLayerId,
-                                      type: 'fill',
-                                      source: sourceId,
-                                      paint: {
-                                        'fill-color': '#22c55e',
-                                        'fill-opacity': 0.18
-                                      }
-                                    });
-                                  }
-
-                                  if (!map.getLayer(lineLayerId)) {
-                                    map.addLayer({
-                                      id: lineLayerId,
-                                      type: 'line',
-                                      source: sourceId,
-                                      paint: {
-                                        'line-color': '#15803d',
-                                        'line-width': 2
-                                      }
-                                    });
-                                  }
-                                } else if (fuelStop.center) {
-                                  if (!map.getSource(sourceId)) {
-                                    map.addSource(sourceId, {
-                                      type: 'geojson',
-                                      data: {
-                                        type: 'Feature',
-                                        properties: { name: fuelStop.name },
-                                        geometry: {
-                                          type: 'Point',
-                                          coordinates: fuelStop.center
-                                        }
-                                      }
-                                    });
-                                  }
-
-                                  if (!map.getLayer(circleLayerId)) {
-                                    map.addLayer({
-                                      id: circleLayerId,
-                                      type: 'circle',
-                                      source: sourceId,
-                                      paint: {
-                                        'circle-radius': {
-                                          stops: [
-                                            [0, 0],
-                                            [20, Math.max(10, (fuelStop.radiusMeters || 100) / 10)]
-                                          ],
-                                          base: 2
-                                        },
-                                        'circle-color': '#22c55e',
-                                        'circle-opacity': 0.18,
-                                        'circle-stroke-color': '#15803d',
-                                        'circle-stroke-width': 2
-                                      }
-                                    });
-                                  }
-                                }
-
-                                if (fuelStop.center) {
-                                  new window.mapboxgl.Marker({ color: '#16a34a' })
-                                    .setLngLat(fuelStop.center)
-                                    .setPopup(
-                                      new window.mapboxgl.Popup({ offset: 18 }).setHTML(
-                                        `<div class="p-2"><strong>${fuelStop.name}</strong><br/>Fuel Stop Zone</div>`
-                                      )
-                                    )
-                                    .addTo(map);
-                                }
-                              });
-                            }
-
-                            // Add route coordinates if available
-                            if (mapData.routeCoordinates && mapData.routeCoordinates.length > 1) {
-                              console.log('Adding route with', mapData.routeCoordinates.length, 'coordinates');
-                              
-                              try {
-                                map.addSource('route', {
-                                  type: 'geojson',
-                                  data: {
-                                    type: 'Feature',
-                                    properties: {},
-                                    geometry: {
-                                      type: 'LineString',
-                                      coordinates: mapData.routeCoordinates
-                                    }
-                                  }
-                                });
-                                
-                                map.addLayer({
-                                  id: 'route',
-                                  type: 'line',
-                                  source: 'route',
-                                  layout: {
-                                    'line-join': 'round',
-                                    'line-cap': 'round'
-                                  },
-                                  paint: {
-                                    'line-color': '#ef4444',
-                                    'line-width': 4
-                                  }
-                                });
-                                
-                                // Add markers
-                                new window.mapboxgl.Marker({ color: 'green' })
-                                  .setLngLat(mapData.routeCoordinates[0])
-                                  .addTo(map);
-                                  
-                                new window.mapboxgl.Marker({ color: 'red' })
-                                  .setLngLat(mapData.routeCoordinates[mapData.routeCoordinates.length - 1])
-                                  .addTo(map);
-                                  
-                                console.log('Route added successfully');
-                              } catch (error) {
-                                console.error('Error adding route:', error);
-                              }
-                              
-
-
-                              // Add stop points if available
-                              if (mapData.stopPoints && mapData.stopPoints.length > 0) {
-                                mapData.stopPoints.forEach((stopPoint, index) => {
-                                  // Add polygon if coordinates available
-                                  if (stopPoint.polygon && stopPoint.polygon.length > 2) {
-                                    map.addSource(`stop-polygon-${index}`, {
-                                      type: 'geojson',
-                                      data: {
-                                        type: 'Feature',
-                                        properties: { name: stopPoint.name },
-                                        geometry: {
-                                          type: 'Polygon',
-                                          coordinates: [stopPoint.polygon]
-                                        }
-                                      }
-                                    });
-                                    
-                                    map.addLayer({
-                                      id: `stop-polygon-fill-${index}`,
-                                      type: 'fill',
-                                      source: `stop-polygon-${index}`,
-                                      paint: {
-                                        'fill-color': '#fbbf24',
-                                        'fill-opacity': 0.3
-                                      }
-                                    });
-                                    
-                                    map.addLayer({
-                                      id: `stop-polygon-outline-${index}`,
-                                      type: 'line',
-                                      source: `stop-polygon-${index}`,
-                                      paint: {
-                                        'line-color': '#f59e0b',
-                                        'line-width': 2
-                                      }
-                                    });
-                                  }
-                                  
-                                  // Add center marker
-                                  const stopEl = document.createElement('div');
-                                  stopEl.innerHTML = '🛑';
-                                  stopEl.style.fontSize = '20px';
-                                  
-                                  const marker = new window.mapboxgl.Marker(stopEl)
-                                    .setLngLat(stopPoint.coordinates)
-                                    .addTo(map);
-                                  
-                                  const popup = new window.mapboxgl.Popup({ offset: 25 })
-                                    .setHTML(`<div class="p-2"><strong>Stop Point ${index + 1}</strong><br/>${stopPoint.name}</div>`);
-                                  marker.setPopup(popup);
-                                });
-                              }
-                              
-                              // Fit map to route
-                              const bounds = new window.mapboxgl.LngLatBounds();
-                              mapData.routeCoordinates.forEach(coord => bounds.extend(coord));
-                              
-                              if (!mapData.showRouteOnly && mapData.longitude && mapData.latitude) {
-                                bounds.extend([parseFloat(mapData.longitude), parseFloat(mapData.latitude)]);
-                              }
-                              
-                              map.fitBounds(bounds, { padding: 50 });
-                            } else {
-                              console.log('No route coordinates available');
-                            }
-                            
-                            // Add popup with driver details if vehicle marker exists
-                            if (mapData.driverDetails && vehicleMarker) {
-                              const popup = new window.mapboxgl.Popup({ offset: 25 })
-                                .setHTML(`
-                                  <div class="p-3">
-                                    <div class="font-bold text-blue-900 mb-2">${mapData.driverDetails.fullName}</div>
-                                    <div class="text-sm space-y-1">
-                                      <div><strong>Vehicle:</strong> ${mapData.driverDetails.plate}</div>
-                                      <div><strong>Speed:</strong> ${mapData.driverDetails.speed} km/h</div>
-                                      <div><strong>Company:</strong> ${mapData.driverDetails.company || 'N/A'}</div>
-                                      <div class="text-xs text-gray-600 mt-2">
-                                        Last updated: ${new Date(mapData.driverDetails.lastUpdate).toLocaleTimeString()}
-                                      </div>
-                                    </div>
-                                  </div>
-                                `)
-                              vehicleMarker.setPopup(popup)
-                            } else if (mapData.showRouteOnly) {
-                              // Add a text overlay for route-only view
-                              const routeInfo = document.createElement('div')
-                              routeInfo.className = 'mapboxgl-ctrl mapboxgl-ctrl-group'
-                              routeInfo.style.cssText = 'position: absolute; top: 10px; left: 10px; background: white; padding: 10px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'
-                              routeInfo.innerHTML = `
-                                <div class="text-sm">
-                                  <div class="font-bold text-blue-900 mb-1">${mapData.driverDetails.fullName}</div>
-                                  <div class="text-gray-600">Pre-planned route</div>
-                                  <div class="text-xs text-gray-500 mt-1">Vehicle location unavailable</div>
-                                </div>
-                              `
-                              map.getContainer().appendChild(routeInfo)
-                            } else if (mapData.showBasicRoute && (mapData.origin || mapData.destination)) {
-                              // Handle basic route from origin to destination
-                              const routeInfo = document.createElement('div')
-                              routeInfo.className = 'mapboxgl-ctrl mapboxgl-ctrl-group'
-                              routeInfo.style.cssText = 'position: absolute; top: 10px; left: 10px; background: white; padding: 10px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'
-                              routeInfo.innerHTML = `
-                                <div class="text-sm">
-                                  <div class="font-bold text-blue-900 mb-1">${mapData.driverDetails.fullName}</div>
-                                  <div class="text-gray-600">Trip Route</div>
-                                  <div class="text-xs text-gray-500 mt-1">No GPS tracking available</div>
-                                </div>
-                              `
-                              map.getContainer().appendChild(routeInfo)
-                              
-                              // Generate route between origin and destination
-                              if (mapData.origin && mapData.destination) {
-                                fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${encodeURIComponent(mapData.origin)};${encodeURIComponent(mapData.destination)}?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}&geometries=geojson&overview=full`)
-                                  .then(response => response.json())
-                                  .then(data => {
-                                    if (data.routes && data.routes[0]) {
-                                      const routeCoords = data.routes[0].geometry.coordinates
-                                      
-                                      map.addSource('basic-route', {
-                                        type: 'geojson',
-                                        data: {
-                                          type: 'Feature',
-                                          properties: {},
-                                          geometry: {
-                                            type: 'LineString',
-                                            coordinates: routeCoords
-                                          }
-                                        }
-                                      })
-                                      
-                                      map.addLayer({
-                                        id: 'basic-route',
-                                        type: 'line',
-                                        source: 'basic-route',
-                                        layout: {
-                                          'line-join': 'round',
-                                          'line-cap': 'round'
-                                        },
-                                        paint: {
-                                          'line-color': '#3b82f6',
-                                          'line-width': 4
-                                        }
-                                      })
-                                      
-                                      // Add markers for origin and destination
-                                      new window.mapboxgl.Marker({ color: 'green' })
-                                        .setLngLat(routeCoords[0])
-                                        .setPopup(new window.mapboxgl.Popup().setHTML(`<div class="p-2"><strong>Origin</strong><br/>${mapData.origin}</div>`))
-                                        .addTo(map)
-                                        
-                                      new window.mapboxgl.Marker({ color: 'red' })
-                                        .setLngLat(routeCoords[routeCoords.length - 1])
-                                        .setPopup(new window.mapboxgl.Popup().setHTML(`<div class="p-2"><strong>Destination</strong><br/>${mapData.destination}</div>`))
-                                        .addTo(map)
-                                      
-                                      // Fit map to route
-                                      const bounds = new window.mapboxgl.LngLatBounds()
-                                      routeCoords.forEach(coord => bounds.extend(coord))
-                                      map.fitBounds(bounds, { padding: 50 })
-                                    }
-                                  })
-                                  .catch(error => console.error('Error generating basic route:', error))
-                              }
-                            }
-                            });  // Close requestAnimationFrame callback
-                          });  // Close map.on('load')
-                        }  // Close if (window.mapboxgl)
-                      };  // Close script.onload
-                      
-                      // Check if mapbox is already loaded
-                      if (!document.querySelector('script[src*="mapbox-gl.js"]')) {
-                        document.head.appendChild(script);
-                      } else if (window.mapboxgl) {
-                        script.onload();
-                      }
-                    };  // Close loadMap
-                    
-                    // Use requestIdleCallback for non-critical script loading, or fallback to immediate
-                    if ('requestIdleCallback' in window) {
-                      requestIdleCallback(loadMap);
-                    } else {
-                      loadMap();
-                    }
-                  }
-                }}
-                />
-              </div>
-              
-              {/* Driver Information Panel - Load After Map */}
-              <div className="w-full lg:w-80 bg-gray-50 p-4 rounded-lg flex-shrink-0 max-h-64 lg:max-h-none overflow-y-auto order-2 lg:order-1">
-                <h4 className="font-semibold mb-3">Driver Information</h4>
-                {mapData?.driverDetails && (
-                  <div className="space-y-3 text-sm">
-                    <div className="bg-blue-50 p-3 rounded-lg">
-                      <div className="font-medium text-blue-900">{mapData.driverDetails.fullName}</div>
-                      <div className="text-blue-700 text-xs">Vehicle: {mapData.driverDetails.plate}</div>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Speed:</span>
-                        <span className="font-medium">{mapData.driverDetails.speed} km/h</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Mileage:</span>
-                        <span className="font-medium">{parseFloat(mapData.driverDetails.mileage || 0).toLocaleString()} km</span>
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        <div className="font-medium mb-1">Current Location:</div>
-                        <div>{mapData.driverDetails.address}</div>
-                      </div>
-                      {mapData.driverDetails.geozone && (
-                        <div className="text-xs text-gray-500">
-                          <div className="font-medium mb-1">Geozone:</div>
-                          <div>{mapData.driverDetails.geozone}</div>
-                        </div>
-                      )}
-                      <div className="text-xs text-gray-500">
-                        <div className="font-medium mb-1">Last Update:</div>
-                        <div>{new Date(mapData.driverDetails.lastUpdate).toLocaleString()}</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            {mapData && <GoogleMapView mapData={mapData} />}
           </div>
         </div>
       )}

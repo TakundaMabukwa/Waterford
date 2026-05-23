@@ -12,7 +12,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose, DialogPortal, DialogOverlay } from '@/components/ui/dialog'
-import { X, FileText, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin } from 'lucide-react'
+import { X, FileText, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin, Building2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -21,6 +21,10 @@ import { ProgressWithWaypoints } from '@/components/ui/progress-with-waypoints'
 import { RouteOptimizer } from '@/components/ui/route-optimizer'
 import { RouteTracker } from '@/components/ui/route-tracker'
 import { RoutePreviewMap } from '@/components/ui/route-preview-map'
+import { CreateStopPointModal } from '@/components/ui/create-stop-point-modal'
+import { FuelStationModal } from '@/components/ui/fuel-station-modal-wrapper'
+import { ClientFormDialog } from '@/components/ui/client-form-dialog'
+import { QuickGeozoneDialog } from '@/components/ui/quick-geozone-dialog'
 import { RouteConfirmationModal } from '@/components/ui/route-confirmation-modal'
 import { RouteEditModal } from '@/components/ui/route-edit-modal'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
@@ -105,7 +109,7 @@ export default function LoadPlanPage() {
   
   // Cost calculation state
   const [selectedVehicle, setSelectedVehicle] = useState('')
-  const [fuelPricePerLiter, setFuelPricePerLiter] = useState('9.67')
+  const [fuelPricePerLiter, setFuelPricePerLiter] = useState('21')
   const [estimatedDistance, setEstimatedDistance] = useState(0)
   const [approximateFuelCost, setApproximateFuelCost] = useState(0)
   const [approximatedCPK, setApproximatedCPK] = useState(0)
@@ -119,6 +123,11 @@ export default function LoadPlanPage() {
   const [isLoadingStopPoints, setIsLoadingStopPoints] = useState(false)
   const [customStopPoints, setCustomStopPoints] = useState([])
   const [customStopSelections, setCustomStopSelections] = useState<Record<number, any | null>>({})
+  const [showCreateStopModal, setShowCreateStopModal] = useState(false)
+  const [showFuelStationModal, setShowFuelStationModal] = useState(false)
+  const [showClientForm, setShowClientForm] = useState(false)
+  const [editClientRecord, setEditClientRecord] = useState<any | null>(null)
+  const [showQuickGeozone, setShowQuickGeozone] = useState(false)
   const [tripDays, setTripDays] = useState(1)
   const [isManuallyOrdered, setIsManuallyOrdered] = useState(false)
   const [estimatedTravelHours, setEstimatedTravelHours] = useState(0)
@@ -256,7 +265,7 @@ export default function LoadPlanPage() {
       // FIXED COSTS - OVERHEADS
       admin: 28000, driver_basic: 22320.17,
       // VARIABLE COSTS
-      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 9.67, tolls_per_km: 1.15,
+      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 1.15,
       overtime_allow: 1.70,
       // RATE CARD
       ppk: 3.00, profit_margin: 0.111,
@@ -265,7 +274,7 @@ export default function LoadPlanPage() {
       hp_depr: 10000, tracking: 1800, licence: 1575.44, insurance: 12265,
       trailer_hp_depr: 12000, trailer_licence: 1695, trailer_insurance: 1270,
       admin: 28000, driver_basic: 22320.17, xbrdr: 650,
-      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 9.67, tolls_per_km: 0.75,
+      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.75,
       overtime_allow: 1.70,
       ppk: 5.00, profit_margin: 0.162,
     },
@@ -273,7 +282,7 @@ export default function LoadPlanPage() {
       hp_depr: 10000, tracking: 1800, licence: 1575.44, insurance: 12265,
       trailer_hp_depr: 12000, trailer_licence: 1695, trailer_insurance: 1270,
       admin: 28000, driver_basic: 22320.17, xbrdr: 1500,
-      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 9.67, tolls_per_km: 1.48,
+      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 1.48,
       overtime_allow: 1.70,
       ppk: 5.00, profit_margin: 0.184,
     },
@@ -281,7 +290,7 @@ export default function LoadPlanPage() {
       hp_depr: 22000, tracking: 1800, licence: 1295.87, insurance: 12265,
       trailer_hp_depr: 12000, trailer_licence: 1695, trailer_insurance: 1270,
       admin: 28000, driver_basic: 22320.17,
-      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 9.67, tolls_per_km: 1.52,
+      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 1.52,
       overtime_allow: 1.70,
       ppk: 5.00, profit_margin: 0.062,
     },
@@ -289,7 +298,7 @@ export default function LoadPlanPage() {
       hp_depr: 22000, tracking: 1800, licence: 1295.87, insurance: 12265,
       trailer_hp_depr: 8000, trailer_licence: 1406, trailer_insurance: 650,
       admin: 22000, driver_basic: 22320.17,
-      rm_per_km: 0.90, breakdowns_per_km: 0.06, diesel_per_litre: 8.41, tolls_per_km: 0.82,
+      rm_per_km: 0.90, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.82,
       overtime_allow: 1.30,
       ppk: 5.00, profit_margin: 0.144,
     },
@@ -297,7 +306,7 @@ export default function LoadPlanPage() {
       hp_depr: 22000, tracking: 1800, licence: 1295.87, insurance: 12265,
       trailer_hp_depr: 27000, trailer_licence: 1406, trailer_insurance: 1533,
       admin: 22000, driver_basic: 22320.17,
-      rm_per_km: 0.90, breakdowns_per_km: 0.06, diesel_per_litre: 9.21, tolls_per_km: 0.82,
+      rm_per_km: 0.90, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.82,
       overtime_allow: 1.30,
       ppk: 5.00, profit_margin: 0.126,
     },
@@ -305,7 +314,7 @@ export default function LoadPlanPage() {
       hp_depr: 26000, tracking: 1800, licence: 1025, insurance: 8985,
       trailer_hp_depr: 8000, trailer_licence: 600, trailer_insurance: 950,
       admin: 15954, driver_basic: 22320.17,
-      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 5.53, tolls_per_km: 0.23,
+      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.23,
       overtime_allow: 2.21,
       ppk: 5.00, profit_margin: 0.177,
     },
@@ -313,7 +322,7 @@ export default function LoadPlanPage() {
       hp_depr: 22162, tracking: 1358, licence: 873.22, insurance: 8198,
       trailer_hp_depr: 0, trailer_licence: 0, trailer_insurance: 0,
       admin: 13620, driver_basic: 22320.17,
-      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 4.84, tolls_per_km: 0.15,
+      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.15,
       overtime_allow: 1.71,
       ppk: 3.00, profit_margin: 0.170,
     },
@@ -321,7 +330,7 @@ export default function LoadPlanPage() {
       hp_depr: 22162, tracking: 1358, licence: 873.22, insurance: 8198,
       trailer_hp_depr: 0, trailer_licence: 0, trailer_insurance: 0,
       admin: 13620, driver_basic: 22320.17, xbrdr: 1500,
-      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 4.84, tolls_per_km: 1.37,
+      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 1.37,
       overtime_allow: 1.71,
       ppk: 5.29, profit_margin: 0.253,
     },
@@ -329,7 +338,7 @@ export default function LoadPlanPage() {
       hp_depr: 10000, tracking: 1358, licence: 873.22, insurance: 3686,
       trailer_hp_depr: 0, trailer_licence: 0, trailer_insurance: 0,
       admin: 13620, driver_basic: 22320.17,
-      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 4.84, tolls_per_km: 0.15,
+      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.15,
       overtime_allow: 1.71,
       ppk: 4.00, profit_margin: 0.214,
     },
@@ -337,7 +346,7 @@ export default function LoadPlanPage() {
       hp_depr: 36500, tracking: 1150, licence: 1234.16, insurance: 10941,
       trailer_hp_depr: 0, trailer_licence: 0, trailer_insurance: 0,
       admin: 18288, driver_basic: 22320.17,
-      rm_per_km: 0.70, breakdowns_per_km: 0.06, diesel_per_litre: 5.53, tolls_per_km: 0.60,
+      rm_per_km: 0.70, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.60,
       overtime_allow: 1.50,
       ppk: 5.00, profit_margin: 0.176,
     },
@@ -345,7 +354,7 @@ export default function LoadPlanPage() {
       hp_depr: 2500, tracking: 1358, licence: 873.22, insurance: 3686,
       trailer_hp_depr: 0, trailer_licence: 0, trailer_insurance: 0,
       admin: 10000, driver_basic: 22320.17,
-      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 1.93, tolls_per_km: 0.15,
+      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.15,
       overtime_allow: 1.71,
       ppk: 1.50, profit_margin: 0.169,
     },
@@ -947,12 +956,6 @@ export default function LoadPlanPage() {
       
       setIsOptimizing(true)
       try {
-        const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-        if (!mapboxToken) {
-          setIsOptimizing(false)
-          return
-        }
-        
         // Check if we have driver location for complete route
         const firstDriver = driverAssignments[0]
         let driverLocation = null
@@ -1004,11 +1007,20 @@ export default function LoadPlanPage() {
         ])
 
         if (loadingLookup && dropOffLookup) {
-          const loadingCoords = [loadingLookup.lng, loadingLookup.lat]
-          const dropOffCoords = [dropOffLookup.lng, dropOffLookup.lat]
+          // Build Google Directions API request
+          let originStr, destStr, waypointStr = ''
           
-          // Build waypoints string including stop points
-          let waypoints = `${loadingCoords[0]},${loadingCoords[1]}`
+          if (driverLocation) {
+            // Route: driver → loading → stops → drop-off
+            originStr = `${driverLocation.lat},${driverLocation.lng}`
+            destStr = `${dropOffLookup.lat},${dropOffLookup.lng}`
+            waypointStr = `${loadingLookup.lat},${loadingLookup.lng}`
+          } else {
+            // Route: loading → stops → drop-off
+            originStr = `${loadingLookup.lat},${loadingLookup.lng}`
+            destStr = `${dropOffLookup.lat},${dropOffLookup.lng}`
+            waypointStr = ''
+          }
           
           // Add stop points as waypoints
           if (stopPointsData.length > 0) {
@@ -1016,30 +1028,23 @@ export default function LoadPlanPage() {
               const coords = point.coordinates
               const avgLng = coords.reduce((sum, coord) => sum + coord[0], 0) / coords.length
               const avgLat = coords.reduce((sum, coord) => sum + coord[1], 0) / coords.length
-              return `${avgLng},${avgLat}`
+              return `${avgLat},${avgLng}`
             }).filter(waypoint => waypoint && !waypoint.includes('NaN'))
             
             if (stopWaypoints.length > 0) {
-              waypoints += `;${stopWaypoints.join(';')}`
+              waypointStr += (waypointStr ? '|' : '') + stopWaypoints.join('|')
             }
           }
           
-          waypoints += `;${dropOffCoords[0]},${dropOffCoords[1]}`
+          console.log('Calculating route with Google Directions:', { originStr, destStr, waypointStr })
           
-          // If we have driver location, create complete route: driver → loading → stops → drop-off
-          if (driverLocation) {
-            waypoints = `${driverLocation.lng},${driverLocation.lat};${waypoints}`
+          // Use proxy to avoid CORS issues
+          let apiUrl = `/api/google-directions?origin=${encodeURIComponent(originStr)}&destination=${encodeURIComponent(destStr)}`
+          if (waypointStr) {
+            apiUrl += `&waypoints=${encodeURIComponent(waypointStr)}`
           }
           
-          console.log('Calculating route with waypoints:', waypoints)
-          
-          // Always use directions API for now to avoid complexity
-          const apiEndpoint = `https://api.mapbox.com/directions/v5/mapbox/driving/${waypoints}`
-          const apiParams = 'geometries=geojson&overview=full&annotations=duration,distance&exclude=ferry'
-          
-          const directionsResponse = await fetch(
-            `${apiEndpoint}?access_token=${mapboxToken}&${apiParams}`
-          )
+          const directionsResponse = await fetch(apiUrl)
           
           if (!directionsResponse.ok) {
             console.error('API request failed:', directionsResponse.status, directionsResponse.statusText)
@@ -1050,7 +1055,7 @@ export default function LoadPlanPage() {
           const directionsData = await directionsResponse.json()
           console.log('Directions API response:', directionsData)
           
-          if (directionsData.code !== 'Ok') {
+          if (directionsData.status !== 'OK') {
             console.error('API returned error:', directionsData)
             setOptimizedRoute(null)
             return
@@ -1058,14 +1063,16 @@ export default function LoadPlanPage() {
           
           const route = directionsData.routes?.[0]
           if (route) {
-            const routeDistanceKm = Math.round(route.distance / 1000)
+            const totalDistance = route.legs.reduce((sum, leg) => sum + (leg.distance?.value || 0), 0)
+            const totalDuration = route.legs.reduce((sum, leg) => sum + (leg.duration?.value || 0), 0)
+            const routeDistanceKm = Math.round(totalDistance / 1000)
             const routeInfo = {
-              route: route,
-              distance: route.distance,
-              duration: route.duration,
+              route: { distance: totalDistance, duration: totalDuration },
+              distance: totalDistance,
+              duration: totalDuration,
               hasDriverLocation: !!driverLocation,
               stopPoints: stopPointsData,
-              geometry: route.geometry
+              geometry: { type: 'LineString', coordinates: [] }
             }
             console.log('Setting optimized route:', routeInfo)
             setOptimizedRoute(routeInfo)
@@ -1831,6 +1838,16 @@ export default function LoadPlanPage() {
     { id: 'b', title: 'TRADELANDER 5 CC', addr: 'Randfontein, South Africa' }
   ])
 
+  const doesClientHaveGeozone = (clientData) => {
+    if (!clientData?.coordinates) return false
+    try {
+      const parsed = JSON.parse(clientData.coordinates)
+      return Array.isArray(parsed) && parsed.length >= 3
+    } catch {
+      return false
+    }
+  }
+
   const handleCreateClick = (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -1849,18 +1866,21 @@ export default function LoadPlanPage() {
   }
 
   const handleClientSelect = async (clientData) => {
-    if (typeof clientData === 'object' && clientData.address) {
-      setSelectedClient(clientData)
-      setClient(clientData.name)
-      setManualClientName('') // Clear manual input
-      
-      // Always geocode client address as an additional option
+    if (typeof clientData === 'object' && (clientData.address || clientData.client_id)) {
+      const clientRecord = {
+        ...clientData,
+        name: clientData.name || clientData.client_id || '',
+      }
+      setSelectedClient(clientRecord)
+      setClient(clientRecord.name)
+      setManualClientName('')
+
       if (clientData.address) {
         try {
           const lookup = await lookupLocation(clientData.address)
           if (lookup) {
             const geocodedClient = {
-              ...clientData,
+              ...clientRecord,
               geocoded_coordinates: `${lookup.lng},${lookup.lat}`,
               geocoded_address: lookup.address
             }
@@ -1871,35 +1891,40 @@ export default function LoadPlanPage() {
           console.error('Error geocoding client address:', error)
         }
       }
-      
-      setShowAddressPopup(true)
+
+      if (doesClientHaveGeozone(clientRecord)) {
+        setShowAddressPopup(true)
+      } else {
+        setShowQuickGeozone(true)
+      }
     } else if (typeof clientData === 'object' && clientData.coordinates) {
-      setSelectedClient(clientData)
-      setClient(clientData.name)
-      setManualClientName('') // Clear manual input
-      setShowAddressPopup(true)
+      const clientRecord = {
+        ...clientData,
+        name: clientData.name || clientData.client_id || '',
+      }
+      setSelectedClient(clientRecord)
+      setClient(clientRecord.name)
+      setManualClientName('')
+
+      if (doesClientHaveGeozone(clientRecord)) {
+        setShowAddressPopup(true)
+      } else {
+        setShowQuickGeozone(true)
+      }
     } else {
       setClient(typeof clientData === 'string' ? clientData : clientData?.name || '')
       setSelectedClient(clientData)
-      setManualClientName('') // Clear manual input
+      setManualClientName('')
     }
   }
 
   const handleUseAsPickup = async () => {
-    // Use stored coordinates first, fallback to geocoded address if no coordinates
-    if (selectedClient?.coordinates) {
-      try {
-        const coords = selectedClient.coordinates.split(' ')[0].split(',')
-        if (coords.length >= 2) {
-          const lng = parseFloat(coords[0])
-          const lat = parseFloat(coords[1])
-          if (!isNaN(lng) && !isNaN(lat)) {
-            const address = await reverseLookupLocation(lat, lng)
-            setLoadingLocation(address || `${lat},${lng}`)
-          }
-        }
-      } catch (error) {
-        console.error('Error parsing coordinates:', error)
+    // Use geozone center coords first, fallback to geocoded address
+    if (selectedClient?.coords) {
+      const [lat, lng] = selectedClient.coords.split(',').map(Number)
+      if (!isNaN(lat) && !isNaN(lng)) {
+        const address = await reverseLookupLocation(lat, lng)
+        setLoadingLocation(address || `${lat},${lng}`)
       }
     } else if (selectedClient?.geocoded_address) {
       setLoadingLocation(selectedClient.geocoded_address)
@@ -1908,20 +1933,12 @@ export default function LoadPlanPage() {
   }
 
   const handleUseAsDropoff = async () => {
-    // Use stored coordinates first, fallback to geocoded address if no coordinates
-    if (selectedClient?.coordinates) {
-      try {
-        const coords = selectedClient.coordinates.split(' ')[0].split(',')
-        if (coords.length >= 2) {
-          const lng = parseFloat(coords[0])
-          const lat = parseFloat(coords[1])
-          if (!isNaN(lng) && !isNaN(lat)) {
-            const address = await reverseLookupLocation(lat, lng)
-            setDropOffPoint(address || `${lat},${lng}`)
-          }
-        }
-      } catch (error) {
-        console.error('Error parsing coordinates:', error)
+    // Use geozone center coords first, fallback to geocoded address
+    if (selectedClient?.coords) {
+      const [lat, lng] = selectedClient.coords.split(',').map(Number)
+      if (!isNaN(lat) && !isNaN(lng)) {
+        const address = await reverseLookupLocation(lat, lng)
+        setDropOffPoint(address || `${lat},${lng}`)
       }
     } else if (selectedClient?.geocoded_address) {
       setDropOffPoint(selectedClient.geocoded_address)
@@ -1931,6 +1948,29 @@ export default function LoadPlanPage() {
 
   const handleSkipAddress = () => {
     setShowAddressPopup(false)
+  }
+
+  const handleGeozoneSaved = async () => {
+    setShowQuickGeozone(false)
+    try {
+      const res = await fetch("/api/eps-client-list")
+      const data = await res.json()
+      if (data.data) {
+        setClients(data.data)
+        const updated = data.data.find((c: any) => String(c.id) === String(selectedClient?.id))
+        if (updated) {
+          setSelectedClient((prev: any) => ({ ...prev, ...updated }))
+        }
+      }
+    } catch (err) {
+      console.error("Error refreshing clients:", err)
+    }
+    setShowAddressPopup(true)
+  }
+
+  const handleGeozoneSkip = () => {
+    setShowQuickGeozone(false)
+    setShowAddressPopup(true)
   }
 
 
@@ -2183,10 +2223,16 @@ export default function LoadPlanPage() {
     <div className="p-6 space-y-6 w-full">
       <div className="mb-6 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">Load Plan</h1>
-        <Button type="button" variant="outline" onClick={() => router.push('/load-plan/fuel-stations/new')}>
-          <MapPin className="mr-2 h-4 w-4" />
-          Fuel Stations
-        </Button>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" onClick={() => { setEditClientRecord(null); setShowClientForm(true) }}>
+            <Building2 className="mr-2 h-4 w-4" />
+            Add Client
+          </Button>
+          <Button type="button" variant="outline" onClick={() => setShowFuelStationModal(true)}>
+            <MapPin className="mr-2 h-4 w-4" />
+            Fuel Stations
+          </Button>
+        </div>
       </div>
       
       <Tabs defaultValue="loads" className="w-full">
@@ -2375,8 +2421,12 @@ export default function LoadPlanPage() {
                       onChange={(value) => {
                         console.log('Loading location changed to:', value)
                         setLoadingLocation(value)
-                        setLoadingLocationSelection(null)
-                        setOptimizedRoute(null) // Force route recalculation
+                        const stillMatches = loadingLocationSelection &&
+                          (loadingLocationSelection.address === value || loadingLocationSelection.name === value)
+                        if (!stillMatches) {
+                          setLoadingLocationSelection(null)
+                        }
+                        setOptimizedRoute(null)
                       }}
                       onSelect={(suggestion) => {
                         const selected = normalizeSelectedLookup(suggestion)
@@ -2419,8 +2469,12 @@ export default function LoadPlanPage() {
                       onChange={(value) => {
                         console.log('Drop off location changed to:', value)
                         setDropOffPoint(value)
-                        setDropOffSelection(null)
-                        setOptimizedRoute(null) // Force route recalculation
+                        const stillMatches = dropOffSelection &&
+                          (dropOffSelection.address === value || dropOffSelection.name === value)
+                        if (!stillMatches) {
+                          setDropOffSelection(null)
+                        }
+                        setOptimizedRoute(null)
                       }}
                       onSelect={(suggestion) => {
                         const selected = normalizeSelectedLookup(suggestion)
@@ -2491,18 +2545,32 @@ export default function LoadPlanPage() {
                         Add stops from existing points or search for custom locations
                       </p>
                     </div>
-                    <Button 
-                      type="button" 
-                      onClick={async (e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        await fetchStopPoints()
-                        setStopPoints([...stopPoints, ''])
-                      }} 
-                      size="sm"
-                    >
-                      <Plus className="h-4 w-4 mr-1" /> Add Stop Point
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button 
+                        type="button" 
+                        onClick={async (e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          await fetchStopPoints()
+                          setStopPoints([...stopPoints, ''])
+                        }} 
+                        size="sm"
+                      >
+                        <Plus className="h-4 w-4 mr-1" /> Add Stop Point
+                      </Button>
+                      <Button 
+                        type="button" 
+                        variant="outline"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setShowCreateStopModal(true)
+                        }} 
+                        size="sm"
+                      >
+                        <MapPin className="h-4 w-4 mr-1" /> Create Stop Point
+                      </Button>
+                    </div>
                   </div>
                   
                   {stopPoints.map((stopPoint, index) => (
@@ -2563,13 +2631,17 @@ export default function LoadPlanPage() {
                           }
                           updatedCustom[index] = value
                           setCustomStopPoints(updatedCustom)
-                          setCustomStopSelections(prev => ({ ...prev, [index]: null }))
+                          const prev = customStopSelections[index]
+                          const stillMatches = prev &&
+                            (prev.address === value || prev.name === value)
+                          if (!stillMatches) {
+                            setCustomStopSelections(prev => ({ ...prev, [index]: null }))
+                          }
                           if (value) {
                             const updated = [...stopPoints]
                             updated[index] = ''
                             setStopPoints(updated)
                           }
-                          // Force route recalculation
                           setOptimizedRoute(null)
                         }}
                         onSelect={(suggestion) => {
@@ -3338,6 +3410,36 @@ export default function LoadPlanPage() {
         onUseAsPickup={handleUseAsPickup}
         onUseAsDropoff={handleUseAsDropoff}
         onSkip={handleSkipAddress}
+      />
+      
+      <CreateStopPointModal
+        open={showCreateStopModal}
+        onOpenChange={setShowCreateStopModal}
+        onCreated={async () => {
+          await fetchStopPoints()
+        }}
+      />
+
+      <ClientFormDialog
+        open={showClientForm}
+        onOpenChange={(open) => { if (!open) { setShowClientForm(false); setEditClientRecord(null) } else setShowClientForm(true) }}
+        onSaved={async () => {}}
+        initialRecord={editClientRecord}
+      />
+
+      <QuickGeozoneDialog
+        open={showQuickGeozone}
+        onOpenChange={(open) => { if (!open) handleGeozoneSkip() }}
+        client={selectedClient}
+        onSaved={handleGeozoneSaved}
+      />
+
+      <FuelStationModal
+        open={showFuelStationModal}
+        onOpenChange={setShowFuelStationModal}
+        onSaved={async () => {
+          await fetchStopPoints()
+        }}
       />
       
       <RouteEditModal

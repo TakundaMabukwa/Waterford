@@ -1,0 +1,1082 @@
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { X, Search, MapPin, Navigation, Loader2, Video, Fuel, FileText, User, ArrowLeft, Truck, ChevronDown, ChevronRight } from "lucide-react";
+import { FuelGauge } from "@/components/fuel-system/components/ui/fuel-gauge";
+import { UserProvider } from "@/components/fuel-system/contexts/UserContext";
+import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
+import { mapFuelStopToOverlay, type FuelStopOverlay } from "@/lib/fuel-stop-map";
+import { useGoogleMaps } from "@/hooks/use-google-maps";
+
+declare global {
+  interface Window {
+    google: typeof google;
+  }
+}
+
+interface Vehicle {
+  id: string;
+  plate: string;
+  driver?: string;
+  status: "online" | "offline" | "idle";
+  location?: {
+    lat: number;
+    lng: number;
+    address?: string;
+  };
+  speed?: number;
+  lastUpdate?: string;
+  latitude?: number;
+  longitude?: number;
+  address?: string;
+  timestamp?: string;
+  hasVideo?: boolean;
+}
+
+interface VehicleFuelData {
+  plate: string;
+  fuelPct: number;
+  fuelVol: number;
+  fuelTemp: number | null;
+  fuelLevel: number;
+  lastUpdated: string;
+  updated_at: string;
+  tank1Pct: number;
+  tank2Pct: number;
+  tank1Vol: number;
+  tank2Vol: number;
+  tank1Temp: number;
+  tank2Temp: number;
+  driverName: string;
+  rawVehicle: any;
+}
+
+function createTruckIcon(): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 32 32">
+    <circle cx="16" cy="16" r="14" fill="white" stroke="#1e3a8a" stroke-width="2"/>
+    <rect x="7" y="12" width="10" height="6" rx="0.5" fill="#1e3a8a"/>
+    <path d="M17 13.5h2.5l2 2v2h-1.5" stroke="#1e3a8a" stroke-width="1.5" fill="none"/>
+    <circle cx="11" cy="19" r="1.5" fill="white" stroke="#1e3a8a" stroke-width="1"/>
+    <circle cx="19.5" cy="19" r="1.5" fill="white" stroke="#1e3a8a" stroke-width="1"/>
+    <rect x="8" y="13" width="3" height="2" fill="white" opacity="0.8" rx="0.3"/>
+    <rect x="12" y="13" width="3" height="2" fill="white" opacity="0.8" rx="0.3"/>
+  </svg>`;
+  return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+}
+
+export default function GoogleLiveMapView() {
+  const router = useRouter();
+  const supabase = createClient();
+  const { loaded, error: loadError } = useGoogleMaps();
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [fuelStops, setFuelStops] = useState<FuelStopOverlay[]>([]);
+  const [allowedPlates, setAllowedPlates] = useState<Set<string>>(new Set());
+  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [vehiclesWithVideo, setVehiclesWithVideo] = useState<Set<string>>(new Set());
+  const [fuelView, setFuelView] = useState(false);
+  const [reportsView, setReportsView] = useState(false);
+  const [tripLogData, setTripLogData] = useState<any[]>([]);
+  const [tripLogLoading, setTripLogLoading] = useState(false);
+  const [expandedTrip, setExpandedTrip] = useState<string | null>(null);
+  const [fuelData, setFuelData] = useState<VehicleFuelData | null>(null);
+  const [fuelLoading, setFuelLoading] = useState(false);
+  const [fuelNoteUpdate, setFuelNoteUpdate] = useState<Record<string, string>>({});
+  const mapContainer = useRef<HTMLDivElement>(null);
+  const map = useRef<google.maps.Map | null>(null);
+  const markers = useRef<google.maps.Marker[]>([]);
+  const fuelStopMarkers = useRef<google.maps.Marker[]>([]);
+  const fuelStopPolygons = useRef<google.maps.Polygon[]>([]);
+  const fetchIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const mapInitialized = useRef(false);
+  const boundsSet = useRef(false);
+
+  const normalizePlate = (value: string | undefined | null) =>
+    String(value || '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+
+  useEffect(() => {
+    async function fetchAllowedVehicles() {
+      const { data, error } = await supabase
+        .from("vehiclesc")
+        .select("registration_number");
+
+      if (error) {
+        console.error("Error loading allowed vehicles for live map:", error);
+        return;
+      }
+
+      const plateSet = new Set(
+        (data || [])
+          .map((vehicle: any) => normalizePlate(vehicle.registration_number))
+          .filter(Boolean)
+      );
+
+      setAllowedPlates(plateSet);
+    }
+
+    fetchAllowedVehicles();
+  }, [supabase]);
+
+  useEffect(() => {
+    async function fetchFuelStops() {
+      const { data, error } = await supabase
+        .from("fuel_stops")
+        .select("id, name, name2, geozone_name, geozone_coordinates, location_coordinates, coords, coordinates, radius");
+
+      if (error) {
+        console.error("Error loading fuel stops for live map:", error);
+        return;
+      }
+
+      setFuelStops(
+        (data || [])
+          .map((fuelStop: any) => mapFuelStopToOverlay(fuelStop))
+          .filter(Boolean) as FuelStopOverlay[]
+      );
+    }
+
+    fetchFuelStops();
+  }, [supabase]);
+
+  // Fetch vehicles with video availability
+  useEffect(() => {
+    async function fetchVideoAvailability() {
+      try {
+        const videoApiUrl = '/api/video/streams';
+        console.log('Fetching video availability from proxy:', videoApiUrl);
+        
+        const response = await fetch(videoApiUrl, {
+          method: 'GET'
+        });
+
+        console.log('Video API response status:', response.status);
+        
+        if (response.ok) {
+          const result = await response.json();
+          console.log('Video API response data:', result);
+          const devices = result.data?.devices || result.data || result || [];
+          const platesWithVideo = new Set(
+            devices.map((v: any) => v.plateName?.toUpperCase()).filter(Boolean)
+          );
+          console.log('Plates with video:', Array.from(platesWithVideo));
+          setVehiclesWithVideo(platesWithVideo);
+        } else {
+          console.error('Video API returned non-OK status:', response.status, response.statusText);
+        }
+      } catch (err) {
+        console.error('Error fetching video availability:', err);
+      }
+    }
+
+    fetchVideoAvailability();
+    const interval = setInterval(fetchVideoAvailability, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch vehicle data from API - only called after map loads
+  const fetchVehicles = async () => {
+    try {
+      setLoading(true);
+      const [waterfordResult, epsResult, ctrackResult] = await Promise.allSettled([
+        fetch('/api/waterford-sites'),
+        fetch('/api/eps-vehicles'),
+        fetch('/api/ctrack-data')
+      ]);
+
+      let allVehicles: Vehicle[] = [];
+
+      // Process Waterford Sites API data (primary live source)
+      if (waterfordResult.status === 'fulfilled') {
+        try {
+          const waterfordData = await waterfordResult.value.json();
+          const waterfordVehicles = (Array.isArray(waterfordData) ? waterfordData : []).map((v: any) => ({
+            id: String(v.Id || v.Plate || v.plate || `${Date.now()}-${Math.random()}`),
+            plate: v.Plate || v.plate || 'Unknown',
+            driver: v.DriverName || v.driver_name || 'UNKNOWN',
+            status: parseFloat(v.Speed) > 0 ? 'online' : 'idle',
+            location: v.Latitude && v.Longitude ? {
+              lat: parseFloat(v.Latitude),
+              lng: parseFloat(v.Longitude),
+              address: v.Geozone || 'Unknown location'
+            } : undefined,
+            speed: parseFloat(v.Speed) || 0,
+            lastUpdate: v.LocTime || v.updated_at,
+            latitude: v.Latitude ? parseFloat(v.Latitude) : undefined,
+            longitude: v.Longitude ? parseFloat(v.Longitude) : undefined,
+            address: v.Geozone,
+            mileage: v.Mileage ? parseFloat(v.Mileage) : null,
+            geozone: v.Geozone,
+            timestamp: v.updated_at || v.LocTime
+          }));
+          allVehicles = [...allVehicles, ...waterfordVehicles];
+        } catch (e) {
+          console.error('Error parsing Waterford data:', e);
+        }
+      }
+
+      // Process EPS API data
+      if (epsResult.status === 'fulfilled') {
+        try {
+          const epsData = await epsResult.value.json();
+          const epsVehicles = (epsData.data || []).map((v: any) => ({
+            id: v.plate || v.id,
+            plate: v.plate || 'Unknown',
+            driver: v.driver_name || v.driver || 'UNKNOWN',
+            status: parseFloat(v.speed) > 0 ? 'online' : 'offline',
+            location: v.latitude && v.longitude ? {
+              lat: parseFloat(v.latitude),
+              lng: parseFloat(v.longitude),
+              address: v.address || 'Unknown location'
+            } : undefined,
+            speed: parseFloat(v.speed) || 0,
+            lastUpdate: v.loc_time || v.timestamp,
+            latitude: parseFloat(v.latitude),
+            longitude: parseFloat(v.longitude),
+            address: v.address,
+            mileage: v.mileage ? parseFloat(v.mileage) : null,
+            geozone: v.geozone,
+            timestamp: v.loc_time || v.timestamp
+          }));
+          allVehicles = [...allVehicles, ...epsVehicles];
+        } catch (e) {
+          console.error('Error parsing EPS data:', e);
+        }
+      }
+
+      // Process CTrack API data
+      if (ctrackResult.status === 'fulfilled') {
+        try {
+          const ctrackData = await ctrackResult.value.json();
+          const ctrackVehicles = (ctrackData.vehicles || []).map((v: any) => ({
+            id: v.plate || v.id,
+            plate: v.plate || 'Unknown',
+            driver: v.driver || 'Unassigned',
+            status: v.speed > 0 ? 'online' : (v.speed === 0 ? 'idle' : 'offline'),
+            location: v.latitude && v.longitude ? {
+              lat: v.latitude,
+              lng: v.longitude,
+              address: v.address || 'Unknown location'
+            } : undefined,
+            speed: v.speed || 0,
+            lastUpdate: v.timestamp ? new Date(v.timestamp).toLocaleString() : 'N/A',
+            latitude: v.latitude,
+            longitude: v.longitude,
+            address: v.address,
+            timestamp: v.timestamp
+          }));
+          
+          // Merge with EPS vehicles, avoiding duplicates
+          const existingPlates = new Set(allVehicles.map(v => v.plate));
+          const newVehicles = ctrackVehicles.filter((v: Vehicle) => !existingPlates.has(v.plate));
+          allVehicles = [...allVehicles, ...newVehicles];
+        } catch (e) {
+          console.error('Error parsing CTrack data:', e);
+        }
+      }
+
+      // Filter out vehicles without location data and ensure unique plates
+      const vehiclesWithLocation = allVehicles.filter(v => v.location);
+      
+      // Remove duplicates by keeping the most recent entry for each plate.
+      // If same timestamp, prefer source with richer geozone/address (typically Waterford).
+      // Normalize plates to handle case sensitivity and whitespace
+      const uniqueVehicles = vehiclesWithLocation.reduce((acc, vehicle) => {
+        const normalizedPlate = vehicle.plate?.trim().toUpperCase() || 'UNKNOWN';
+        const existingIndex = acc.findIndex(v => 
+          (v.plate?.trim().toUpperCase() || 'UNKNOWN') === normalizedPlate
+        );
+        
+        if (existingIndex === -1) {
+          acc.push(vehicle);
+        } else {
+          // Keep the one with more recent timestamp
+          const existingTime = acc[existingIndex].timestamp ? new Date(acc[existingIndex].timestamp).getTime() : 0;
+          const newTime = vehicle.timestamp ? new Date(vehicle.timestamp).getTime() : 0;
+          const existingHasAddress = Boolean(acc[existingIndex].address);
+          const newHasAddress = Boolean(vehicle.address);
+          if (newTime > existingTime || (newTime === existingTime && newHasAddress && !existingHasAddress)) {
+            acc[existingIndex] = vehicle;
+          }
+        }
+        return acc;
+      }, [] as Vehicle[]);
+      
+      // Filter to only include DB-backed vehicles and 8-character plates
+      // Preserve existing hasVideo state when updating vehicles
+      const filteredVehicles = uniqueVehicles.filter(v => {
+        const cleanPlate = v.plate?.trim() || '';
+        const normalizedPlate = normalizePlate(cleanPlate);
+        return cleanPlate.length === 8 && allowedPlates.has(normalizedPlate);
+      }).map(v => {
+        const existingVehicle = vehicles.find(ev => ev.plate === v.plate);
+        return {
+          ...v,
+          hasVideo: existingVehicle?.hasVideo || vehiclesWithVideo.has(v.plate?.trim().toUpperCase() || '')
+        };
+      });
+      
+      console.log(`Loaded ${filteredVehicles.length} DB-matched vehicles from ${allVehicles.length} total live records`);
+      setVehicles(filteredVehicles);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching vehicles:', error);
+      setLoading(false);
+    }
+  };
+
+  // Load vehicle data only after map is ready
+  useEffect(() => {
+    if (mapLoaded && !fetchIntervalRef.current) {
+      // Initial fetch
+      fetchVehicles();
+      
+      // Refresh every 30 seconds
+      fetchIntervalRef.current = setInterval(fetchVehicles, 30000);
+    }
+
+    return () => {
+      if (fetchIntervalRef.current) {
+        clearInterval(fetchIntervalRef.current);
+        fetchIntervalRef.current = null;
+      }
+    };
+  }, [mapLoaded, allowedPlates]);
+
+  // Update vehicles with video availability when it changes (without re-fetching)
+  useEffect(() => {
+    if (vehicles.length > 0) {
+      console.log('Video availability updated, updating vehicle flags...');
+      setVehicles(prevVehicles => 
+        prevVehicles.map(v => ({
+          ...v,
+          hasVideo: vehiclesWithVideo.has(v.plate?.trim().toUpperCase() || '')
+        }))
+      );
+    }
+  }, [vehiclesWithVideo]);
+
+  // Initialize Google Map
+  useEffect(() => {
+    if (!loaded || !mapContainer.current || mapInitialized.current) return;
+
+    mapInitialized.current = true;
+
+    map.current = new window.google.maps.Map(mapContainer.current, {
+      center: { lat: -26.2041, lng: 28.0473 }, // Johannesburg
+      zoom: 10,
+      mapTypeId: window.google.maps.MapTypeId.ROADMAP,
+      zoomControl: true,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+    });
+
+    map.current.addListener('idle', () => {
+      if (!mapLoaded) {
+        setMapLoaded(true);
+      }
+    });
+
+    return () => {
+      markers.current.forEach((marker) => marker.setMap(null));
+      markers.current = [];
+      fuelStopMarkers.current.forEach((marker) => marker.setMap(null));
+      fuelStopMarkers.current = [];
+      fuelStopPolygons.current.forEach((polygon) => polygon.setMap(null));
+      fuelStopPolygons.current = [];
+      if (map.current) {
+        map.current = null;
+        mapInitialized.current = false;
+      }
+    };
+  }, [loaded]);
+
+  // Update markers when vehicles change
+  useEffect(() => {
+    if (!map.current || !mapLoaded || vehicles.length === 0) return;
+
+    // Clear existing markers
+    markers.current.forEach((marker) => marker.setMap(null));
+    markers.current = [];
+
+    const truckIcon = createTruckIcon();
+
+    // Add markers for vehicles
+    vehicles.forEach((vehicle) => {
+      if (vehicle.location) {
+        const marker = new window.google.maps.Marker({
+          position: { lat: vehicle.location.lat, lng: vehicle.location.lng },
+          map: map.current,
+          icon: {
+            url: truckIcon,
+            scaledSize: new window.google.maps.Size(40, 40),
+            anchor: new window.google.maps.Point(20, 20),
+          },
+        });
+
+        marker.addListener("click", () => {
+          setSelectedVehicle(vehicle);
+          setFuelView(false);
+          setReportsView(false);
+          setFuelData(null);
+          setSidebarOpen(true);
+          map.current!.setZoom(16);
+          map.current!.panTo({ lat: vehicle.location!.lat, lng: vehicle.location!.lng });
+        });
+
+        markers.current.push(marker);
+      }
+    });
+
+    // Fit map to show all markers (only on initial load)
+    if (vehicles.length > 0 && markers.current.length > 0 && map.current && !boundsSet.current) {
+      try {
+        const validLocations = vehicles
+          .filter(v => v.location && 
+                      typeof v.location.lng === 'number' && 
+                      typeof v.location.lat === 'number' &&
+                      !isNaN(v.location.lng) && 
+                      !isNaN(v.location.lat) &&
+                      Math.abs(v.location.lng) <= 180 &&
+                      Math.abs(v.location.lat) <= 90)
+          .map(v => ({ lat: v.location!.lat, lng: v.location!.lng }));
+        
+        if (validLocations.length > 1) {
+          try {
+            const bounds = new window.google.maps.LatLngBounds();
+            bounds.extend(validLocations[0]);
+            
+            for (let i = 1; i < validLocations.length; i++) {
+              bounds.extend(validLocations[i]);
+            }
+            
+            map.current.fitBounds(bounds, 50);
+            
+            boundsSet.current = true;
+          } catch (fitError) {
+            console.log('Could not fit bounds, using default view');
+            boundsSet.current = true;
+          }
+        } else {
+          boundsSet.current = true;
+        }
+      } catch (error) {
+        console.error('Error processing vehicle locations:', error);
+        boundsSet.current = true;
+      }
+    }
+  }, [vehicles, mapLoaded]);
+
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    fuelStopMarkers.current.forEach((marker) => marker.setMap(null));
+    fuelStopMarkers.current = [];
+    fuelStopPolygons.current.forEach((polygon) => polygon.setMap(null));
+    fuelStopPolygons.current = [];
+
+    fuelStops.forEach((fuelStop) => {
+      if (fuelStop.polygon.length >= 3) {
+        const polygon = new window.google.maps.Polygon({
+          paths: fuelStop.polygon.map(c => ({ lat: c[1], lng: c[0] })),
+          map: map.current,
+          strokeColor: "#15803d",
+          strokeOpacity: 0.8,
+          strokeWeight: 2,
+          fillColor: "#22c55e",
+          fillOpacity: 0.18,
+        });
+
+        fuelStopPolygons.current.push(polygon);
+      } else if (fuelStop.center) {
+        const circle = new window.google.maps.Circle({
+          center: { lat: fuelStop.center[1], lng: fuelStop.center[0] },
+          radius: Math.max(100, fuelStop.radiusMeters),
+          map: map.current,
+          strokeColor: "#15803d",
+          strokeOpacity: 0.8,
+          strokeWeight: 2,
+          fillColor: "#22c55e",
+          fillOpacity: 0.18,
+        });
+
+        fuelStopPolygons.current.push(circle as any);
+      }
+
+      if (fuelStop.center) {
+        const marker = new window.google.maps.Marker({
+          position: { lat: fuelStop.center[1], lng: fuelStop.center[0] },
+          map: map.current,
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 6,
+            fillColor: "#16a34a",
+            fillOpacity: 0.7,
+            strokeColor: "#15803d",
+            strokeWeight: 2,
+          },
+        });
+
+        const infoWindow = new window.google.maps.InfoWindow({
+          content: `<strong>${fuelStop.name}</strong><br/>Fuel Stop Zone`,
+        });
+
+        marker.addListener("click", () => infoWindow.open(map.current!, marker));
+
+        fuelStopMarkers.current.push(marker);
+      }
+    });
+  }, [fuelStops, mapLoaded]);
+
+  // Filter and sort vehicles - video available vehicles first
+  const filteredVehicles = vehicles
+    .filter((vehicle) =>
+      vehicle.plate.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      vehicle.driver?.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    .sort((a, b) => {
+      // Sort by video availability first (vehicles with video on top)
+      if (a.hasVideo && !b.hasVideo) return -1;
+      if (!a.hasVideo && b.hasVideo) return 1;
+      // Then by plate name
+      return a.plate.localeCompare(b.plate);
+    });
+
+  return (
+    <div className="absolute inset-0 w-full h-full overflow-hidden">
+      {/* Loading State */}
+      {!mapLoaded && !loadError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-blue-50 to-gray-100 z-50">
+          <div className="text-center">
+            <Loader2 className="w-16 h-16 animate-spin text-blue-600 mx-auto mb-4" />
+            <p className="text-lg font-semibold text-gray-700">
+              Initializing map...
+            </p>
+            <p className="text-sm text-gray-500 mt-1">
+              Setting up map view
+            </p>
+          </div>
+        </div>
+      )}
+
+      {loadError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-red-50 to-gray-100 z-50">
+          <div className="text-center">
+            <p className="text-lg font-semibold text-red-600">
+              Failed to load map
+            </p>
+            <p className="text-sm text-red-500 mt-1">{loadError}</p>
+          </div>
+        </div>
+      )}
+      
+      {/* Vehicle Loading Indicator (smaller, in corner) */}
+      {mapLoaded && loading && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50">
+          <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-lg px-4 py-2 flex items-center gap-2 border border-gray-200">
+            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+            <span className="text-sm font-medium text-gray-700">Loading vehicles...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Map Container */}
+      <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
+
+      {/* Floating Fuel Panel - appears left of sidebar */}
+      {fuelView && selectedVehicle && sidebarOpen && (
+        <div className="absolute top-28 right-[22rem] bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-gray-200 transition-all duration-300 max-h-[calc(100%-8rem)] w-64 flex flex-col overflow-hidden">
+          <div className="p-2 border-b border-gray-200 bg-gradient-to-r from-green-50 to-white flex items-center justify-between rounded-t-xl">
+            <div className="flex items-center gap-1.5">
+              <div className="p-0.5 bg-green-600 rounded">
+                <Fuel className="w-3 h-3 text-white" />
+              </div>
+              <h3 className="font-bold text-xs text-gray-900">Fuel Data</h3>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-1.5" style={{ maxHeight: 'calc(100vh - 10rem)' }}>
+            {fuelLoading && (
+              <div className="flex justify-center py-6">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+              </div>
+            )}
+            {!fuelLoading && !fuelData && (
+              <p className="text-xs text-center text-gray-400 py-4">No fuel probe data available.</p>
+            )}
+            {!fuelLoading && fuelData && (
+              <UserProvider>
+                <FuelGauge
+                  id={fuelData.plate}
+                  location={fuelData.plate}
+                  fuelLevel={fuelData.fuelPct}
+                  tank1Level={fuelData.tank1Pct}
+                  tank2Level={fuelData.tank2Pct}
+                  temperature={fuelData.tank1Temp}
+                  volume={fuelData.tank1Vol}
+                  currentVolume={fuelData.tank1Vol}
+                  remaining={`${fuelData.tank1Vol.toFixed(1)}L`}
+                  status={fuelData.driverName}
+                  lastUpdated={fuelData.lastUpdated}
+                  updated_at={fuelData.updated_at}
+                  vehicleData={fuelData.rawVehicle}
+                  onNoteUpdate={(_, note) => setFuelNoteUpdate(prev => ({ ...prev, [fuelData.plate]: note }))}
+                />
+              </UserProvider>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Floating Trip Reports Panel - appears left of sidebar */}
+      {reportsView && selectedVehicle && sidebarOpen && (
+        <div className="absolute top-28 right-[22rem] bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-gray-200 transition-all duration-300 max-h-[calc(100%-8rem)] w-96 flex flex-col overflow-hidden">
+          <div className="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-white flex items-center justify-between rounded-t-xl">
+            <div className="flex items-center gap-2">
+              <div className="p-1 bg-blue-600 rounded">
+                <FileText className="w-4 h-4 text-white" />
+              </div>
+              <h3 className="font-bold text-sm text-gray-900">Trip Reports - {selectedVehicle.plate}</h3>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3" style={{ maxHeight: 'calc(100vh - 10rem)' }}>
+            {tripLogLoading && (
+              <div className="flex justify-center py-6">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+              </div>
+            )}
+            {!tripLogLoading && tripLogData.length === 0 && (
+              <p className="text-sm text-center text-gray-400 py-4">No trip data available.</p>
+            )}
+            {!tripLogLoading && tripLogData.length > 0 && (
+              <div className="space-y-2">
+                {tripLogData.map((trip) => {
+                  const isExpanded = expandedTrip === trip.id;
+                  const clientDetails = typeof trip.clientdetails === 'string' ? JSON.parse(trip.clientdetails) : trip.clientdetails;
+                  
+                  return (
+                    <div key={trip.id} className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                      <div 
+                        className="p-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                        onClick={() => setExpandedTrip(isExpanded ? null : trip.id)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <div className="w-8 h-8 bg-slate-100 rounded flex items-center justify-center flex-shrink-0">
+                              <Truck className="w-4 h-4 text-slate-600" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-semibold text-slate-900 truncate">
+                                {clientDetails?.name || 'Unknown'} - #{trip.trip_id || trip.id}
+                              </div>
+                              <div className="text-xs text-slate-600 truncate">
+                                {trip.origin} → {trip.destination}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <Badge className={cn('px-2 py-0.5 text-xs', 
+                              trip.status === 'delivered' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                            )}>
+                              {trip.status}
+                            </Badge>
+                            {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {isExpanded && (
+                        <div className="p-3 border-t bg-slate-50">
+                          <div className="text-sm font-semibold text-slate-900 mb-2">Performance</div>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-slate-600">Status:</span>
+                              <span className="font-medium">{trip.status}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-600">Distance:</span>
+                              <span className="font-medium">{trip.total_distance || trip.estimated_distance || 'N/A'} km</span>
+                            </div>
+                            {trip.rate && (
+                              <div className="flex justify-between">
+                                <span className="text-slate-600">Rate:</span>
+                                <span className="font-medium text-green-600">R{parseFloat(trip.rate).toLocaleString()}</span>
+                              </div>
+                            )}
+                            {trip.unauthorized_stops_count > 0 && (
+                              <div className="flex justify-between">
+                                <span className="text-slate-600">Violations:</span>
+                                <span className="font-medium text-red-600">{trip.unauthorized_stops_count} stops</span>
+                              </div>
+                            )}
+                            {trip.notes && (
+                              <div className="mt-2 p-2 bg-white rounded border text-sm text-slate-600">
+                                {trip.notes}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Right Sidebar */}
+      <div
+        className={cn(
+          "absolute top-28 right-8 bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-gray-200 transition-all duration-300 max-h-[calc(100%-8rem)] flex flex-col w-72",
+          !sidebarOpen && "translate-x-[calc(100%+1rem)]"
+        )}
+      >
+        {/* Compact Sidebar Header */}
+        <div className="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-white flex items-center justify-between rounded-t-xl">
+          <div className="flex items-center gap-2">
+            <div className="p-1 bg-blue-600 rounded-lg">
+              <MapPin className="w-3.5 h-3.5 text-white" />
+            </div>
+            <h3 className="font-bold text-sm text-gray-900">
+              {selectedVehicle ? "Vehicle Info" : "All Vehicles"}
+            </h3>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="h-8 w-8 p-0"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* Search */}
+        {!selectedVehicle && (
+          <div className="p-4 border-b">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                type="text"
+                placeholder="Search plate or driver..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-9 h-9 text-sm"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">
+          {selectedVehicle ? (
+            <div className="space-y-2 p-2">
+
+              {/* Vehicle Card */}
+              {!reportsView && (
+                <div className="p-3 bg-white rounded-lg border-2 border-blue-200">
+                  <div className="mb-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-lg text-blue-900">{selectedVehicle.plate}</h4>
+                      {selectedVehicle.hasVideo && (
+                        <span className={cn(
+                          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+                          selectedVehicle.status === 'online' ? "bg-blue-600 text-white" : "bg-gray-400 text-white"
+                        )}>
+                          <Video className="w-3 h-3" />
+                          Video {selectedVehicle.status === 'offline' && '(Offline)'}
+                        </span>
+                      )}
+                    </div>
+                    <span className={cn(
+                      "inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium",
+                      selectedVehicle.status === "online" ? "bg-green-100 text-green-700"
+                        : selectedVehicle.status === "idle" ? "bg-amber-100 text-amber-700"
+                        : "bg-gray-100 text-gray-700"
+                    )}>
+                      {selectedVehicle.status}
+                    </span>
+                  </div>
+                  {selectedVehicle.location && (
+                    <div className="space-y-1.5 text-xs text-gray-600">
+                      <div className="flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        <span>{selectedVehicle.speed !== undefined ? selectedVehicle.speed.toFixed(1) : '0.0'} km/h</span>
+                      </div>
+                      <div className="flex items-start gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-gray-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                        <span className="line-clamp-1">{selectedVehicle.driver}</span>
+                      </div>
+                      <div className="flex items-start gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-gray-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        <span className="flex-1 line-clamp-2">{selectedVehicle.location.address || selectedVehicle.address || "Unknown location"}</span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {Number(selectedVehicle.location.lat).toFixed(6)}, {Number(selectedVehicle.location.lng).toFixed(6)}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Last Update: {selectedVehicle.lastUpdate ? new Date(selectedVehicle.lastUpdate).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'N/A'}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+
+
+              {/* Action Buttons — hidden when fuel or reports view is open */}
+              {!fuelView && !reportsView && (
+                <div className="space-y-2">
+                  <button
+                    onClick={() => router.push(`/video-feeds?driver=${encodeURIComponent(selectedVehicle.driver || 'Unassigned')}&vehicle=${encodeURIComponent(selectedVehicle.plate)}`)}
+                    disabled={!selectedVehicle.hasVideo}
+                    className="w-full inline-flex items-center justify-start gap-3 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4"
+                  >
+                    <Video className="w-4 h-4" />
+                    <span>Video</span>
+                    {selectedVehicle.hasVideo && (
+                      <span className="ml-auto px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">Available</span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      setFuelView(true);
+                      setFuelData(null);
+                      setFuelLoading(true);
+                      try {
+                        const res = await fetch('/api/energy-rite/vehicles', { cache: 'no-store' });
+                        if (res.ok) {
+                          const json = await res.json();
+                          const list: any[] = Array.isArray(json) ? json : json?.data || [];
+                          const normalizedTarget = selectedVehicle.plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+                          const match = list.find((v: any) => {
+                            const p = String(v.Plate || v.plate || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+                            return p === normalizedTarget;
+                          });
+                          if (match) {
+                            const t1pct = parseFloat(match.fuel_probe_1_level_percentage) || 0;
+                            const t2pct = parseFloat(match.fuel_probe_2_level_percentage) || 0;
+                            setFuelData({
+                              plate: match.Plate || match.plate,
+                              fuelPct: t2pct > 0 ? (t1pct + t2pct) / 2 : t1pct,
+                              fuelVol: parseFloat(match.fuel_probe_1_volume_in_tank) || 0,
+                              fuelTemp: match.fuel_probe_1_temperature != null ? parseFloat(match.fuel_probe_1_temperature) : null,
+                              fuelLevel: parseFloat(match.fuel_probe_1_level) || 0,
+                              lastUpdated: match.last_message_date || match.LocTime || '',
+                              updated_at: match.updated_at || '',
+                              tank1Pct: t1pct,
+                              tank2Pct: t2pct,
+                              tank1Vol: parseFloat(match.fuel_probe_1_volume_in_tank) || 0,
+                              tank2Vol: parseFloat(match.fuel_probe_2_volume_in_tank) || 0,
+                              tank1Temp: parseFloat(match.fuel_probe_1_temperature) || 0,
+                              tank2Temp: parseFloat(match.fuel_probe_2_temperature) || 0,
+                              driverName: match.DriverName || match.drivername || '',
+                              rawVehicle: match,
+                            });
+                          }
+                        }
+                      } catch {}
+                      setFuelLoading(false);
+                    }}
+                    className="w-full inline-flex items-center justify-start gap-3 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4"
+                  >
+                    <Fuel className="w-4 h-4" />
+                    <span>Fuel</span>
+                  </button>
+
+                  <button
+                    onClick={async () => {
+                      setReportsView(true);
+                      setFuelView(false);
+                      setFuelData(null);
+                      setTripLogData([]);
+                      setTripLogLoading(true);
+                      try {
+                        const { data, error } = await supabase
+                          .from('trips')
+                          .select('id, trip_id, origin, destination, status, clientdetails, total_distance, estimated_distance, rate, unauthorized_stops_count, notes, vehicleassignments, vehicle_assignments, updated_at')
+                          .not('status', 'eq', 'pending')
+                          .order('updated_at', { ascending: false })
+                          .limit(100);
+                        
+                        if (error) {
+                          console.error('Error fetching trips:', error);
+                          setTripLogData([]);
+                        } else if (data) {
+                          // Filter trips that have this vehicle assigned
+                          const targetPlate = selectedVehicle.plate.toUpperCase().trim();
+                          const vehicleTrips = data.filter((trip: any) => {
+                            const assignments = trip.vehicleassignments || trip.vehicle_assignments || [];
+                            if (!Array.isArray(assignments)) return false;
+                            return assignments.some((assignment: any) => {
+                              const vehicleName = assignment.vehicle?.name || '';
+                              return vehicleName.toUpperCase().trim() === targetPlate;
+                            });
+                          }).slice(0, 20);
+                          console.log('Found', vehicleTrips.length, 'trips for vehicle', selectedVehicle.plate);
+                          setTripLogData(vehicleTrips);
+                        }
+                      } catch (err) {
+                        console.error('Error fetching trip reports:', err);
+                        setTripLogData([]);
+                      }
+                      setTripLogLoading(false);
+                    }}
+                    className="w-full inline-flex items-center justify-start gap-3 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Reports</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Footer buttons */}
+              <div className="space-y-2 pt-1">
+                {(fuelView || reportsView) && (
+                  <Button variant="outline" className="w-full" onClick={() => { setFuelView(false); setReportsView(false); setFuelData(null); setTripLogData([]); }}>
+                    <ArrowLeft className="w-4 h-4 mr-2" /> Back to Actions
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setSelectedVehicle(null);
+                    setFuelView(false);
+                    setReportsView(false);
+                    setFuelData(null);
+                    setTripLogData([]);
+                    if (map.current) {
+                      map.current.setZoom(10);
+                      map.current.panTo({ lat: -26.2041, lng: 28.0473 });
+                    }
+                  }}
+                >
+                  Back to All Vehicles
+                </Button>
+              </div>
+
+            </div>
+          ) : (
+            <div className="space-y-2 p-2">
+              {filteredVehicles.length > 0 ? (
+                filteredVehicles.map((vehicle) => (
+                  <button
+                    key={vehicle.id}
+                    onClick={() => {
+                      setSelectedVehicle(vehicle);
+                      setFuelView(false);
+                      setReportsView(false);
+                      setFuelData(null);
+                      setTripLogData([]);
+                      if (vehicle.location && map.current) {
+                        map.current.setZoom(16);
+                        map.current.panTo({ lat: vehicle.location.lat, lng: vehicle.location.lng });
+                      }
+                    }}
+                    className="w-full p-3 text-left bg-white rounded-lg border-2 border-blue-100 hover:border-blue-300 transition-all duration-200 hover:shadow-md"
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <h4 className="font-bold text-lg text-blue-900">
+                        {vehicle.plate}
+                      </h4>
+                      {vehicle.hasVideo && (
+                        <span className={cn(
+                          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+                          vehicle.status === 'online' 
+                            ? "bg-blue-600 text-white" 
+                            : "bg-gray-400 text-white"
+                        )}>
+                          <Video className="w-3 h-3" />
+                          Video {vehicle.status === 'offline' && '(Offline)'}
+                        </span>
+                      )}
+                    </div>
+                    
+                    {vehicle.location ? (
+                      <div className="space-y-1.5 text-xs text-gray-600">
+                        <div className="flex items-center gap-1.5">
+                          <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          <span>{vehicle.speed.toFixed(1)} km/h</span>
+                        </div>
+                        
+                        <div className="flex items-start gap-1.5">
+                          <svg className="w-3.5 h-3.5 text-gray-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                          </svg>
+                          <span className="line-clamp-1">{vehicle.driver}</span>
+                        </div>
+                        
+                        <div className="flex items-start gap-1.5">
+                          <svg className="w-3.5 h-3.5 text-gray-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          <span className="flex-1 line-clamp-2">{vehicle.address}</span>
+                        </div>
+                        
+                        <div className="text-xs text-gray-500 mt-1">
+                          Last seen: {vehicle.lastUpdate ? new Date(vehicle.lastUpdate).toLocaleString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric', 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          }) : 'Live'}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-gray-500">
+                        No live data.
+                      </div>
+                    )}
+                  </button>
+                ))
+              ) : (
+                <div className="p-8 text-center">
+                  <MapPin className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">No vehicles found</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Toggle Button (when sidebar is closed) */}
+      {!sidebarOpen && (
+        <Button
+          onClick={() => setSidebarOpen(true)}
+          className="absolute top-20 right-8 h-10 w-10 p-0 rounded-full shadow-2xl bg-blue-600 hover:bg-blue-700 border-2 border-white"
+          variant="default"
+        >
+          <Navigation className="h-5 w-5" />
+        </Button>
+      )}
+
+
+    </div>
+  );
+}

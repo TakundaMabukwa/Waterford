@@ -58,36 +58,39 @@ function getAllowedPaths(role: string): string[] {
 }
 
 export async function middleware(req: NextRequest) {
+  const res = NextResponse.next()
 
-  //Thsi is new section If the user is accessing the /logout page, clear cookies and redirect
+  // If the user is accessing the /logout page, clear cookies and redirect
   if (req.nextUrl.pathname === '/logout') {
     const response = NextResponse.redirect(new URL('/login', req.url))
-    // List all cookies you want to clear
     response.cookies.delete('access_token')
     response.cookies.delete('refresh_token')
-    // Add more cookies here if needed
     return response
   }
 
-
-
   const path = req.nextUrl.pathname
-  // Check for Supabase session cookies
   const accessToken = req.cookies.get('access_token')?.value
   const isAuthenticated = !!accessToken
   const isPublicRoute = publicRoutes.includes(path)
 
+  // Allow public routes to pass through without any auth validation.
+  // This prevents infinite redirect loops when a user has a stale/expired
+  // access_token cookie — without this, the middleware tries to validate the
+  // token on /login, fails, and redirects to /login in an endless cycle.
+  if (isPublicRoute) {
+    return res
+  }
+
   // Redirect unauthenticated users trying to access protected routes
-  if (!isAuthenticated && !isPublicRoute) {
+  if (!isAuthenticated) {
     console.log('Not authenticated — redirecting to /login')
     return NextResponse.redirect(new URL('/login', req.url))
   }
 
-  // If authenticated, get user role from database
-  if (isAuthenticated) {
-    try {
-      const supabase = createMiddlewareClient(req)
-      const { data: { user }, error } = await supabase.auth.getUser()
+  // Authenticated on a protected route — verify session and role
+  try {
+    const supabase = createMiddlewareClient(req, res)
+    const { data: { user }, error } = await supabase.auth.getUser()
 
       // Query the users table to get the role for the logged-in user
       const { data: userRecord, error: userError } = await supabase
@@ -144,9 +147,8 @@ export async function middleware(req: NextRequest) {
       console.error('Error in middleware:', error)
       return NextResponse.redirect(new URL('/login', req.url))
     }
-  }
 
-  return NextResponse.next()
+  return res
 }
 
 export const config = {

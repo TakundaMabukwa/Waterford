@@ -29,7 +29,7 @@ export async function createClient() {
   }
 }
 
-export function createMiddlewareClient(req: any) {
+export function createMiddlewareClient(req: any, res?: any) {
   return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -41,6 +41,8 @@ export function createMiddlewareClient(req: any) {
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
             req.cookies.set(name, value, options)
+            // Also set on the response so cookie refreshes aren't lost
+            res?.cookies.set(name, value, options)
           })
         },
       },

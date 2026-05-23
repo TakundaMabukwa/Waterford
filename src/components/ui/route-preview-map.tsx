@@ -3,6 +3,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MapPin, Route } from 'lucide-react';
+import { useGoogleMaps } from '@/hooks/use-google-maps';
+
+declare global {
+  interface Window {
+    google: typeof google;
+  }
+}
 
 interface RoutePreviewMapProps {
   origin: string;
@@ -33,86 +40,86 @@ interface RoutePreviewMapProps {
 }
 
 export function RoutePreviewMap({ origin, destination, originCoordinates, destinationCoordinates, routeData, stopPoints = [], getStopPointsData, driverLocation, clientLocation, selectedClient, tripId, preserveOrder = false }: RoutePreviewMapProps) {
+  const { loaded, error: loadError } = useGoogleMaps();
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<any>(null);
+  const map = useRef<google.maps.Map | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const lastUpdateRef = useRef<string>('');
   const cacheRef = useRef<Map<string, any>>(new Map());
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const markersRef = useRef<any[]>([]);
+  const markersRef = useRef<google.maps.Marker[]>([]);
+  const overlaysRef = useRef<(google.maps.Polyline | google.maps.Polygon | google.maps.Circle)[]>([]);
+  const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
 
   useEffect(() => {
-    const initializeMap = async () => {
-      const container = mapContainer.current;
-      if (!container || map.current) return;
-      if (!(container instanceof HTMLElement)) return;
-      
-      const mapboxgl = (await import('mapbox-gl')).default;
-      mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '';
+    if (!loaded || !mapContainer.current || map.current) return;
 
-      map.current = new mapboxgl.Map({
-        container,
-        style: 'mapbox://styles/mapbox/streets-v12',
-        center: [20, 0],
-        zoom: 1.8
-      });
+    map.current = new window.google.maps.Map(mapContainer.current, {
+      center: { lat: -26.2041, lng: 28.0473 },
+      zoom: 5,
+      mapTypeId: window.google.maps.MapTypeId.ROADMAP,
+      zoomControl: true,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+    });
 
-      map.current.on('load', () => {
-        setMapLoaded(true);
-      });
-    };
-
-    // Small delay to ensure DOM is ready
-    const timer = setTimeout(initializeMap, 100);
+    map.current.addListener('idle', () => {
+      setMapLoaded(true);
+    });
 
     return () => {
-      clearTimeout(timer);
+      markersRef.current.forEach(m => m.setMap(null));
+      markersRef.current = [];
+      overlaysRef.current.forEach(o => o.setMap(null));
+      overlaysRef.current = [];
+      if (trafficLayerRef.current) {
+        trafficLayerRef.current.setMap(null);
+        trafficLayerRef.current = null;
+      }
       if (map.current) {
-        map.current.remove();
         map.current = null;
-        setMapLoaded(false);
       }
     };
-  }, []);
+  }, [loaded]);
 
   useEffect(() => {
     if (!mapLoaded || (!origin && !destination && !selectedClient?.coordinates)) return;
 
-    // Create cache key to prevent duplicate updates
     const stopPointsKey = Array.isArray(stopPoints) ? stopPoints.map(p => p?.id || p).join(',') : stopPoints || '';
     const driverKey = driverLocation ? `${driverLocation.lat}-${driverLocation.lng}-${driverLocation.name}` : '';
     const getStopPointsKey = getStopPointsData ? 'hasStopPoints' : 'noStopPoints';
     const preserveOrderKey = preserveOrder ? 'preserve' : 'optimize';
     const cacheKey = `${origin}-${destination}-${stopPointsKey}-${selectedClient?.id || ''}-${tripId || ''}-${driverKey}-${getStopPointsKey}-${preserveOrderKey}`;
-    
-    // Always update if locations changed or if we have async stop points
+
     const shouldUpdate = lastUpdateRef.current !== cacheKey || stopPoints === 'async';
-    
     if (!shouldUpdate) return;
-    
-    // Clear existing timeout
-    if (updateTimeoutRef.current) {
-      clearTimeout(updateTimeoutRef.current);
-    }
-    
-    // Debounce updates to prevent flickering
+
+    if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+
     updateTimeoutRef.current = setTimeout(() => {
       lastUpdateRef.current = cacheKey;
       updateRoute();
     }, 200);
 
-    const updateRoute = async () => {
-      if (!map.current || !mapLoaded || !map.current.isStyleLoaded()) return;
-
-      // Clear existing markers
-      markersRef.current.forEach(marker => marker.remove());
+    const clearOverlays = () => {
+      markersRef.current.forEach(m => m.setMap(null));
       markersRef.current = [];
+      overlaysRef.current.forEach(o => o.setMap(null));
+      overlaysRef.current = [];
+    };
+
+    const updateRoute = async () => {
+      if (!map.current || !mapLoaded) return;
+      clearOverlays();
+
+      const mapInstance = map.current;
+      const bounds = new window.google.maps.LatLngBounds();
 
       try {
         let originCoords = originCoordinates || null;
         let destCoords = destinationCoordinates || null;
-        
-        // Geocode locations if available
+
         if ((!originCoords || !destCoords) && origin && destination) {
           [originCoords, destCoords] = await Promise.all([
             originCoords || geocodeLocation(origin),
@@ -120,538 +127,153 @@ export function RoutePreviewMap({ origin, destination, originCoordinates, destin
           ]);
         }
 
-        // Add client route if available
+        // Add driver location marker
+        if (driverLocation) {
+          const marker = new window.google.maps.Marker({
+            position: { lat: driverLocation.lat, lng: driverLocation.lng },
+            map: mapInstance,
+            title: `Driver: ${driverLocation.name}`,
+            icon: {
+              path: window.google.maps.SymbolPath.CIRCLE,
+              scale: 8,
+              fillColor: '#1e40af',
+              fillOpacity: 1,
+              strokeColor: '#ffffff',
+              strokeWeight: 2,
+            },
+          });
+          markersRef.current.push(marker);
+          bounds.extend({ lat: driverLocation.lat, lng: driverLocation.lng });
+        }
+
+        // Add origin marker
+        if (originCoords && origin) {
+          const marker = new window.google.maps.Marker({
+            position: { lat: originCoords.lat, lng: originCoords.lng },
+            map: mapInstance,
+            title: origin,
+            icon: {
+              path: window.google.maps.SymbolPath.CIRCLE,
+              scale: 8,
+              fillColor: '#22c55e',
+              fillOpacity: 1,
+              strokeColor: '#ffffff',
+              strokeWeight: 2,
+            },
+          });
+          markersRef.current.push(marker);
+          bounds.extend({ lat: originCoords.lat, lng: originCoords.lng });
+        }
+
+        // Add destination marker
+        if (destCoords && destination) {
+          const marker = new window.google.maps.Marker({
+            position: { lat: destCoords.lat, lng: destCoords.lng },
+            map: mapInstance,
+            title: destination,
+            icon: {
+              path: window.google.maps.SymbolPath.CIRCLE,
+              scale: 8,
+              fillColor: '#3b82f6',
+              fillOpacity: 1,
+              strokeColor: '#ffffff',
+              strokeWeight: 2,
+            },
+          });
+          markersRef.current.push(marker);
+          bounds.extend({ lat: destCoords.lat, lng: destCoords.lng });
+        }
+
+        // Collect stop points for route waypoints
+        let routeStopPoints: any[] = [];
+        if (stopPoints === 'async' && getStopPointsData) {
+          routeStopPoints = await getStopPointsData();
+        } else if (Array.isArray(stopPoints)) {
+          routeStopPoints = stopPoints;
+        }
+
+        // Load Mapbox route and render on Google Map
+        let mainRouteGeoJSON = await getMapboxRoute(originCoords, destCoords, routeStopPoints);
+
+        if (mainRouteGeoJSON?.coordinates?.length > 0) {
+          const path = mainRouteGeoJSON.coordinates.map((c: number[]) => ({
+            lat: c[1],
+            lng: c[0]
+          }));
+
+          const polyline = new window.google.maps.Polyline({
+            path,
+            map: mapInstance,
+            strokeColor: '#3b82f6',
+            strokeOpacity: 1.0,
+            strokeWeight: 6,
+          });
+          overlaysRef.current.push(polyline);
+          path.forEach(p => bounds.extend(p));
+        }
+
+        // Handle stop points
+        if (stopPoints === 'async' && getStopPointsData) {
+          const asyncStopPoints = await getStopPointsData();
+          if (asyncStopPoints?.length > 0) {
+            asyncStopPoints.forEach((sp: any, i: number) => addStopPointToMap(sp, i, mapInstance, bounds));
+          }
+        } else if (Array.isArray(stopPoints) && stopPoints.length > 0) {
+          stopPoints.forEach((sp, i) => addStopPointToMap(sp, i, mapInstance, bounds));
+        }
+
+        // Draw client geozone polygon if available
         if (selectedClient?.coordinates) {
           try {
-            const coords = selectedClient.coordinates.split(' ')
-              .filter(coord => coord.trim())
-              .map(coord => {
-                const [lng, lat, alt] = coord.split(',')
-                return [parseFloat(lng), parseFloat(lat)]
+            const parsed = JSON.parse(selectedClient.coordinates)
+            if (Array.isArray(parsed) && parsed.length >= 3) {
+              const path = parsed.map((c: number[]) => ({ lat: c[1], lng: c[0] }))
+              const polygon = new window.google.maps.Polygon({
+                paths: path,
+                map: mapInstance,
+                strokeColor: '#7c3aed',
+                strokeOpacity: 0.8,
+                strokeWeight: 2,
+                fillColor: '#7c3aed',
+                fillOpacity: 0.12,
               })
-              .filter(coord => !isNaN(coord[0]) && !isNaN(coord[1]))
-            
-            if (coords.length > 1) {
-              // Remove existing client route
-              if (map.current && map.current.getSource('client-route')) {
-                map.current.removeLayer('client-route')
-                map.current.removeSource('client-route')
-              }
-              
-              // Add client route as connected line
-              if (map.current) {
-                map.current.addSource('client-route', {
-                  type: 'geojson',
-                  data: {
-                    type: 'Feature',
-                    properties: {},
-                    geometry: {
-                      type: 'LineString',
-                      coordinates: coords
-                    }
-                  }
-                })
-                
-                map.current.addLayer({
-                id: 'client-route',
-                type: 'line',
-                source: 'client-route',
-                layout: {
-                  'line-join': 'round',
-                  'line-cap': 'round'
+              overlaysRef.current.push(polygon)
+
+              const labelLat = path.reduce((s: number, p: any) => s + p.lat, 0) / path.length
+              const labelLng = path.reduce((s: number, p: any) => s + p.lng, 0) / path.length
+              const label = new window.google.maps.Marker({
+                position: { lat: labelLat, lng: labelLng },
+                map: mapInstance,
+                title: `Geozone: ${selectedClient.name}`,
+                icon: {
+                  path: window.google.maps.SymbolPath.CIRCLE,
+                  scale: 6,
+                  fillColor: '#7c3aed',
+                  fillOpacity: 0.4,
+                  strokeColor: '#5b21b6',
+                  strokeWeight: 2,
                 },
-                paint: {
-                  'line-color': '#8b5cf6',
-                  'line-width': 4
-                }
               })
-              }
-              
-
+              overlaysRef.current.push(label as any)
+              path.forEach((p: any) => bounds.extend(p))
             }
-          } catch (error) {
-            console.error('Error plotting client route:', error)
+          } catch {
+            // coordinates is not polygon JSON — skip
           }
         }
 
-        // Add driver location marker if available
-        if (driverLocation) {
-          const marker = new (await import('mapbox-gl')).default.Marker({ color: 'blue' })
-            .setLngLat([driverLocation.lng, driverLocation.lat])
-            .setPopup(new (await import('mapbox-gl')).default.Popup().setText(`Driver: ${driverLocation.name}`))
-            .addTo(map.current);
-          markersRef.current.push(marker);
-
-          // Get route from driver to loading location
-          const driverToLoadingRoute = await getRoute(
-            { lat: driverLocation.lat, lng: driverLocation.lng },
-            originCoords
-          );
-
-          if (driverToLoadingRoute && map.current.isStyleLoaded()) {
-            if (map.current.getSource('driver-route')) {
-              map.current.removeLayer('driver-route');
-              map.current.removeSource('driver-route');
-            }
-
-            map.current.addSource('driver-route', {
-              type: 'geojson',
-              data: {
-                type: 'Feature',
-                properties: {},
-                geometry: driverToLoadingRoute
-              }
-            });
-
-            map.current.addLayer({
-              id: 'driver-route',
-              type: 'line',
-              source: 'driver-route',
-              layout: {
-                'line-join': 'round',
-                'line-cap': 'round'
-              },
-              paint: {
-                'line-color': '#1e40af',
-                'line-width': 3,
-                'line-dasharray': [2, 2]
-              }
-            });
-          }
+        // Traffic layer
+        if (!trafficLayerRef.current) {
+          trafficLayerRef.current = new window.google.maps.TrafficLayer();
+          trafficLayerRef.current.setMap(mapInstance);
         }
 
-        // Add markers if coordinates are available
-        if (originCoords && origin && map.current) {
-          const marker = new (await import('mapbox-gl')).default.Marker({ color: 'green' })
-            .setLngLat([originCoords.lng, originCoords.lat])
-            .setPopup(new (await import('mapbox-gl')).default.Popup().setText(origin))
-            .addTo(map.current);
-          markersRef.current.push(marker);
-        }
+        // High-risk areas
+        await loadHighRiskAreas(mapInstance);
 
-        if (destCoords && destination && map.current) {
-          const marker = new (await import('mapbox-gl')).default.Marker({ color: 'blue' })
-            .setLngLat([destCoords.lng, destCoords.lat])
-            .setPopup(new (await import('mapbox-gl')).default.Popup().setText(destination))
-            .addTo(map.current);
-          markersRef.current.push(marker);
-        }
-
-        // Add stop point markers
-        if (Array.isArray(stopPoints) && stopPoints.length > 0) {
-          const mapboxgl = (await import('mapbox-gl')).default;
-          stopPoints.forEach((stopPoint, index) => {
-            const coords = stopPoint.coordinates;
-            const avgLng = coords.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coords.length;
-            const avgLat = coords.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coords.length;
-            
-            // Calculate radius from coordinate bounds
-            const lngs = coords.map(coord => coord[0]);
-            const lats = coords.map(coord => coord[1]);
-            const maxLng = Math.max(...lngs);
-            const minLng = Math.min(...lngs);
-            const maxLat = Math.max(...lats);
-            const minLat = Math.min(...lats);
-            const radiusKm = Math.max(
-              (maxLng - minLng) * 111.32 * Math.cos(avgLat * Math.PI / 180),
-              (maxLat - minLat) * 110.54
-            ) / 2;
-            const radiusMeters = radiusKm * 1000;
-            
-            // Add circle for stop point radius
-            const circleId = `stop-circle-${stopPoint.id}`;
-            if (map.current.getSource(circleId)) {
-              map.current.removeLayer(circleId);
-              map.current.removeSource(circleId);
-            }
-            
-            map.current.addSource(circleId, {
-              type: 'geojson',
-              data: {
-                type: 'Feature',
-                geometry: {
-                  type: 'Point',
-                  coordinates: [avgLng, avgLat]
-                }
-              }
-            });
-            
-            const isFuelStop = stopPoint.sourceType === 'fuel_stop';
-
-            map.current.addLayer({
-              id: circleId,
-              type: 'circle',
-              source: circleId,
-              paint: {
-                'circle-radius': {
-                  stops: [
-                    [0, 0],
-                    [20, radiusMeters / 10]
-                  ],
-                  base: 2
-                },
-                'circle-color': isFuelStop ? '#22c55e' : '#87CEEB',
-                'circle-opacity': isFuelStop ? 0.22 : 0.3,
-                'circle-stroke-color': isFuelStop ? '#15803d' : '#4682B4',
-                'circle-stroke-width': 2
-              }
-            });
-            
-            const markerColor = isFuelStop ? 'green' : 'orange';
-            const markerLabel = isFuelStop ? `Fuel Stop ${index + 1}: ${stopPoint.name}` : `Stop ${index + 1}: ${stopPoint.name}`;
-            const marker = new mapboxgl.Marker({ color: markerColor })
-              .setLngLat([avgLng, avgLat])
-              .setPopup(new mapboxgl.Popup().setText(markerLabel))
-              .addTo(map.current);
-            markersRef.current.push(marker);
-            
-            // Add directional arrow from previous point
-            if (index > 0) {
-              const prevStop = stopPoints[index - 1];
-              const prevCoords = prevStop.coordinates;
-              const prevAvgLng = prevCoords.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / prevCoords.length;
-              const prevAvgLat = prevCoords.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / prevCoords.length;
-              
-              const arrowId = `arrow-${prevStop.id}-${stopPoint.id}`;
-              if (map.current.getSource(arrowId)) {
-                map.current.removeLayer(arrowId);
-                map.current.removeSource(arrowId);
-              }
-              
-              map.current.addSource(arrowId, {
-                type: 'geojson',
-                data: {
-                  type: 'Feature',
-                  geometry: {
-                    type: 'LineString',
-                    coordinates: [[prevAvgLng, prevAvgLat], [avgLng, avgLat]]
-                  }
-                }
-              });
-              
-              map.current.addLayer({
-                id: arrowId,
-                type: 'line',
-                source: arrowId,
-                paint: {
-                'line-color': isFuelStop ? '#16a34a' : '#ff6b35',
-                'line-width': 3,
-                'line-dasharray': [2, 1]
-              }
-              });
-            }
-          });
-        }
-
-        // Load overlays (cached)
-        if (!cacheRef.current.has('overlays-loaded')) {
-          await loadMapOverlays();
-          cacheRef.current.set('overlays-loaded', true);
-        }
-
-        // Fetch route from API if tripId is provided, otherwise use routeData or calculate
-        let mainRoute = routeData?.route?.geometry || routeData?.geometry;
-        
-        if (tripId && !mainRoute) {
-          try {
-            const response = await fetch(`/api/trip-route?tripId=${tripId}`);
-            if (response.ok) {
-              const data = await response.json();
-              if (data.coordinates && data.coordinates.length > 0) {
-                mainRoute = {
-                  type: 'LineString',
-                  coordinates: data.coordinates.map((coord: any) => [coord.longitude, coord.latitude])
-                };
-              }
-            }
-          } catch (error) {
-            console.error('Error fetching trip route:', error);
-          }
-        }
-        
-        if (!mainRoute && originCoords && destCoords) {
-          console.log('Calculating optimized route from', originCoords, 'to', destCoords);
-          let routeStopPoints = [];
-          if (stopPoints === 'async' && getStopPointsData) {
-            routeStopPoints = await getStopPointsData();
-          } else if (Array.isArray(stopPoints)) {
-            routeStopPoints = stopPoints;
-          }
-          mainRoute = await getRoute(originCoords, destCoords, routeStopPoints);
-          console.log('Calculated optimized route:', mainRoute);
-        }
-        
-        if (mainRoute) {
-          console.log('Adding main route to map:', mainRoute);
-          // Add route immediately if map is ready
-          if (map.current && map.current.isStyleLoaded()) {
-            try {
-              const routeFeature = {
-                type: 'Feature',
-                properties: {},
-                geometry: mainRoute
-              };
-
-              if (map.current.getSource('main-route')) {
-                map.current.getSource('main-route').setData(routeFeature);
-              } else {
-                map.current.addSource('main-route', {
-                  type: 'geojson',
-                  data: routeFeature
-                });
-
-                map.current.addLayer({
-                  id: 'main-route',
-                  type: 'line',
-                  source: 'main-route',
-                  layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                  },
-                  paint: {
-                    'line-color': '#10b981',
-                    'line-width': 6
-                  }
-                });
-              }
-              
-              console.log('Route layer added successfully');
-              console.log('Map has source:', !!map.current.getSource('main-route'));
-              console.log('Map has layer:', !!map.current.getLayer('main-route'));
-              
-              // Add directional arrows along the route
-              const coords = mainRoute.coordinates;
-              const arrowInterval = Math.max(1, Math.floor(coords.length / 8));
-              
-              for (let i = arrowInterval; i < coords.length; i += arrowInterval) {
-                const [lng1, lat1] = coords[i - 1];
-                const [lng2, lat2] = coords[i];
-                const angle = Math.atan2(lat2 - lat1, lng2 - lng1) * 180 / Math.PI;
-                
-                const arrowEl = document.createElement('div');
-                arrowEl.innerHTML = '▶';
-                arrowEl.style.cssText = `
-                  color: #10b981;
-                  font-size: 12px;
-                  transform: rotate(${angle}deg);
-                  pointer-events: none;
-                `;
-                
-                const arrowMarker = new (await import('mapbox-gl')).default.Marker({
-                  element: arrowEl,
-                  anchor: 'center'
-                })
-                .setLngLat([lng2, lat2])
-                .addTo(map.current);
-                
-                markersRef.current.push(arrowMarker);
-              }
-              
-              console.log('Route added successfully');
-            } catch (error) {
-              console.error('Route error:', error);
-            }
-          }
-
-          // Fit map to all elements
-          if (mainRoute?.coordinates && mainRoute.coordinates.length > 0 && map.current) {
-            const coordinates = mainRoute.coordinates;
-            const bounds = coordinates.reduce((bounds: any, coord: any) => {
-              return bounds.extend(coord);
-            }, new (await import('mapbox-gl')).default.LngLatBounds(coordinates[0], coordinates[0]));
-
-            // Include driver location in bounds if available
-            if (driverLocation) {
-              bounds.extend([driverLocation.lng, driverLocation.lat]);
-            }
-
-            // Include client location in bounds if available
-            if (clientLocation) {
-              bounds.extend([clientLocation.lng, clientLocation.lat]);
-            }
-
-            map.current.fitBounds(bounds, {
-              padding: 60,
-              duration: 1200,
-              essential: true,
-              maxZoom: 12
-            });
-          } else if (selectedClient?.coordinates && map.current) {
-            // Fit to client coordinates if no main route
-            const coords = selectedClient.coordinates.split(' ')
-              .filter(coord => coord.trim())
-              .map(coord => {
-                const [lng, lat, alt] = coord.split(',')
-                return [parseFloat(lng), parseFloat(lat)]
-              })
-              .filter(coord => !isNaN(coord[0]) && !isNaN(coord[1]))
-            
-            if (coords.length > 0) {
-              const bounds = coords.reduce((bounds: any, coord: any) => {
-                return bounds.extend(coord);
-              }, new (await import('mapbox-gl')).default.LngLatBounds(coords[0], coords[0]));
-              
-              map.current.fitBounds(bounds, {
-                padding: 60,
-                duration: 1200,
-                essential: true,
-                maxZoom: 12
-              });
-            }
-          }
-        }
-
-        // Add stop points from async data
-        console.log('Checking async stop points:', { stopPoints, hasGetStopPointsData: !!getStopPointsData });
-        if (stopPoints === 'async' && getStopPointsData) {
-          try {
-            console.log('Calling getStopPointsData...');
-            const asyncStopPoints = await getStopPointsData();
-            console.log('Async stop points received:', asyncStopPoints);
-            
-            if (asyncStopPoints && asyncStopPoints.length > 0) {
-              const mapboxgl = (await import('mapbox-gl')).default;
-              asyncStopPoints.forEach((stopPoint, index) => {
-                console.log('Processing async stop point:', stopPoint);
-                if (stopPoint.coordinates && stopPoint.coordinates.length > 0) {
-                  const coords = stopPoint.coordinates;
-                  const avgLng = coords.reduce((sum, coord) => sum + coord[0], 0) / coords.length;
-                  const avgLat = coords.reduce((sum, coord) => sum + coord[1], 0) / coords.length;
-                  const isFuelStop = stopPoint.sourceType === 'fuel_stop';
-                  const sourceId = `async-stop-${stopPoint.id}`;
-                  const layerId = `async-stop-layer-${stopPoint.id}`;
-
-                  if (map.current.getLayer(`${layerId}-border`)) {
-                    map.current.removeLayer(`${layerId}-border`);
-                  }
-                  if (map.current.getLayer(layerId)) {
-                    map.current.removeLayer(layerId);
-                  }
-                  if (map.current.getSource(sourceId)) {
-                    map.current.removeSource(sourceId);
-                  }
-
-                  if (coords.length >= 3) {
-                    map.current.addSource(sourceId, {
-                      type: 'geojson',
-                      data: {
-                        type: 'Feature',
-                        properties: {
-                          name: stopPoint.name
-                        },
-                        geometry: {
-                          type: 'Polygon',
-                          coordinates: [coords]
-                        }
-                      }
-                    });
-
-                    map.current.addLayer({
-                      id: layerId,
-                      type: 'fill',
-                      source: sourceId,
-                      paint: {
-                        'fill-color': isFuelStop ? '#22c55e' : '#f97316',
-                        'fill-opacity': isFuelStop ? 0.22 : 0.2
-                      }
-                    });
-
-                    map.current.addLayer({
-                      id: `${layerId}-border`,
-                      type: 'line',
-                      source: sourceId,
-                      paint: {
-                        'line-color': isFuelStop ? '#15803d' : '#ea580c',
-                        'line-width': 2
-                      }
-                    });
-                  }
-                  
-                  console.log('Adding marker at:', avgLng, avgLat);
-                  if (map.current) {
-                    const marker = new mapboxgl.Marker({ color: isFuelStop ? 'green' : 'orange' })
-                      .setLngLat([avgLng, avgLat])
-                      .setPopup(new mapboxgl.Popup().setText(`${isFuelStop ? 'Fuel Stop' : 'Stop'}: ${stopPoint.name}`))
-                      .addTo(map.current);
-                    markersRef.current.push(marker);
-                  }
-                }
-              });
-            }
-          } catch (error) {
-            console.error('Error loading async stop points:', error);
-          }
-        }
-        
-        // Add stop points if available
-        console.log('Stop points to render:', stopPoints);
-        if (Array.isArray(stopPoints) && stopPoints.length > 0) {
-          stopPoints.forEach((stopPoint, index) => {
-            console.log('Processing stop point:', stopPoint);
-            if (stopPoint.coordinates && stopPoint.coordinates.length > 0) {
-              // Add stop point zones as polygons
-              const sourceId = `stop-point-${stopPoint.id}`;
-              const layerId = `stop-point-layer-${stopPoint.id}`;
-              
-              // Remove existing layers
-              if (map.current.getLayer(`${layerId}-border`)) {
-                map.current.removeLayer(`${layerId}-border`);
-              }
-              if (map.current.getLayer(layerId)) {
-                map.current.removeLayer(layerId);
-              }
-              if (map.current.getSource(sourceId)) {
-                map.current.removeSource(sourceId);
-              }
-
-              console.log('Adding polygon with coordinates:', stopPoint.coordinates);
-              if (!map.current.isStyleLoaded()) return;
-              map.current.addSource(sourceId, {
-                type: 'geojson',
-                data: {
-                  type: 'Feature',
-                  properties: {
-                    name: stopPoint.name
-                  },
-                  geometry: {
-                    type: 'Polygon',
-                    coordinates: [stopPoint.coordinates]
-                  }
-                }
-              });
-
-              const isFuelStop = stopPoint.sourceType === 'fuel_stop';
-              map.current.addLayer({
-                id: layerId,
-                type: 'fill',
-                source: sourceId,
-                paint: {
-                  'fill-color': isFuelStop ? '#22c55e' : `hsl(${(index * 60) % 360}, 70%, 50%)`,
-                  'fill-opacity': isFuelStop ? 0.22 : 0.4
-                }
-              });
-
-              // Add border
-              map.current.addLayer({
-                id: `${layerId}-border`,
-                type: 'line',
-                source: sourceId,
-                paint: {
-                  'line-color': isFuelStop ? '#15803d' : `hsl(${(index * 60) % 360}, 70%, 40%)`,
-                  'line-width': 2
-                }
-              });
-
-              // Add popup on click
-              map.current.on('click', layerId, async (e: any) => {
-                const mapboxgl = (await import('mapbox-gl')).default;
-                new mapboxgl.Popup()
-                  .setLngLat(e.lngLat)
-                  .setHTML(`<strong>${stopPoint.name}</strong><div style="font-size:12px;color:#64748b;">${isFuelStop ? 'Fuel Stop' : 'Stop Point'}</div>`)
-                  .addTo(map.current);
-              });
-            }
-          });
+        // Fit bounds
+        if (!bounds.isEmpty()) {
+          mapInstance.fitBounds(bounds, 60);
         }
 
       } catch (error) {
@@ -660,144 +282,152 @@ export function RoutePreviewMap({ origin, destination, originCoordinates, destin
     };
 
     return () => {
-      if (updateTimeoutRef.current) {
-        clearTimeout(updateTimeoutRef.current);
-      }
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
     };
   }, [mapLoaded, origin, destination, originCoordinates, destinationCoordinates, selectedClient, tripId, stopPoints, driverLocation, getStopPointsData, preserveOrder, routeData]);
 
+  const getMapboxRoute = async (originCoords: any, destCoords: any, stopPointsList: any[] = []) => {
+    if (!originCoords || !destCoords) return null;
+
+    const cacheKey = `mapbox-route-${originCoords.lat}-${originCoords.lng}-${destCoords.lat}-${destCoords.lng}-${stopPointsList.length}`;
+    if (cacheRef.current.has(cacheKey)) return cacheRef.current.get(cacheKey);
+
+    try {
+      let coordinates = `${originCoords.lng},${originCoords.lat}`;
+
+      if (stopPointsList.length > 0) {
+        const waypoints = stopPointsList.map(point => {
+          const coords = point.coordinates;
+          const avgLng = coords.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coords.length;
+          const avgLat = coords.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coords.length;
+          return `${avgLng},${avgLat}`;
+        }).filter((wp: string) => wp && !wp.includes('NaN'));
+        if (waypoints.length > 0) {
+          coordinates += `;${waypoints.join(';')}`;
+        }
+      }
+
+      coordinates += `;${destCoords.lng},${destCoords.lat}`;
+
+      const endpoint = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordinates}`;
+
+      const response = await fetch(`/api/mapbox?endpoint=${encodeURIComponent(endpoint)}&geometries=geojson&overview=full&exclude=ferry`);
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      const geometry = data.routes?.[0]?.geometry || null;
+      if (geometry) cacheRef.current.set(cacheKey, geometry);
+      return geometry;
+    } catch (error) {
+      console.error('Mapbox route error:', error);
+      return null;
+    }
+  };
+
+  const addStopPointToMap = (stopPoint: any, index: number, mapInstance: google.maps.Map, bounds: google.maps.LatLngBounds) => {
+    if (!stopPoint.coordinates?.length) return;
+
+    const coords = stopPoint.coordinates;
+    const avgLng = coords.reduce((sum: number, c: number[]) => sum + c[0], 0) / coords.length;
+    const avgLat = coords.reduce((sum: number, c: number[]) => sum + c[1], 0) / coords.length;
+    const isFuelStop = stopPoint.sourceType === 'fuel_stop';
+
+    if (coords.length >= 3) {
+      const polygon = new window.google.maps.Polygon({
+        paths: coords.map((c: number[]) => ({ lat: c[1], lng: c[0] })),
+        map: mapInstance,
+        strokeColor: isFuelStop ? '#15803d' : `hsl(${(index * 60) % 360}, 70%, 40%)`,
+        strokeOpacity: 0.8,
+        strokeWeight: 2,
+        fillColor: isFuelStop ? '#22c55e' : `hsl(${(index * 60) % 360}, 70%, 50%)`,
+        fillOpacity: isFuelStop ? 0.22 : 0.4,
+      });
+      overlaysRef.current.push(polygon);
+    } else {
+      const lngs = coords.map((c: number[]) => c[0]);
+      const lats = coords.map((c: number[]) => c[1]);
+      const radiusKm = Math.max(
+        (Math.max(...lngs) - Math.min(...lngs)) * 111.32 * Math.cos(avgLat * Math.PI / 180),
+        (Math.max(...lats) - Math.min(...lats)) * 110.54
+      ) / 2;
+
+      const circle = new window.google.maps.Circle({
+        center: { lat: avgLat, lng: avgLng },
+        radius: Math.max(100, radiusKm * 1000),
+        map: mapInstance,
+        strokeColor: isFuelStop ? '#15803d' : '#4682B4',
+        strokeOpacity: 0.8,
+        strokeWeight: 2,
+        fillColor: isFuelStop ? '#22c55e' : '#87CEEB',
+        fillOpacity: isFuelStop ? 0.22 : 0.3,
+      });
+      overlaysRef.current.push(circle);
+    }
+
+    const marker = new window.google.maps.Marker({
+      position: { lat: avgLat, lng: avgLng },
+      map: mapInstance,
+      title: `${isFuelStop ? 'Fuel Stop' : 'Stop'} ${index + 1}: ${stopPoint.name}`,
+      icon: {
+        path: window.google.maps.SymbolPath.CIRCLE,
+        scale: 6,
+        fillColor: isFuelStop ? '#16a34a' : '#ff6b35',
+        fillOpacity: 0.8,
+        strokeColor: '#ffffff',
+        strokeWeight: 2,
+      },
+    });
+    markersRef.current.push(marker);
+    bounds.extend({ lat: avgLat, lng: avgLng });
+  };
+
+  const loadHighRiskAreas = async (mapInstance: google.maps.Map) => {
+    try {
+      const response = await fetch('/api/high-risk-areas');
+      if (!response.ok) return;
+      const { data: areas } = await response.json();
+      areas?.forEach((area: any) => {
+        if (!area.coordinates) return;
+        const coords = area.coordinates.split(' ')
+          .filter((c: string) => c.trim())
+          .map((c: string) => { const [lng, lat] = c.split(','); return [parseFloat(lng), parseFloat(lat)]; })
+          .filter((c: number[]) => !isNaN(c[0]) && !isNaN(c[1]));
+        if (coords.length >= 3) {
+          const polygon = new window.google.maps.Polygon({
+            paths: coords.map((c: number[]) => ({ lat: c[1], lng: c[0] })),
+            map: mapInstance,
+            strokeColor: '#ef4444',
+            strokeOpacity: 0.8,
+            strokeWeight: 2,
+            fillColor: '#ef4444',
+            fillOpacity: 0.3,
+          });
+          overlaysRef.current.push(polygon);
+        }
+      });
+    } catch (error) {
+      console.error('High-risk areas error:', error);
+    }
+  };
+
   const geocodeLocation = async (location: string) => {
     const cacheKey = `geocode-${location}`;
-    if (cacheRef.current.has(cacheKey)) {
-      return cacheRef.current.get(cacheKey);
-    }
-    
+    if (cacheRef.current.has(cacheKey)) return cacheRef.current.get(cacheKey);
+
     try {
       const response = await fetch(`/api/location-lookup?q=${encodeURIComponent(location)}`);
       const data = await response.json();
       const firstResult = Array.isArray(data?.results) ? data.results[0] : null;
-
       if (firstResult?.coordinates?.length >= 2) {
         const [lng, lat] = firstResult.coordinates;
         const result = { lat, lng };
         cacheRef.current.set(cacheKey, result);
         return result;
       }
-
       cacheRef.current.set(cacheKey, null);
       return null;
     } catch (error) {
       console.error('Geocoding error:', error);
-      return null;
-    }
-  };
-
-  const loadMapOverlays = async () => {
-    if (!map.current) return;
-    
-    try {
-      // Traffic overlay
-      if (!map.current.getSource('mapbox-traffic')) {
-        map.current.addSource('mapbox-traffic', {
-          type: 'vector',
-          url: 'mapbox://mapbox.mapbox-traffic-v1'
-        });
-      }
-      
-      if (!map.current.getLayer('traffic')) {
-        map.current.addLayer({
-          id: 'traffic',
-          type: 'line',
-          source: 'mapbox-traffic',
-          'source-layer': 'traffic',
-          paint: {
-            'line-width': 2,
-            'line-color': [
-              'case',
-              ['==', ['get', 'congestion'], 'low'], '#00ff00',
-              ['==', ['get', 'congestion'], 'moderate'], '#ffff00', 
-              ['==', ['get', 'congestion'], 'heavy'], '#ff8800',
-              ['==', ['get', 'congestion'], 'severe'], '#ff0000',
-              '#888888'
-            ]
-          }
-        });
-      }
-      
-      // High-risk areas
-      const response = await fetch('/api/high-risk-areas');
-      if (response.ok) {
-        const { data: areas } = await response.json();
-        areas?.forEach((area: any) => {
-          if (!area.coordinates || !map.current) return;
-          
-          const coords = area.coordinates
-            .split(' ')
-            .filter((coord: string) => coord.trim())
-            .map((coord: string) => {
-              const [lng, lat] = coord.split(',');
-              return [parseFloat(lng), parseFloat(lat)];
-            })
-            .filter((coord: number[]) => !isNaN(coord[0]) && !isNaN(coord[1]));
-          
-          if (coords.length >= 3) {
-            const sourceId = `risk-${area.id}`;
-            
-            if (!map.current.getSource(sourceId)) {
-              map.current.addSource(sourceId, {
-                type: 'geojson',
-                data: {
-                  type: 'Feature',
-                  geometry: {
-                    type: 'Polygon',
-                    coordinates: [coords.concat([coords[0]])]
-                  }
-                }
-              });
-              
-              map.current.addLayer({
-                id: `${sourceId}-fill`,
-                type: 'fill',
-                source: sourceId,
-                paint: {
-                  'fill-color': '#ef4444',
-                  'fill-opacity': 0.3
-                }
-              });
-            }
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Map overlays error:', error);
-    }
-  };
-
-  const getRoute = async (origin: any, destination: any, stopPoints: any[] = []) => {
-    try {
-      let coordinates = `${origin.lng},${origin.lat}`;
-      
-      if (stopPoints && stopPoints.length > 0) {
-        const waypoints = stopPoints.map(point => {
-          const coords = point.coordinates;
-          const avgLng = coords.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coords.length;
-          const avgLat = coords.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coords.length;
-          return `${avgLng},${avgLat}`;
-        });
-        coordinates += `;${waypoints.join(';')}`;
-      }
-      
-      coordinates += `;${destination.lng},${destination.lat}`;
-      
-      // Always use directions API for reliable routing
-      const endpoint = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordinates}`;
-      
-      const response = await fetch(`/api/mapbox?endpoint=${encodeURIComponent(endpoint)}&geometries=geojson&overview=full&exclude=ferry`);
-      const data = await response.json();
-      
-      return data.routes?.[0]?.geometry;
-    } catch (error) {
-      console.error('Route error:', error);
       return null;
     }
   };
@@ -848,7 +478,7 @@ export function RoutePreviewMap({ origin, destination, originCoordinates, destin
             {selectedClient && (
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
-                <span>Client Route: {selectedClient.name}</span>
+                <span>Client: {selectedClient.name}{selectedClient?.coordinates ? ' (geozone)' : ''}</span>
               </div>
             )}
             {driverLocation && (
@@ -859,7 +489,7 @@ export function RoutePreviewMap({ origin, destination, originCoordinates, destin
             )}
             <div className="flex items-center gap-1">
               <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-              <span>Main Route (Optimized)</span>
+              <span>Main Route (Mapbox)</span>
             </div>
             <div className="flex items-center gap-1">
               <div className="w-3 h-3 bg-red-500 rounded-full opacity-60"></div>
@@ -869,9 +499,14 @@ export function RoutePreviewMap({ origin, destination, originCoordinates, destin
               <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
               <span>Live Traffic</span>
             </div>
-
+            {selectedClient?.coordinates && (() => { try { const p = JSON.parse(selectedClient.coordinates); return Array.isArray(p) && p.length >= 3 } catch { return false } })() && (
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 bg-purple-500 rounded-full opacity-40"></div>
+                <span>Client Geozone</span>
+              </div>
+            )}
           </div>
-          
+
           {Array.isArray(stopPoints) && stopPoints.length > 0 && (
             <div className="mt-2">
               <h4 className="text-sm font-medium text-gray-700 mb-2">Selected Stop Points:</h4>
@@ -891,8 +526,6 @@ export function RoutePreviewMap({ origin, destination, originCoordinates, destin
               </div>
             </div>
           )}
-          
-
         </div>
       </CardContent>
     </Card>

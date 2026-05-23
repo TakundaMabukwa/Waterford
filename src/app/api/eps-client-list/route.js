@@ -12,7 +12,7 @@ export async function GET() {
     while (true) {
       const { data, error } = await supabase
         .from('eps_client_list')
-        .select('id, name, address, city, state, country, client_id, contact_person, contact_phone, contact_email, email, phone, status, industry, credit_limit, dormant_flag, postal_code, fax_number, registration_number, registration_name, ck_number, tax_number, vat_number, operating_hours, capacity, notes, created_at, updated_at')
+        .select('id, name, address, city, state, country, client_id, contact_person, contact_phone, contact_email, email, phone, status, industry, credit_limit, dormant_flag, postal_code, fax_number, registration_number, registration_name, ck_number, tax_number, vat_number, operating_hours, capacity, notes, coordinates, coords, created_at, updated_at')
         .order('name')
         .range(from, from + batchSize - 1)
       
@@ -67,6 +67,8 @@ export async function POST(request) {
       city: cleanText(payload.city),
       state: cleanText(payload.state),
       country: cleanText(payload.country),
+      coords: payload.coords != null ? String(payload.coords) : null,
+      coordinates: payload.coordinates != null ? String(payload.coordinates) : null,
       contact_person: cleanText(payload.contact_person),
       contact_phone: cleanText(payload.contact_phone),
       contact_email: cleanText(payload.contact_email),
@@ -147,6 +149,8 @@ export async function PUT(request) {
       city: cleanText(payload.city),
       state: cleanText(payload.state),
       country: cleanText(payload.country),
+      coords: payload.coords != null ? String(payload.coords) : null,
+      coordinates: payload.coordinates != null ? String(payload.coordinates) : null,
       contact_person: cleanText(payload.contact_person),
       contact_phone: cleanText(payload.contact_phone),
       contact_email: cleanText(payload.contact_email),

@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { LocationAutocomplete } from '@/components/ui/location-autocomplete'
+import { useGoogleMaps } from '@/hooks/use-google-maps'
 
 type Point = { lng: number; lat: number }
 type LocationLookupSelection = {
@@ -21,45 +22,6 @@ type LocationLookupSelection = {
   state?: string
   country?: string
   type?: string
-}
-
-const MAPBOX_SCRIPT_ID = 'fuel-stop-mapbox-js'
-const MAPBOX_STYLE_ID = 'fuel-stop-mapbox-css'
-
-const ensureMapboxAssets = async () => {
-  if ((window as any).mapboxgl) return (window as any).mapboxgl
-
-  if (!document.getElementById(MAPBOX_STYLE_ID)) {
-    const link = document.createElement('link')
-    link.id = MAPBOX_STYLE_ID
-    link.href = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css'
-    link.rel = 'stylesheet'
-    document.head.appendChild(link)
-  }
-
-  if (document.getElementById(MAPBOX_SCRIPT_ID)) {
-    await new Promise<void>((resolve, reject) => {
-      const script = document.getElementById(MAPBOX_SCRIPT_ID) as HTMLScriptElement
-      if ((window as any).mapboxgl) {
-        resolve()
-        return
-      }
-      script.addEventListener('load', () => resolve(), { once: true })
-      script.addEventListener('error', () => reject(new Error('Failed to load Mapbox')), { once: true })
-    })
-    return (window as any).mapboxgl
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    const script = document.createElement('script')
-    script.id = MAPBOX_SCRIPT_ID
-    script.src = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Failed to load Mapbox'))
-    document.head.appendChild(script)
-  })
-
-  return (window as any).mapboxgl
 }
 
 export function FuelStopForm({
@@ -78,11 +40,13 @@ export function FuelStopForm({
   initialRecord?: any
 }) {
   const supabase = useMemo(() => createClient(), [])
-  const mapRef = useRef<any>(null)
+  const { loaded: mapsLoaded } = useGoogleMaps()
+  const mapRef = useRef<google.maps.Map | null>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
-  const centerMarkerRef = useRef<any>(null)
+  const centerMarkerRef = useRef<google.maps.Marker | null>(null)
   const drawModeRef = useRef<'station' | 'polygon'>('station')
   const centerPointRef = useRef<Point | null>(null)
+  const overlaysRef = useRef<(google.maps.Polygon | google.maps.Polyline | google.maps.Marker)[]>([])
   const [isSaving, setIsSaving] = useState(false)
   const [isLocating, setIsLocating] = useState(false)
   const [locationQuery, setLocationQuery] = useState('')
@@ -127,6 +91,7 @@ export function FuelStopForm({
     if (!geozoneName) {
       setGeozoneName(selection.name || 'Fuel Stop Zone')
     }
+    reverseGeocode(lat, lng)
   }
 
   const parsePoint = (value: any): Point | null => {
@@ -199,176 +164,158 @@ export function FuelStopForm({
     centerPointRef.current = centerPoint
   }, [centerPoint])
 
-  useEffect(() => {
-    let mounted = true
+  const clearOverlays = () => {
+    overlaysRef.current.forEach((o) => o.setMap(null))
+    overlaysRef.current = []
+  }
 
-    const initialize = async () => {
-      const mapboxgl = await ensureMapboxAssets()
-      if (!mounted || !mapContainerRef.current || !mapboxgl) return
-      mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
+  const geocodeRef = useRef<google.maps.Geocoder | null>(null)
 
-      if (!mapRef.current) {
-        mapRef.current = new mapboxgl.Map({
-          container: mapContainerRef.current,
-          style: 'mapbox://styles/mapbox/streets-v12',
-          center: [28.0473, -26.2041],
-          zoom: 4.8,
-        })
-        mapRef.current.addControl(new mapboxgl.NavigationControl({ showCompass: true }), 'top-right')
-
-        mapRef.current.on('load', () => {
-          if (!mapRef.current.getSource('fuel-stop-geozone')) {
-            mapRef.current.addSource('fuel-stop-geozone', {
-              type: 'geojson',
-              data: {
-                type: 'FeatureCollection',
-                features: [],
-              },
-            })
-
-            mapRef.current.addLayer({
-              id: 'fuel-stop-geozone-fill',
-              type: 'fill',
-              source: 'fuel-stop-geozone',
-              paint: {
-                'fill-color': '#2563eb',
-                'fill-opacity': 0.18,
-              },
-            })
-
-            mapRef.current.addLayer({
-              id: 'fuel-stop-geozone-outline',
-              type: 'line',
-              source: 'fuel-stop-geozone',
-              filter: ['==', ['geometry-type'], 'Polygon'],
-              paint: {
-                'line-color': '#1d4ed8',
-                'line-width': 3,
-              },
-            })
-
-            mapRef.current.addLayer({
-              id: 'fuel-stop-geozone-path',
-              type: 'line',
-              source: 'fuel-stop-geozone',
-              filter: ['==', ['geometry-type'], 'LineString'],
-              paint: {
-                'line-color': '#2563eb',
-                'line-width': 2,
-                'line-dasharray': [2, 2],
-              },
-            })
-
-            mapRef.current.addLayer({
-              id: 'fuel-stop-geozone-points',
-              type: 'circle',
-              source: 'fuel-stop-geozone',
-              filter: ['==', ['geometry-type'], 'Point'],
-              paint: {
-                'circle-radius': 5,
-                'circle-color': '#ffffff',
-                'circle-stroke-width': 2,
-                'circle-stroke-color': '#1d4ed8',
-              },
-            })
-          }
-        })
-
-        mapRef.current.on('click', (event: any) => {
-          const clickedPoint = {
-            lng: Number(event.lngLat.lng.toFixed(6)),
-            lat: Number(event.lngLat.lat.toFixed(6)),
-          }
-
-          if (drawModeRef.current === 'station' || !centerPointRef.current) {
-            setCenterPoint(clickedPoint)
-            setLocationQuery(`${clickedPoint.lat}, ${clickedPoint.lng}`)
-            if (!name) {
-              setName('Fuel Station')
-            }
-            if (!geozoneName) {
-              setGeozoneName('Fuel Station Zone')
-            }
-            return
-          }
-
-          setPolygonPoints((prev) => [...prev, clickedPoint])
-        })
+  const reverseGeocode = async (lat: number, lng: number) => {
+    if (!geocodeRef.current) {
+      geocodeRef.current = new google.maps.Geocoder()
+    }
+    try {
+      const result = await geocodeRef.current.geocode({ location: { lat, lng } })
+      const res = result.results[0]
+      if (!res) return
+      const addr = res.formatted_address || ''
+      let city = '', state = '', country = ''
+      for (const comp of res.address_components || []) {
+        if (comp.types.includes('locality') || comp.types.includes('sublocality')) city = comp.long_name
+        if (comp.types.includes('administrative_area_level_1')) state = comp.long_name
+        if (comp.types.includes('country')) country = comp.long_name
       }
+      setAddress(addr)
+      if (city) setCity(city)
+      if (state) setState(state)
+      if (country) setCountry(country)
+    } catch {
+      // silent
     }
-
-    initialize().catch((mapError) => {
-      console.error('Error initialising fuel stop map:', mapError)
-      setError('Map failed to load')
-    })
-
-    return () => {
-      mounted = false
-    }
-  }, [geozoneName, name])
+  }
 
   useEffect(() => {
-    if (!mapRef.current) return
+    if (!mapsLoaded || !mapContainerRef.current) return
+
+    if (!mapRef.current) {
+      mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
+        center: { lat: -26.2041, lng: 28.0473 },
+        zoom: 4.8,
+        mapTypeId: window.google.maps.MapTypeId.ROADMAP,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+      })
+
+      mapRef.current.addListener('click', (event: google.maps.MapMouseEvent) => {
+        if (!event.latLng) return
+        const clickLat = Number(event.latLng.lat().toFixed(6))
+        const clickLng = Number(event.latLng.lng().toFixed(6))
+        const clickedPoint = { lng: clickLng, lat: clickLat }
+
+        if (drawModeRef.current === 'station' || !centerPointRef.current) {
+          setCenterPoint(clickedPoint)
+          setLocationQuery(`${clickLat}, ${clickLng}`)
+          if (!name) {
+            setName('Fuel Station')
+          }
+          if (!geozoneName) {
+            setGeozoneName('Fuel Station Zone')
+          }
+          reverseGeocode(clickLat, clickLng)
+          return
+        }
+
+        setPolygonPoints((prev) => [...prev, clickedPoint])
+      })
+    }
+  }, [mapsLoaded])
+
+  useEffect(() => {
     const map = mapRef.current
-    const mapboxgl = (window as any).mapboxgl
-    if (!mapboxgl) return
+    if (!map || !mapsLoaded) return
 
     if (centerMarkerRef.current) {
-      centerMarkerRef.current.remove()
+      centerMarkerRef.current.setMap(null)
       centerMarkerRef.current = null
     }
 
     if (centerPoint) {
-      centerMarkerRef.current = new mapboxgl.Marker({ color: '#dc2626' })
-        .setLngLat([centerPoint.lng, centerPoint.lat])
-        .addTo(map)
-      map.flyTo({ center: [centerPoint.lng, centerPoint.lat], zoom: 12, essential: true })
+      centerMarkerRef.current = new google.maps.Marker({
+        position: { lat: centerPoint.lat, lng: centerPoint.lng },
+        map,
+        draggable: false,
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: '#dc2626',
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 2,
+        },
+      })
+      map.setCenter({ lat: centerPoint.lat, lng: centerPoint.lng })
+      map.setZoom(12)
+    }
+  }, [centerPoint, mapsLoaded])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapsLoaded) return
+
+    clearOverlays()
+
+    const points = polygonPoints
+    if (points.length === 0) return
+
+    points.forEach((point, index) => {
+      const marker = new google.maps.Marker({
+        position: { lat: point.lat, lng: point.lng },
+        map,
+        label: {
+          text: String(index + 1),
+          color: '#1d4ed8',
+          fontSize: '11px',
+          fontWeight: 'bold',
+        },
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 6,
+          fillColor: '#ffffff',
+          fillOpacity: 1,
+          strokeColor: '#1d4ed8',
+          strokeWeight: 2,
+        },
+      })
+      overlaysRef.current.push(marker as any)
+    })
+
+    if (points.length >= 2) {
+      const path = points.map((p) => ({ lat: p.lat, lng: p.lng }))
+      const polyline = new google.maps.Polyline({
+        path,
+        map,
+        strokeColor: '#2563eb',
+        strokeWeight: 2,
+        strokeOpacity: 0.8,
+      })
+      overlaysRef.current.push(polyline as any)
     }
 
-    if (!map.getSource('fuel-stop-geozone')) return
-
-    const closedPolygon = polygonPoints.length >= 3 ? [...polygonPoints, polygonPoints[0]].map((point) => [point.lng, point.lat]) : []
-    const polygonPath = polygonPoints.length >= 2 ? polygonPoints.map((point) => [point.lng, point.lat]) : []
-    const vertexFeatures = polygonPoints.map((point, index) => ({
-      type: 'Feature',
-      properties: { index: index + 1 },
-      geometry: {
-        type: 'Point',
-        coordinates: [point.lng, point.lat],
-      },
-    }))
-
-    ;(map.getSource('fuel-stop-geozone') as any).setData({
-      type: 'FeatureCollection',
-      features: [
-        ...vertexFeatures,
-        ...(polygonPath.length
-          ? [
-            {
-              type: 'Feature',
-              properties: {},
-              geometry: {
-                type: 'LineString',
-                coordinates: polygonPath,
-              },
-            },
-          ]
-          : []),
-        ...(closedPolygon.length
-          ? [
-              {
-                type: 'Feature',
-                properties: {},
-                geometry: {
-                  type: 'Polygon',
-                  coordinates: [closedPolygon],
-                },
-              },
-            ]
-          : []),
-      ],
-    })
-  }, [centerPoint, polygonPoints])
+    if (points.length >= 3) {
+      const path = points.map((p) => ({ lat: p.lat, lng: p.lng }))
+      const polygon = new google.maps.Polygon({
+        paths: path,
+        map,
+        fillColor: '#2563eb',
+        fillOpacity: 0.18,
+        strokeColor: '#1d4ed8',
+        strokeWeight: 3,
+      })
+      overlaysRef.current.push(polygon as any)
+    }
+  }, [polygonPoints, mapsLoaded])
 
   const handleLocate = async () => {
     if (!locationQuery) return
