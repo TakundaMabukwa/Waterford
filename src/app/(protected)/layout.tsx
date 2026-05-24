@@ -347,7 +347,7 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
               </span>
             </div>
             <div className="flex items-center gap-4">
-              <AlertBellNotification />
+              {userRole === 'admin' && <AlertBellNotification />}
               <DateTimeDisplay />
             </div>
           </div>
@@ -361,7 +361,7 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
         </main>
         
         {/* Elevation Notification - Only for admin users */}
-        <ElevationNotification userRole={userRole} userId={userId} />
+        {userRole === 'admin' && <ElevationNotification userRole={userRole} userId={userId} />}
       </div>
       </div>
     </VideoAlertsProvider>

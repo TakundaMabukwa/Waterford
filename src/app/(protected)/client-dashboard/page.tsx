@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { Loader2, PackageSearch, Clock3, CircleCheckBig, AlertTriangle, TrendingUp, MapPin, Truck, User } from "lucide-react";
 
 type ClientTrip = {
@@ -21,6 +23,7 @@ type ClientTrip = {
   driver: string | null;
   vehicle: string | null;
   notes: string | null;
+  clients_notes?: unknown;
 };
 
 type ClientProfile = {
@@ -43,6 +46,17 @@ type TripSourceRow = {
   clientName?: string | null;
 };
 
+type TripJsonClientDetails = {
+  client_id?: string | null;
+  name?: string | null;
+};
+
+type ClientNote = {
+  message: string;
+  created_at: string | null;
+  author: string | null;
+};
+
 const statusTone = (status: string) => {
   const normalized = (status || "").toLowerCase();
   if (normalized.includes("complete") || normalized.includes("done")) return "bg-emerald-100 text-emerald-800";
@@ -56,21 +70,119 @@ export default function ClientDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<ClientProfile | null>(null);
   const [trips, setTrips] = useState<ClientTrip[]>([]);
+  const [noteInputs, setNoteInputs] = useState<Record<number, string>>({});
+  const [savingNotes, setSavingNotes] = useState<Record<number, boolean>>({});
+  const [noteErrors, setNoteErrors] = useState<Record<number, string>>({});
+
+  const normalizeTrips = (tripRows: ClientTrip[]) =>
+    tripRows.map((trip: any) => ({
+      ...trip,
+      start_date: trip.start_date ?? trip.startdate ?? null,
+      end_date: trip.end_date ?? trip.enddate ?? null,
+      selected_client: trip.selected_client ?? trip.selectedclient ?? null,
+      client_details: trip.client_details ?? trip.clientdetails ?? null,
+      clients_notes: trip.clients_notes ?? trip.clientsnotes ?? [],
+    }));
+
+  const parseClientNotes = (trip: ClientTrip): ClientNote[] => {
+    const rawNotes = (trip as any).clients_notes ?? [];
+    const parsedRaw = typeof rawNotes === 'string'
+      ? (() => {
+        try {
+          return JSON.parse(rawNotes);
+        } catch {
+          return [];
+        }
+      })()
+      : rawNotes;
+
+    const asArray = Array.isArray(parsedRaw)
+      ? parsedRaw
+      : parsedRaw && typeof parsedRaw === 'object'
+        ? [parsedRaw]
+        : [];
+
+    return asArray
+      .map((note: any) => {
+        const message = String(note?.message ?? note?.note ?? note?.text ?? '').trim();
+        if (!message) return null;
+
+        return {
+          message,
+          created_at: note?.created_at ?? note?.timestamp ?? null,
+          author: note?.author ?? note?.email ?? note?.by ?? null,
+        } as ClientNote;
+      })
+      .filter((note): note is ClientNote => Boolean(note));
+  };
+
+  const handleAddClientNote = async (trip: ClientTrip) => {
+    const noteText = String(noteInputs[trip.id] || '').trim();
+    if (!noteText) return;
+
+    setSavingNotes((prev) => ({ ...prev, [trip.id]: true }));
+    setNoteErrors((prev) => ({ ...prev, [trip.id]: '' }));
+
+    const existingNotes = parseClientNotes(trip);
+    const nextNotes = [
+      ...existingNotes,
+      {
+        message: noteText,
+        created_at: new Date().toISOString(),
+        author: profile?.email || profile?.company || 'client',
+      },
+    ];
+
+    const { error } = await supabase
+      .from('trips')
+      .update({ clients_notes: nextNotes, updated_at: new Date().toISOString() })
+      .eq('id', trip.id);
+
+    if (error) {
+      setNoteErrors((prev) => ({ ...prev, [trip.id]: error.message || 'Failed to save note' }));
+      setSavingNotes((prev) => ({ ...prev, [trip.id]: false }));
+      return;
+    }
+
+    setTrips((prev) => prev.map((item) => (item.id === trip.id ? ({ ...item, clients_notes: nextNotes } as ClientTrip) : item)));
+    setNoteInputs((prev) => ({ ...prev, [trip.id]: '' }));
+    setSavingNotes((prev) => ({ ...prev, [trip.id]: false }));
+  };
+
+  const matchesTripKey = (trip: any, key: string) => {
+    const selectedClient = trip.selected_client ?? trip.selectedclient ?? null;
+    if (String(selectedClient || '').trim() === key) {
+      return true;
+    }
+
+    const clientDetails = (trip.client_details ?? trip.clientdetails ?? null) as TripJsonClientDetails | string | null;
+    const parsedClientDetails = typeof clientDetails === 'string' ? (() => {
+      try {
+        return JSON.parse(clientDetails) as TripJsonClientDetails;
+      } catch {
+        return null;
+      }
+    })() : clientDetails;
+
+    return String(parsedClientDetails?.client_id || '').trim() === key || String(parsedClientDetails?.name || '').trim() === key;
+  };
 
   const fetchTripsForKey = async (key: string) => {
-    const tripColumns = 'id, trip_id, selected_client, status, start_date, end_date, origin, destination, route, driver, vehicle, notes, client_details';
+    const tripColumns = '*';
 
-    const [selectedClientResult, clientIdResult, clientNameResult] = await Promise.all([
-      supabase.from('trips').select(tripColumns).eq('selected_client', key).order('id', { ascending: false }),
-      supabase.from('trips').select(tripColumns).contains('client_details', { client_id: key }).order('id', { ascending: false }),
-      supabase.from('trips').select(tripColumns).contains('client_details', { name: key }).order('id', { ascending: false }),
-    ]);
+    console.log('[ClientDashboard] Searching trips for key:', key);
 
-    return [
-      ...(selectedClientResult.data || []),
-      ...(clientIdResult.data || []),
-      ...(clientNameResult.data || []),
-    ] as ClientTrip[];
+    const { data, error } = await supabase
+      .from('trips')
+      .select(tripColumns)
+      .order('id', { ascending: false });
+
+    if (error) {
+      console.error('[ClientDashboard] Trip query failed for key:', key, error);
+      return [] as ClientTrip[];
+    }
+
+    return (data || []).filter((trip) => matchesTripKey(trip, key)) as ClientTrip[];
   };
 
   useEffect(() => {
@@ -96,19 +208,22 @@ export default function ClientDashboardPage() {
       const currentProfile = (userRow || null) as ClientProfile | null;
       setProfile(currentProfile);
 
-      const clientLookupKeys = Array.from(new Set([
+      const clientIdLookupKeys = Array.from(new Set([
         currentProfile?.cost_code,
-        currentProfile?.company,
         userMetadata.clientId,
+      ].filter((value): value is string => Boolean(value && value.trim()))));
+
+      const clientNameLookupKeys = Array.from(new Set([
+        currentProfile?.company,
         userMetadata.clientName,
       ].filter((value): value is string => Boolean(value && value.trim()))));
 
       let clientIdentity: ClientIdentity | null = null;
 
-      for (const clientLookupKey of clientLookupKeys) {
+      for (const clientLookupKey of clientIdLookupKeys) {
         const { data: clientByCode } = await supabase
           .from('eps_client_list')
-          .select('id, name, client_id')
+          .select('*')
           .eq('client_id', clientLookupKey)
           .maybeSingle();
 
@@ -117,25 +232,37 @@ export default function ClientDashboardPage() {
         if (clientIdentity) {
           break;
         }
+      }
 
-        const { data: clientByName } = await supabase
-          .from('eps_client_list')
-          .select('id, name, client_id')
-          .eq('name', clientLookupKey)
-          .maybeSingle();
+      if (!clientIdentity) {
+        for (const clientLookupKey of clientNameLookupKeys) {
+          const { data: clientByName } = await supabase
+            .from('eps_client_list')
+            .select('*')
+            .eq('name', clientLookupKey)
+            .maybeSingle();
 
-        clientIdentity = (clientByName || null) as ClientIdentity | null;
+          clientIdentity = (clientByName || null) as ClientIdentity | null;
 
-        if (clientIdentity) {
-          break;
+          if (clientIdentity) {
+            break;
+          }
         }
       }
 
       const clientKeys = Array.from(new Set([
         clientIdentity?.client_id,
         clientIdentity?.name,
-        ...clientLookupKeys,
+        ...clientIdLookupKeys,
+        ...clientNameLookupKeys,
       ].filter((value): value is string => Boolean(value && value.trim()))));
+
+      console.log('[ClientDashboard] Resolved client lookup keys:', {
+        userId,
+        profile: currentProfile,
+        clientIdentity,
+        clientKeys,
+      });
 
       if (clientKeys.length === 0) {
         setTrips([]);
@@ -146,9 +273,16 @@ export default function ClientDashboardPage() {
       const tripRows = (await Promise.all(clientKeys.map((key) => fetchTripsForKey(key)))).flat();
       const uniqueTripRows = tripRows.filter((trip, index, allTrips) => allTrips.findIndex((candidate) => candidate.id === trip.id) === index);
 
-      setTrips(uniqueTripRows);
+      console.log('[ClientDashboard] Trip fetch results:', {
+        rawCount: tripRows.length,
+        uniqueCount: uniqueTripRows.length,
+        tripIds: uniqueTripRows.map((trip) => trip.trip_id),
+      });
+
+      setTrips(normalizeTrips(uniqueTripRows));
       setProfile({
         ...currentProfile,
+        email: (currentProfile as any)?.email || (userRow as any)?.email || "",
         company: clientIdentity?.name || currentProfile?.company || null,
         cost_code: clientIdentity?.client_id || currentProfile?.cost_code || null,
       });
@@ -372,6 +506,46 @@ export default function ClientDashboardPage() {
                         <div className="rounded-xl bg-white px-3 py-2">
                           <div className="text-[11px] uppercase tracking-wide text-slate-500">Status</div>
                           <Badge className={statusTone(trip.status)}>{trip.status}</Badge>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-800">Client Notes</p>
+                        <p className="text-xs text-slate-500">{parseClientNotes(trip).length} saved</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        {parseClientNotes(trip).length === 0 ? (
+                          <p className="text-xs text-slate-500">No client notes yet.</p>
+                        ) : (
+                          parseClientNotes(trip).slice(-3).reverse().map((note, index) => (
+                            <div key={`${trip.id}-note-${index}`} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                              <p>{note.message}</p>
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                {note.author || 'Client'} {note.created_at ? `- ${new Date(note.created_at).toLocaleString()}` : ''}
+                              </p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="mt-3 space-y-2">
+                        <Textarea
+                          value={noteInputs[trip.id] || ''}
+                          onChange={(event) => setNoteInputs((prev) => ({ ...prev, [trip.id]: event.target.value }))}
+                          placeholder="Add a client note for this trip"
+                          className="min-h-[90px]"
+                        />
+                        {noteErrors[trip.id] ? <p className="text-xs text-red-600">{noteErrors[trip.id]}</p> : null}
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            onClick={() => handleAddClientNote(trip)}
+                            disabled={savingNotes[trip.id] || !String(noteInputs[trip.id] || '').trim()}
+                          >
+                            {savingNotes[trip.id] ? 'Saving note...' : 'Send Note'}
+                          </Button>
                         </div>
                       </div>
                     </div>
