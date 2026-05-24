@@ -364,6 +364,7 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
   const [isFlashing, setIsFlashing] = useState(false)
   const [assignment, setAssignment] = useState<any>(null)
   const [dashboardOpen, setDashboardOpen] = useState(false)
+  const [noteTarget, setNoteTarget] = useState<'driver' | 'client'>('driver')
 
   // Check for unauthorized stops and trigger flash animation
   useEffect(() => {
