@@ -298,7 +298,7 @@ export default function ClientDashboardPage() {
   );
 
   const completedTrips = useMemo(
-    () => trips.filter((trip) => String(trip.status || '').toLowerCase().includes('complete')),
+    () => trips.filter((trip) => String(trip.status || '').toLowerCase().includes('delivered') || String(trip.status || '').toLowerCase().includes('completed') || String(trip.status || '').toLowerCase().includes('closed')),
     [trips],
   );
 
