@@ -535,7 +535,7 @@ export default function ClientDashboardPage() {
                           value={noteInputs[trip.id] || ''}
                           onChange={(event) => setNoteInputs((prev) => ({ ...prev, [trip.id]: event.target.value }))}
                           placeholder="Add a client note for this trip"
-                          className="min-h-[90px]"
+                          className="min-h-22.5"
                         />
                         {noteErrors[trip.id] ? <p className="text-xs text-red-600">{noteErrors[trip.id]}</p> : null}
                         <div className="flex justify-end">
