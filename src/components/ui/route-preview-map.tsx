@@ -289,10 +289,10 @@ export function RoutePreviewMap({ origin, destination, originCoordinates, destin
   const getMapboxRoute = async (originCoords: any, destCoords: any, stopPointsList: any[] = []) => {
     if (!originCoords || !destCoords) return null;
 
-    const cacheKey = `mapbox-route-${originCoords.lat}-${originCoords.lng}-${destCoords.lat}-${destCoords.lng}-${stopPointsList.length}`;
+    const cacheKey = `route-${originCoords.lat}-${originCoords.lng}-${destCoords.lat}-${destCoords.lng}-${stopPointsList.length}`;
     if (cacheRef.current.has(cacheKey)) return cacheRef.current.get(cacheKey);
 
-    try {
+    const tryMapbox = async () => {
       let coordinates = `${originCoords.lng},${originCoords.lat}`;
 
       if (stopPointsList.length > 0) {
@@ -313,13 +313,78 @@ export function RoutePreviewMap({ origin, destination, originCoordinates, destin
 
       const response = await fetch(`/api/mapbox?endpoint=${encodeURIComponent(endpoint)}&geometries=geojson&overview=full&exclude=ferry`);
       if (!response.ok) return null;
-
       const data = await response.json();
-      const geometry = data.routes?.[0]?.geometry || null;
+      return data.routes?.[0]?.geometry || null;
+    };
+
+    const tryGoogle = async () => {
+      const originStr = `${originCoords.lat},${originCoords.lng}`;
+      const destStr = `${destCoords.lat},${destCoords.lng}`;
+      let waypointStr = '';
+
+      if (stopPointsList.length > 0) {
+        const waypoints = stopPointsList.map(point => {
+          const coords = point.coordinates;
+          const avgLng = coords.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coords.length;
+          const avgLat = coords.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coords.length;
+          return `${avgLat},${avgLng}`;
+        }).filter(wp => wp && !wp.includes('NaN'));
+        if (waypoints.length > 0) {
+          waypointStr = waypoints.join('|');
+        }
+      }
+
+      let apiUrl = `/api/google-directions?origin=${encodeURIComponent(originStr)}&destination=${encodeURIComponent(destStr)}`;
+      if (waypointStr) {
+        apiUrl += `&waypoints=${encodeURIComponent(waypointStr)}`;
+      }
+
+      const response = await fetch(apiUrl);
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (data.status !== 'OK') return null;
+
+      const route = data.routes?.[0];
+      if (!route) return null;
+
+      const decoded = decodeGooglePolyline(route.overview_polyline?.points || '');
+      if (decoded.length === 0) return null;
+
+      const geometry = {
+        type: 'LineString',
+        coordinates: decoded.map((p: any) => [p.lng, p.lat]),
+      };
+      return geometry;
+    };
+
+    const decodeGooglePolyline = (encoded: string): Array<{lat: number; lng: number}> => {
+      if (!encoded || encoded === '') return [];
+      const poly: Array<{lat: number; lng: number}> = [];
+      let index = 0, lat = 0, lng = 0;
+      while (index < encoded.length) {
+        let b, shift = 0, result = 0;
+        do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+        const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+        lat += dlat;
+        shift = 0; result = 0;
+        do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+        const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+        lng += dlng;
+        poly.push({ lat: lat / 1e5, lng: lng / 1e5 });
+      }
+      return poly;
+    };
+
+    try {
+      let geometry = await tryMapbox();
+      if (!geometry) {
+        console.warn('Mapbox route failed, falling back to Google Directions');
+        geometry = await tryGoogle();
+      }
       if (geometry) cacheRef.current.set(cacheKey, geometry);
       return geometry;
     } catch (error) {
-      console.error('Mapbox route error:', error);
+      console.error('Route fetch error:', error);
       return null;
     }
   };

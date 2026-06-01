@@ -229,7 +229,13 @@ export function LocationAutocomplete({
         console.error('Location lookup error:', error)
       }
 
-      const mergedSuggestions = [...clientMatches, ...lookupPlaces]
+      const seen = new Set()
+      const mergedSuggestions = [...clientMatches, ...lookupPlaces].filter(s => {
+        const key = s.id || s.name
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
 
       setSuggestions(mergedSuggestions)
       setShowSuggestions(mergedSuggestions.length > 0)

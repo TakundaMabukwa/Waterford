@@ -84,7 +84,7 @@ export default function LoadPlanPage() {
   const [commodity, setCommodity] = useState('')
   const [costCenter, setCostCenter] = useState('')
   const [rate, setRate] = useState('0')
-  const [orderNumber, setOrderNumber] = useState(`ORD-${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`)
+  const [orderNumber, setOrderNumber] = useState('')
   const [comment, setComment] = useState('')
   // Address & ETA section
   const [etaPickup, setEtaPickup] = useState('')
@@ -2087,46 +2087,11 @@ export default function LoadPlanPage() {
   const handleCreate = async () => {
     setIsSubmitting(true)
     try {
-      // Save route to database for both trip types when creating the load
-      let routeId = null
-      if (loadingLocation && dropOffPoint) {
-        try {
-          const selectedStopPoints = await getSelectedStopPointsData()
-          const waypoints = selectedStopPoints.map(point => {
-            const coords = point.coordinates
-            const avgLng = coords.reduce((sum, coord) => sum + coord[0], 0) / coords.length
-            const avgLat = coords.reduce((sum, coord) => sum + coord[1], 0) / coords.length
-            return `${avgLng},${avgLat}`
-          })
-          
-          const routeResponse = await fetch('/api/routes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              origin: loadingLocation,
-              destination: dropOffPoint,
-              orderId: orderNumber,
-              pickupTime: etaPickup,
-              waypoints: waypoints
-            })
-          })
-          
-          if (routeResponse.ok) {
-            const routeData = await routeResponse.json()
-            routeId = routeData.route?.id
-          }
-        } catch (routeError) {
-          console.error('Error saving route:', routeError)
-          // Continue with load creation even if route saving fails
-        }
-      }
-      
       const currentAssignment = buildCurrentAssignment()
       const handedVehicleAssignments = buildHandoverAssignments()
 
       const tripData = {
         trip_id: `LOAD-${Date.now()}`,
-        ordernumber: orderNumber,
         rate: rate,
         cargo: commodity,
         origin: loadingLocation,
@@ -2135,7 +2100,6 @@ export default function LoadPlanPage() {
         status: 'pending',
         startdate: etaPickup ? etaPickup.split('T')[0] : null,
         enddate: etaDropoff ? etaDropoff.split('T')[0] : null,
-        route: routeId ? routeId.toString() : null, // Link to saved route
 
         clientdetails: selectedClient ? {
           name: selectedClient.name,
@@ -2187,7 +2151,7 @@ export default function LoadPlanPage() {
       }
       
       console.log('Inserting trip data:', tripData)
-      const { data, error } = await supabase.from('trips').insert([tripData])
+      const { data: tripResult, error } = await supabase.from('trips').insert([tripData]).select()
       if (error) {
         console.error('Supabase error details:', {
           message: error.message,
@@ -2197,7 +2161,63 @@ export default function LoadPlanPage() {
         })
         throw new Error(`Database error: ${error.message || 'Unknown error'}`)
       }
-      console.log('Trip created successfully:', data)
+      console.log('Trip created successfully:', tripResult)
+      const createdTrip = tripResult?.[0]
+      const newTripId = createdTrip?.id
+
+      // Get sequential order number only after trip insert succeeds
+      const orderRes = await fetch('/api/next-order-number', { method: 'POST' })
+      if (!orderRes.ok) throw new Error('Failed to get next order number')
+      const { orderNumber: nextNumber } = await orderRes.json()
+      const orderNumberStr = `WC${nextNumber}`
+      setOrderNumber(orderNumberStr)
+
+      // Update trip with the order number
+      const { error: updateError } = await supabase
+        .from('trips')
+        .update({ ordernumber: orderNumberStr })
+        .eq('id', newTripId)
+      if (updateError) {
+        console.error('Error updating trip order number:', updateError)
+      }
+
+      // Save route after trip is created
+      if (loadingLocation && dropOffPoint) {
+        try {
+          const selectedStopPoints = await getSelectedStopPointsData()
+          const waypoints = selectedStopPoints.map(point => {
+            const coords = point.coordinates
+            const avgLng = coords.reduce((sum, coord) => sum + coord[0], 0) / coords.length
+            const avgLat = coords.reduce((sum, coord) => sum + coord[1], 0) / coords.length
+            return `${avgLng},${avgLat}`
+          })
+          
+          const routeResponse = await fetch('/api/routes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              origin: loadingLocation,
+              destination: dropOffPoint,
+              orderId: orderNumberStr,
+              pickupTime: etaPickup,
+              waypoints: waypoints
+            })
+          })
+          
+          if (routeResponse.ok) {
+            const routeData = await routeResponse.json()
+            const routeId = routeData.route?.id
+            if (routeId) {
+              await supabase
+                .from('trips')
+                .update({ route: String(routeId) })
+                .eq('id', newTripId)
+            }
+          }
+        } catch (routeError) {
+          console.error('Error saving route:', routeError)
+        }
+      }
       
       // Mark assigned drivers as unavailable
       const assignedDriverIds = driverAssignments
@@ -2234,7 +2254,7 @@ export default function LoadPlanPage() {
       // Refresh data
       fetchData()
       
-      showToast('Load created successfully!', 'success')
+      showToast(`Load ${orderNumberStr} created successfully!`, 'success')
     } catch (err) {
       console.error('Error creating load:', err)
       showToast('Something went wrong while creating the load', 'error')
@@ -2399,7 +2419,7 @@ export default function LoadPlanPage() {
                     </div>
                     <div>
                       <Label htmlFor="orderNumber">Order Number</Label>
-                      <Input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} placeholder="Order Number" />
+                      <Input value={orderNumber} readOnly placeholder="Auto-assigned on create" />
                     </div>
                   </div>
                   <div className="space-y-4">
