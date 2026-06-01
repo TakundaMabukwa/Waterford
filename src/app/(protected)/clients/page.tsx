@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
+  Eye,
   Mail,
   MapPinned,
   Pencil,
@@ -10,14 +11,16 @@ import {
   Plus,
   Search,
   User2,
+  X,
 } from "lucide-react";
 
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { SecureButton } from "@/components/SecureButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -29,6 +32,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FuelStopForm } from "@/components/ui/fuel-stop-modal";
 import { ClientFormDialog } from "@/components/ui/client-form-dialog";
+import { useGoogleMaps } from "@/hooks/use-google-maps";
 import { toast } from "sonner";
 
 type ClientRecord = {
@@ -104,13 +108,22 @@ export default function ClientsPage() {
   const [isStopSheetOpen, setIsStopSheetOpen] = useState(false);
   const [editingStop, setEditingStop] = useState<FuelStopRecord | null>(null);
 
+  const [viewingClient, setViewingClient] = useState<ClientRecord | null>(null);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+  const [viewingStop, setViewingStop] = useState<FuelStopRecord | null>(null);
+  const [isStopViewDialogOpen, setIsStopViewDialogOpen] = useState(false);
+
   const fetchClients = async () => {
     setIsLoadingClients(true);
     try {
       const response = await fetch("/api/eps-client-list", { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Failed to load clients");
-      setClients(Array.isArray(payload.data) ? payload.data : []);
+      setClients(Array.isArray(payload.data)
+        ? (payload.data as ClientRecord[]).sort((a, b) =>
+            (a.name || "").localeCompare(b.name || "")
+          )
+        : []);
     } catch (error) {
       console.error("Failed to load clients:", error);
       toast.error("Could not load clients right now");
@@ -268,22 +281,30 @@ export default function ClientsPage() {
           <Card className="w-full min-w-0 max-w-full overflow-hidden">
             <CardHeader><CardTitle>Client List</CardTitle></CardHeader>
             <CardContent>
-              <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-slate-200">
-                <Table className="w-full table-fixed">
-                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-[14%]">Client ID</TableHead><TableHead className="w-[18%]">Name</TableHead><TableHead className="w-[14%]">Contact</TableHead><TableHead className="w-[19%]">Phone / Email</TableHead><TableHead className="w-[27%]">Address</TableHead><TableHead className="w-[8%] whitespace-nowrap text-right">Actions</TableHead></TableRow></TableHeader>
+              <div className="w-full overflow-x-auto rounded-lg border border-slate-200">
+                <Table className="min-w-[810px] w-full">
+                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-[200px] text-xs">Name</TableHead><TableHead className="w-[140px] text-xs">Contact</TableHead><TableHead className="w-[190px] text-xs">Phone / Email</TableHead><TableHead className="text-xs">Address</TableHead><TableHead className="w-[130px] text-right text-xs">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {isLoadingClients ? (
-                      <TableRow><TableCell colSpan={6} className="h-28 text-center text-slate-500">Loading clients...</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-slate-500">Loading clients...</TableCell></TableRow>
                     ) : filteredClients.length === 0 ? (
-                      <TableRow><TableCell colSpan={6} className="h-28 text-center text-slate-500">No client rows found.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-slate-500">No client rows found.</TableCell></TableRow>
                     ) : filteredClients.map((client) => (
-                      <TableRow key={client.id}>
-                        <TableCell className="align-top"><div className="whitespace-normal break-words leading-7 font-medium text-slate-900">{client.client_id || "-"}</div></TableCell>
-                        <TableCell className="align-top"><div className="flex min-w-0 flex-col whitespace-normal break-words leading-7"><span className="font-medium text-slate-900">{client.name || "-"}</span>{client.industry ? <span className="text-xs text-slate-500">{client.industry}</span> : null}</div></TableCell>
-                        <TableCell className="align-top"><div className="flex min-w-0 items-start gap-2 whitespace-normal break-words text-sm leading-7 text-slate-700"><User2 className="mt-0.5 h-4 w-4 text-slate-400" /><span>{client.contact_person || "-"}</span></div></TableCell>
-                        <TableCell className="align-top"><div className="min-w-0 space-y-2 text-sm text-slate-700"><div className="flex items-center gap-2"><Phone className="h-4 w-4 shrink-0 text-slate-400" /><span className="whitespace-normal break-all leading-6">{client.contact_phone || client.phone || "-"}</span></div><div className="flex items-center gap-2"><Mail className="h-4 w-4 shrink-0 text-slate-400" /><span className="whitespace-normal break-all leading-6">{client.contact_email || client.email || "-"}</span></div></div></TableCell>
-                        <TableCell className="align-top"><div className="flex min-w-0 items-start gap-2 text-sm text-slate-700"><Building2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" /><span className="whitespace-normal break-words leading-6">{[client.address, client.city, client.state, client.country].filter(Boolean).join(", ") || "-"}</span></div></TableCell>
-                        <TableCell className="align-top whitespace-nowrap text-right"><SecureButton page="clients" action="edit" variant="outline" size="sm" className="inline-flex min-w-[84px] justify-center px-2" onClick={() => openEditClient(client)}><Pencil className="mr-1 h-3.5 w-3.5" />Edit</SecureButton></TableCell>
+                      <TableRow key={client.id} className="border-b border-slate-100">
+                        <TableCell className="py-1.5"><div className="flex flex-col"><span className="truncate text-xs font-medium text-slate-900">{client.name || "-"}</span>{client.industry ? <span className="text-[11px] text-slate-500 truncate">{client.industry}</span> : null}</div></TableCell>
+                        <TableCell className="py-1.5"><div className="flex items-center gap-1 truncate text-xs text-slate-700"><User2 className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_person || "-"}</span></div></TableCell>
+                        <TableCell className="py-1.5"><div className="space-y-0.5 text-xs text-slate-700"><div className="flex items-center gap-1 truncate"><Phone className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_phone || client.phone || "-"}</span></div><div className="flex items-center gap-1 truncate"><Mail className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_email || client.email || "-"}</span></div></div></TableCell>
+                        <TableCell className="py-1.5"><div className="flex items-center gap-1 text-xs text-slate-700"><Building2 className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{[client.address, client.city, client.state, client.country].filter(Boolean).join(", ") || "-"}</span></div></TableCell>
+                        <TableCell className="py-1.5 text-right">
+                          <div className="flex items-center justify-end gap-0.5">
+                            {(client.coordinates || client.coords) && (
+                              <SecureButton page="clients" action="edit" variant="outline" size="sm" className="h-6 min-w-[48px] px-1 text-[11px]" onClick={() => { setViewingClient(client); setIsViewDialogOpen(true); }}>
+                                <Eye className="mr-0.5 h-3 w-3" />View
+                              </SecureButton>
+                            )}
+                            <SecureButton page="clients" action="edit" variant="outline" size="sm" className="h-6 min-w-[48px] px-1 text-[11px]" onClick={() => openEditClient(client)}><Pencil className="mr-0.5 h-3 w-3" />Edit</SecureButton>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -303,22 +324,31 @@ export default function ClientsPage() {
           <Card className="w-full min-w-0 max-w-full overflow-hidden">
             <CardHeader><CardTitle>Stop List</CardTitle></CardHeader>
             <CardContent>
-              <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-slate-200">
-                <Table className="w-full table-fixed">
-                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-[18%]">Stop</TableHead><TableHead className="w-[18%]">Geozone</TableHead><TableHead className="w-[18%]">Contact</TableHead><TableHead className="w-[10%]">Fuel Price</TableHead><TableHead className="w-[28%]">Address</TableHead><TableHead className="w-[8%] whitespace-nowrap text-right">Actions</TableHead></TableRow></TableHeader>
+              <div className="w-full overflow-x-auto rounded-lg border border-slate-200">
+                <Table className="min-w-[860px] w-full">
+                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-[150px] text-xs">Stop</TableHead><TableHead className="w-[120px] text-xs">Geozone</TableHead><TableHead className="w-[180px] text-xs">Contact</TableHead><TableHead className="w-[70px] text-xs">Fuel Price</TableHead><TableHead className="text-xs">Address</TableHead><TableHead className="w-[130px] text-right text-xs">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {isLoadingStops ? (
-                      <TableRow><TableCell colSpan={6} className="h-28 text-center text-slate-500">Loading stops...</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={6} className="py-6 text-center text-sm text-slate-500">Loading stops...</TableCell></TableRow>
                     ) : filteredStops.length === 0 ? (
-                      <TableRow><TableCell colSpan={6} className="h-28 text-center text-slate-500">No stop rows found.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={6} className="py-6 text-center text-sm text-slate-500">No stop rows found.</TableCell></TableRow>
                     ) : filteredStops.map((stop) => (
-                      <TableRow key={stop.id}>
-                        <TableCell className="align-top"><div className="flex min-w-0 items-start gap-2 text-sm text-slate-700"><MapPinned className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" /><div className="min-w-0"><div className="break-words font-medium leading-6 text-slate-900">{stop.name || stop.name2 || "-"}</div><div className="text-xs text-slate-500">{stop.type || "fuel_station"}</div></div></div></TableCell>
-                        <TableCell className="align-top"><div className="break-words text-sm leading-6 text-slate-700">{stop.geozone_name || "-"}</div></TableCell>
-                        <TableCell className="align-top"><div className="space-y-2 text-sm text-slate-700"><div className="flex items-center gap-2"><User2 className="h-4 w-4 shrink-0 text-slate-400" /><span className="break-words">{stop.contact_person || "-"}</span></div><div className="flex items-center gap-2"><Phone className="h-4 w-4 shrink-0 text-slate-400" /><span className="break-all">{stop.contact_phone || "-"}</span></div><div className="flex items-center gap-2"><Mail className="h-4 w-4 shrink-0 text-slate-400" /><span className="break-all">{stop.contact_email || "-"}</span></div></div></TableCell>
-                        <TableCell className="align-top"><div className="text-sm font-medium text-slate-900">{stop.fuel_price_per_liter ? `R${Number(stop.fuel_price_per_liter).toFixed(2)}` : "-"}</div></TableCell>
-                        <TableCell className="align-top"><div className="break-words text-sm leading-6 text-slate-700">{[stop.address || stop.street, stop.city, stop.state, stop.country].filter(Boolean).join(", ") || "-"}</div></TableCell>
-                        <TableCell className="align-top whitespace-nowrap text-right"><Button variant="outline" size="sm" className="inline-flex min-w-[84px] justify-center px-2" onClick={() => { setEditingStop(stop); setIsStopSheetOpen(true); }}><Pencil className="mr-1 h-3.5 w-3.5" />Edit</Button></TableCell>
+                      <TableRow key={stop.id} className="border-b border-slate-100">
+                        <TableCell className="py-1.5"><div className="flex items-center gap-1 text-xs text-slate-700"><MapPinned className="h-3 w-3 shrink-0 text-slate-400" /><div className="min-w-0"><div className="truncate font-medium text-slate-900">{stop.name || stop.name2 || "-"}</div><div className="text-[11px] text-slate-500 truncate">{stop.type || "fuel_station"}</div></div></div></TableCell>
+                        <TableCell className="py-1.5"><div className="truncate text-xs text-slate-700">{stop.geozone_name || "-"}</div></TableCell>
+                        <TableCell className="py-1.5"><div className="space-y-0.5 text-xs text-slate-700"><div className="flex items-center gap-1 truncate"><User2 className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{stop.contact_person || "-"}</span></div><div className="flex items-center gap-1 truncate"><Phone className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{stop.contact_phone || "-"}</span></div><div className="flex items-center gap-1 truncate"><Mail className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{stop.contact_email || "-"}</span></div></div></TableCell>
+                        <TableCell className="py-1.5"><div className="text-xs font-medium text-slate-900">{stop.fuel_price_per_liter ? `R${Number(stop.fuel_price_per_liter).toFixed(2)}` : "-"}</div></TableCell>
+                        <TableCell className="py-1.5"><div className="truncate text-xs text-slate-700">{[stop.address || stop.street, stop.city, stop.state, stop.country].filter(Boolean).join(", ") || "-"}</div></TableCell>
+                        <TableCell className="py-1.5 text-right">
+                          <div className="flex items-center justify-end gap-0.5">
+                            {(stop.geozone_coordinates || stop.location_coordinates || stop.coordinates) && (
+                              <SecureButton page="clients" action="edit" variant="outline" size="sm" className="h-6 min-w-[48px] px-1 text-[11px]" onClick={() => { setViewingStop(stop); setIsStopViewDialogOpen(true); }}>
+                                <Eye className="mr-0.5 h-3 w-3" />View
+                              </SecureButton>
+                            )}
+                            <Button variant="outline" size="sm" className="h-6 min-w-[48px] px-1 text-[11px]" onClick={() => { setEditingStop(stop); setIsStopSheetOpen(true); }}><Pencil className="mr-0.5 h-3 w-3" />Edit</Button>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -339,6 +369,7 @@ export default function ClientsPage() {
 
       <Sheet open={isStopSheetOpen} onOpenChange={(open) => { if (!open) { closeStopForm(); return; } setIsStopSheetOpen(true); }}>
         <SheetContent className="w-[min(1100px,96vw)] max-w-[96vw] overflow-y-auto p-0 sm:max-w-[96vw]">
+          <SheetTitle className="sr-only">{editingStop ? 'Edit Fuel Stop' : 'New Fuel Stop'}</SheetTitle>
           <FuelStopForm
             title={editingStop ? "Edit Fuel Stop" : "New Fuel Stop"}
             backLabel="Close"
@@ -352,6 +383,157 @@ export default function ClientsPage() {
           />
         </SheetContent>
       </Sheet>
+
+      <DialogPrimitive.Root open={isViewDialogOpen} onOpenChange={(open) => { if (!open) { setIsViewDialogOpen(false); setViewingClient(null); } }}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <DialogPrimitive.Content className="fixed left-[50%] top-[50%] z-50 translate-x-[-50%] translate-y-[-50%] w-[95vw] h-[95vh] max-w-[900px] max-h-[700px] bg-white shadow-xl border border-gray-200 rounded-lg overflow-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
+            <DialogPrimitive.Title className="sr-only">Geozone: {viewingClient?.name}</DialogPrimitive.Title>
+            <DialogPrimitive.Close className="absolute right-4 top-4 z-10 rounded-sm opacity-70 ring-offset-white transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2">
+              <X className="h-5 w-5" />
+            </DialogPrimitive.Close>
+            {isViewDialogOpen && viewingClient && <GeozoneViewContent record={viewingClient} onClose={() => { setIsViewDialogOpen(false); setViewingClient(null); }} />}
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
+
+      <DialogPrimitive.Root open={isStopViewDialogOpen} onOpenChange={(open) => { if (!open) { setIsStopViewDialogOpen(false); setViewingStop(null); } }}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <DialogPrimitive.Content className="fixed left-[50%] top-[50%] z-50 translate-x-[-50%] translate-y-[-50%] w-[95vw] h-[95vh] max-w-[900px] max-h-[700px] bg-white shadow-xl border border-gray-200 rounded-lg overflow-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
+            <DialogPrimitive.Title className="sr-only">Geozone: {viewingStop?.name}</DialogPrimitive.Title>
+            <DialogPrimitive.Close className="absolute right-4 top-4 z-10 rounded-sm opacity-70 ring-offset-white transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2">
+              <X className="h-5 w-5" />
+            </DialogPrimitive.Close>
+            {isStopViewDialogOpen && viewingStop && <GeozoneViewContent record={viewingStop} onClose={() => { setIsStopViewDialogOpen(false); setViewingStop(null); }} />}
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
     </div>
   );
+}
+
+function GeozoneViewContent({ record, onClose }: { record: any; onClose: () => void }) {
+  const { loaded: mapsLoaded, error: mapsError } = useGoogleMaps()
+  const mapContainerRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<google.maps.Map | null>(null)
+  const overlaysRef = useRef<(google.maps.Polygon | google.maps.Marker)[]>([])
+
+  useEffect(() => {
+    if (!mapsLoaded || !mapContainerRef.current || mapRef.current) return
+
+    const map = new window.google.maps.Map(mapContainerRef.current, {
+      center: { lat: -26.2041, lng: 28.0473 },
+      zoom: 4.8,
+      mapTypeId: window.google.maps.MapTypeId.ROADMAP,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: true,
+    })
+    mapRef.current = map
+
+    const bounds = new window.google.maps.LatLngBounds()
+    const overlays: (google.maps.Polygon | google.maps.Marker)[] = []
+
+    // Draw geozone polygon from coordinates field
+    if (record.coordinates) {
+      try {
+        const parsed = JSON.parse(record.coordinates)
+        if (Array.isArray(parsed) && parsed.length >= 3) {
+          const path = parsed.map((c: number[]) => ({ lat: c[1], lng: c[0] }))
+          const polygon = new window.google.maps.Polygon({
+            paths: path,
+            map,
+            strokeColor: '#7c3aed',
+            strokeOpacity: 0.8,
+            strokeWeight: 2,
+            fillColor: '#7c3aed',
+            fillOpacity: 0.12,
+          })
+          overlays.push(polygon)
+          path.forEach((p) => bounds.extend(p))
+
+          const labelLat = path.reduce((s: number, p: any) => s + p.lat, 0) / path.length
+          const labelLng = path.reduce((s: number, p: any) => s + p.lng, 0) / path.length
+          const label = new window.google.maps.Marker({
+            position: { lat: labelLat, lng: labelLng },
+            map,
+            title: `Geozone: ${record.name}`,
+            icon: {
+              path: window.google.maps.SymbolPath.CIRCLE,
+              scale: 6,
+              fillColor: '#7c3aed',
+              fillOpacity: 0.4,
+              strokeColor: '#5b21b6',
+              strokeWeight: 2,
+            },
+          })
+          overlays.push(label)
+        }
+      } catch { /* coordinates not polygon JSON */ }
+    }
+
+    // Use coords field as center point fallback
+    if (record.coords) {
+      const parts = record.coords.split(',').map(Number)
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        const lat = parts[0], lng = parts[1]
+        if (!bounds.isEmpty()) {
+          bounds.extend({ lat, lng })
+        }
+        if (overlays.length === 0) {
+          const marker = new window.google.maps.Marker({
+            position: { lat, lng },
+            map,
+            title: record.name || '',
+            icon: {
+              path: window.google.maps.SymbolPath.CIRCLE,
+              scale: 8,
+              fillColor: '#7c3aed',
+              fillOpacity: 1,
+              strokeColor: '#ffffff',
+              strokeWeight: 2,
+            },
+          })
+          overlays.push(marker)
+          bounds.extend({ lat, lng })
+        }
+      }
+    }
+
+    overlaysRef.current = overlays
+
+    if (!bounds.isEmpty()) {
+      map.fitBounds(bounds, 60)
+    } else {
+      map.setCenter({ lat: -26.2041, lng: 28.0473 })
+      map.setZoom(4.8)
+    }
+
+    return () => {
+      overlaysRef.current.forEach((o) => o.setMap(null))
+      overlaysRef.current = []
+      mapRef.current = null
+    }
+  }, [mapsLoaded, record])
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b border-slate-200 px-6 py-4">
+        <h2 className="text-lg font-semibold text-slate-900">{record.name || 'Record'}</h2>
+        <p className="text-sm text-slate-500">
+          {record.client_id ? `ID: ${record.client_id}` : record.geozone_name ? `Geozone: ${record.geozone_name}` : ''}
+          {record.address ? ` — ${record.address}` : ''}
+        </p>
+      </div>
+      <div className="flex-1 p-4">
+        {mapsError && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            Map failed to load: {mapsError}
+          </div>
+        )}
+        <div ref={mapContainerRef} className="h-full w-full rounded-lg border border-slate-200" />
+      </div>
+    </div>
+  )
 }

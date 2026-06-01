@@ -501,7 +501,7 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
           {initials}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-semibold text-slate-900 truncate">{typeof driverInfo?.surname === 'string' ? driverInfo.surname : String(driverInfo?.surname || 'Unassigned')}</div>
+          <div className="text-xs font-semibold text-slate-900 truncate">{typeof driverInfo?.first_name === 'string' ? driverInfo.first_name : String(driverInfo?.first_name || 'Unassigned')}</div>
           <div className="text-xs text-slate-600">{driverInfo ? driverInfo.phone_number : 'No driver assigned'}</div>
         </div>
         <div className="flex-shrink-0">

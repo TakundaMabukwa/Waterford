@@ -269,6 +269,8 @@ export function FuelStopForm({
     const points = polygonPoints
     if (points.length === 0) return
 
+    const latLngs = points.map((p) => new google.maps.LatLng(p.lat, p.lng))
+
     points.forEach((point, index) => {
       const marker = new google.maps.Marker({
         position: { lat: point.lat, lng: point.lng },
@@ -315,7 +317,12 @@ export function FuelStopForm({
       })
       overlaysRef.current.push(polygon as any)
     }
-  }, [polygonPoints, mapsLoaded])
+
+    const bounds = new google.maps.LatLngBounds()
+    latLngs.forEach((ll) => bounds.extend(ll))
+    if (centerPoint) bounds.extend({ lat: centerPoint.lat, lng: centerPoint.lng })
+    map.fitBounds(bounds, 60)
+  }, [polygonPoints, mapsLoaded, centerPoint])
 
   const handleLocate = async () => {
     if (!locationQuery) return
