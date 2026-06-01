@@ -12,7 +12,10 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose, DialogPortal, DialogOverlay } from '@/components/ui/dialog'
-import { X, FileText, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin, Building2 } from 'lucide-react'
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { X, FileText, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin, Building2, GripVertical } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -139,6 +142,27 @@ export default function LoadPlanPage() {
   const [activeTruckCount, setActiveTruckCount] = useState(1)
   const [distancePerTruck, setDistancePerTruck] = useState(0)
   const lastAutoEtaDropoffRef = useRef('')
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = Number(active.id)
+    const newIndex = Number(over.id)
+    const reordered = arrayMove(stopPoints, oldIndex, newIndex)
+    setStopPoints(reordered)
+    const reorderedCustom = arrayMove(customStopPoints, oldIndex, newIndex)
+    setCustomStopPoints(reorderedCustom)
+    const reorderedSelections: Record<number, any | null> = {}
+    const entries = Object.entries(customStopSelections)
+    const reindexed = arrayMove(entries, oldIndex, newIndex)
+    reindexed.forEach(([_, v], i) => { reorderedSelections[i] = v })
+    setCustomStopSelections(reorderedSelections)
+    setIsManuallyOrdered(false)
+    setOptimizedRoute(null)
+  }
   const STOP_DWELL_HOURS = 0.25
 
   const parseStoredCoordinates = useCallback((value, fallbackLocation = null) => {
@@ -2573,37 +2597,33 @@ export default function LoadPlanPage() {
                     </div>
                   </div>
                   
-                  {stopPoints.map((stopPoint, index) => (
-                    <div key={index} className="space-y-2">
-                      <div className="flex gap-2 items-center">
-                        <div className="flex-1">
-                          <StopPointDropdown
-                            value={stopPoint}
-                            onChange={(value) => {
-                              console.log('StopPointDropdown onChange called with value:', value)
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(event: DragEndEvent) => handleDragEnd(event)}
+                  >
+                    <SortableContext items={stopPoints.map((_, i) => String(i))} strategy={verticalListSortingStrategy}>
+                      {stopPoints.map((stopPoint, index) => (
+                        <SortableStopPointItem
+                          key={index}
+                          id={String(index)}
+                          index={index}
+                          stopPoint={stopPoint}
+                          filteredStopPoints={filteredStopPoints}
+                          isLoadingStopPoints={isLoadingStopPoints}
+                          customStopPoint={customStopPoints[index] || ''}
+                          customStopSelection={customStopSelections[index]}
+                          onStopPointChange={(value) => {
                             const updated = [...stopPoints]
                             updated[index] = value
-                            console.log('Setting stopPoints from:', stopPoints, 'to:', updated)
                             setStopPoints(updated)
                             const updatedCustom = [...customStopPoints]
                             updatedCustom[index] = ''
                             setCustomStopPoints(updatedCustom)
                             setCustomStopSelections(prev => ({ ...prev, [index]: null }))
-                            // Force route recalculation
                             setOptimizedRoute(null)
                           }}
-                            stopPoints={filteredStopPoints}
-                            placeholder="Select from existing stop points"
-                            isLoading={isLoadingStopPoints}
-                          />
-                        </div>
-                        <Button 
-                          type="button" 
-                          variant="outline" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
+                          onRemove={() => {
                             const updated = stopPoints.filter((_, i) => i !== index)
                             setStopPoints(updated)
                             const updatedCustom = customStopPoints.filter((_, i) => i !== index)
@@ -2615,58 +2635,49 @@ export default function LoadPlanPage() {
                             })
                             setIsManuallyOrdered(false)
                           }}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <div className="text-center text-xs text-gray-500">OR</div>
-                      <LocationAutocomplete
-                        label=""
-                        value={customStopPoints[index] || ''}
-                        onChange={(value) => {
-                          console.log('Custom stop point changed:', value)
-                          const updatedCustom = [...customStopPoints]
-                          while (updatedCustom.length <= index) {
-                            updatedCustom.push('')
-                          }
-                          updatedCustom[index] = value
-                          setCustomStopPoints(updatedCustom)
-                          const prev = customStopSelections[index]
-                          const stillMatches = prev &&
-                            (prev.address === value || prev.name === value)
-                          if (!stillMatches) {
-                            setCustomStopSelections(prev => ({ ...prev, [index]: null }))
-                          }
-                          if (value) {
+                          onCustomChange={(value) => {
+                            const updatedCustom = [...customStopPoints]
+                            while (updatedCustom.length <= index) {
+                              updatedCustom.push('')
+                            }
+                            updatedCustom[index] = value
+                            setCustomStopPoints(updatedCustom)
+                            const prev = customStopSelections[index]
+                            const stillMatches = prev &&
+                              (prev.address === value || prev.name === value)
+                            if (!stillMatches) {
+                              setCustomStopSelections(prev => ({ ...prev, [index]: null }))
+                            }
+                            if (value) {
+                              const updated = [...stopPoints]
+                              updated[index] = ''
+                              setStopPoints(updated)
+                            }
+                            setOptimizedRoute(null)
+                          }}
+                          onCustomSelect={(suggestion) => {
+                            const updatedCustom = [...customStopPoints]
+                            while (updatedCustom.length <= index) {
+                              updatedCustom.push('')
+                            }
+                            updatedCustom[index] =
+                              suggestion?.type === 'place' && suggestion?.name
+                                ? suggestion.name
+                                : (suggestion.address || suggestion.name || '')
+                            setCustomStopPoints(updatedCustom)
+                            setCustomStopSelections(prev => ({
+                              ...prev,
+                              [index]: normalizeSelectedLookup(suggestion),
+                            }))
                             const updated = [...stopPoints]
                             updated[index] = ''
                             setStopPoints(updated)
-                          }
-                          setOptimizedRoute(null)
-                        }}
-                        onSelect={(suggestion) => {
-                          const updatedCustom = [...customStopPoints]
-                          while (updatedCustom.length <= index) {
-                            updatedCustom.push('')
-                          }
-                          updatedCustom[index] =
-                            suggestion?.type === 'place' && suggestion?.name
-                              ? suggestion.name
-                              : (suggestion.address || suggestion.name || '')
-                          setCustomStopPoints(updatedCustom)
-                          setCustomStopSelections(prev => ({
-                            ...prev,
-                            [index]: normalizeSelectedLookup(suggestion),
-                          }))
-                          const updated = [...stopPoints]
-                          updated[index] = ''
-                          setStopPoints(updated)
-                          setOptimizedRoute(null)
-                        }}
-                        placeholder="Search for custom stop location"
-                      />
-                    </div>
-                  ))}
+                            setOptimizedRoute(null)
+                          }}
+                        />
+                      ))}
+                    </SortableContext>
+                  </DndContext>
                 </div>
 
                 {/* Route Preview */}
@@ -3471,6 +3482,71 @@ export default function LoadPlanPage() {
       >
         {toast.message}
       </Toast>
+    </div>
+  )
+}
+
+function SortableStopPointItem({
+  id,
+  index,
+  stopPoint,
+  filteredStopPoints,
+  isLoadingStopPoints,
+  customStopPoint,
+  customStopSelection,
+  onStopPointChange,
+  onRemove,
+  onCustomChange,
+  onCustomSelect,
+}: {
+  id: string
+  index: number
+  stopPoint: string
+  filteredStopPoints: any[]
+  isLoadingStopPoints: boolean
+  customStopPoint: string
+  customStopSelection: any
+  onStopPointChange: (value: string) => void
+  onRemove: () => void
+  onCustomChange: (value: string) => void
+  onCustomSelect: (suggestion: any) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className="space-y-2 rounded border border-slate-200 bg-white p-3">
+      <div className="flex gap-2 items-center">
+        <button type="button" className="cursor-grab active:cursor-grabbing touch-none text-slate-400 hover:text-slate-600" {...attributes} {...listeners}>
+          <GripVertical className="h-5 w-5" />
+        </button>
+        <div className="text-xs text-slate-400 font-mono w-5 text-right shrink-0">{index + 1}.</div>
+        <div className="flex-1">
+          <StopPointDropdown
+            value={stopPoint}
+            onChange={onStopPointChange}
+            stopPoints={filteredStopPoints}
+            placeholder="Select from existing stop points"
+            isLoading={isLoadingStopPoints}
+          />
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove() }}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="text-center text-xs text-gray-500">OR</div>
+      <LocationAutocomplete
+        label=""
+        value={customStopPoint}
+        onChange={onCustomChange}
+        onSelect={onCustomSelect}
+        placeholder="Search for custom stop location"
+      />
     </div>
   )
 }
