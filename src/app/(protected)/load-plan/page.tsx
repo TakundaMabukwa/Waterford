@@ -41,7 +41,6 @@ import { VehicleDropdown } from '@/components/ui/vehicle-dropdown'
 import { VehicleTypeDropdown } from '@/components/ui/vehicle-type-dropdown'
 import { TrailerDropdown } from '@/components/ui/trailer-dropdown'
 import { StopPointDropdown } from '@/components/ui/stop-point-dropdown'
-import { markDriversUnavailable } from '@/lib/utils/driver-availability'
 import { getDeclaredTankCapacity } from '@/lib/vehicle-tank-capacities'
 
 
@@ -2216,21 +2215,6 @@ export default function LoadPlanPage() {
           }
         } catch (routeError) {
           console.error('Error saving route:', routeError)
-        }
-      }
-      
-      // Mark assigned drivers as unavailable
-      const assignedDriverIds = driverAssignments
-        .map(d => d.id)
-        .filter(id => id)
-      
-      if (assignedDriverIds.length > 0) {
-        try {
-          await markDriversUnavailable(assignedDriverIds)
-          showToast(`${assignedDriverIds.length} driver(s) marked as unavailable`, 'success')
-        } catch (error) {
-          console.error('Error updating driver availability:', error)
-          showToast('Load created successfully, but failed to update driver availability', 'warning')
         }
       }
       
