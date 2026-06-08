@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Google Maps API token not configured' }, { status: 500 })
   }
 
-  let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&key=${apiKey}`
+  let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&key=${apiKey}&departure_time=now`
 
   if (waypoints) {
     url += `&waypoints=${encodeURIComponent(waypoints)}`
@@ -25,8 +25,12 @@ export async function GET(request: NextRequest) {
   try {
     const response = await fetch(url, { cache: 'no-store' })
     const data = await response.json()
+    if (data.status !== 'OK') {
+      console.error('[google-directions] Non-OK response:', data.status, data.error_message || '', 'origin:', origin, 'destination:', destination)
+    }
     return NextResponse.json(data)
   } catch (error) {
+    console.error('[google-directions] Fetch error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Directions request failed' },
       { status: 502 }

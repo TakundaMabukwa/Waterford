@@ -15,7 +15,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { X, FileText, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin, Building2, GripVertical } from 'lucide-react'
+import { X, FileText, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin, Building2, GripVertical, Printer } from 'lucide-react'
+import { LoadconPrint, type LoadconPrintData } from '@/components/ui/loadcon-print'
+import { generateLoadconPdf, uploadLoadconPdf, updateTripLoadconUrl, triggerPdfDownload, buildLoadconHTML } from '@/lib/generate-loadcon-pdf'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -159,7 +161,7 @@ export default function LoadPlanPage() {
     const reindexed = arrayMove(entries, oldIndex, newIndex)
     reindexed.forEach(([_, v], i) => { reorderedSelections[i] = v })
     setCustomStopSelections(reorderedSelections)
-    setIsManuallyOrdered(false)
+    setIsManuallyOrdered(true)
     setOptimizedRoute(null)
   }
   const STOP_DWELL_HOURS = 0.25
@@ -1030,78 +1032,72 @@ export default function LoadPlanPage() {
         ])
 
         if (loadingLookup && dropOffLookup) {
-          // Build Google Directions API request
-          let originStr, destStr, waypointStr = ''
-          
-          if (driverLocation) {
-            // Route: driver → loading → stops → drop-off
-            originStr = `${driverLocation.lat},${driverLocation.lng}`
-            destStr = `${dropOffLookup.lat},${dropOffLookup.lng}`
-            waypointStr = `${loadingLookup.lat},${loadingLookup.lng}`
-          } else {
-            // Route: loading → stops → drop-off
-            originStr = `${loadingLookup.lat},${loadingLookup.lng}`
-            destStr = `${dropOffLookup.lat},${dropOffLookup.lng}`
-            waypointStr = ''
-          }
-          
-          // Add stop points as waypoints
-          if (stopPointsData.length > 0) {
-            const stopWaypoints = stopPointsData.map(point => {
-              const coords = point.coordinates
-              const avgLng = coords.reduce((sum, coord) => sum + coord[0], 0) / coords.length
-              const avgLat = coords.reduce((sum, coord) => sum + coord[1], 0) / coords.length
-              return `${avgLat},${avgLng}`
-            }).filter(waypoint => waypoint && !waypoint.includes('NaN'))
-            
-            if (stopWaypoints.length > 0) {
-              waypointStr += (waypointStr ? '|' : '') + stopWaypoints.join('|')
+          const getCentroid = (item: any): { lat: number; lng: number } | null => {
+            if (item.coordinates && item.coordinates.length > 0) {
+              const c = item.coordinates
+              const lng = c.reduce((s: number, x: number[]) => s + x[0], 0) / c.length
+              const lat = c.reduce((s: number, x: number[]) => s + x[1], 0) / c.length
+              if (isNaN(lat) || isNaN(lng)) return null
+              return { lat, lng }
             }
+            if (item.lat != null && item.lng != null) return { lat: item.lat, lng: item.lng }
+            return null
           }
-          
-          console.log('Calculating route with Google Directions:', { originStr, destStr, waypointStr })
-          
-          // Use proxy to avoid CORS issues
-          let apiUrl = `/api/google-directions?origin=${encodeURIComponent(originStr)}&destination=${encodeURIComponent(destStr)}`
-          if (waypointStr) {
-            apiUrl += `&waypoints=${encodeURIComponent(waypointStr)}`
+
+          const intermediates = stopPointsData
+            .map((p: any) => getCentroid(p))
+            .filter((c: { lat: number; lng: number } | null): c is { lat: number; lng: number } => c !== null)
+            .map((c: { lat: number; lng: number }) => ({
+              lat: c.lat,
+              lng: c.lng,
+            }))
+
+          const routesBody = {
+            origin: { lat: loadingLookup.lat, lng: loadingLookup.lng },
+            destination: { lat: dropOffLookup.lat, lng: dropOffLookup.lng },
+            intermediates,
           }
-          
-          const directionsResponse = await fetch(apiUrl)
-          
-          if (!directionsResponse.ok) {
-            console.error('API request failed:', directionsResponse.status, directionsResponse.statusText)
-            setOptimizedRoute(null)
-            return
-          }
-          
-          const directionsData = await directionsResponse.json()
-          console.log('Directions API response:', directionsData)
-          
-          if (directionsData.status !== 'OK') {
-            console.error('API returned error:', directionsData)
-            setOptimizedRoute(null)
-            return
-          }
-          
-          const route = directionsData.routes?.[0]
-          if (route) {
-            const totalDistance = route.legs.reduce((sum, leg) => sum + (leg.distance?.value || 0), 0)
-            const totalDuration = route.legs.reduce((sum, leg) => sum + (leg.duration?.value || 0), 0)
-            const routeDistanceKm = Math.round(totalDistance / 1000)
-            const routeInfo = {
-              route: { distance: totalDistance, duration: totalDuration },
-              distance: totalDistance,
-              duration: totalDuration,
-              hasDriverLocation: !!driverLocation,
-              stopPoints: stopPointsData,
-              geometry: { type: 'LineString', coordinates: [] }
+
+          try {
+            const routesRes = await fetch('/api/osrm', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(routesBody),
+            })
+
+            if (!routesRes.ok) {
+              const errData = await routesRes.json().catch(() => ({}))
+              console.error('[routes API] HTTP error:', routesRes.status, errData)
+              setOptimizedRoute(null)
+              setEstimatedDistance(0)
+            } else {
+              const data = await routesRes.json()
+              const route = data.routes?.[0]
+
+              if (route) {
+                const totalDistance = route.distance || 0
+                const totalDuration = route.duration || 0
+                const routeDistanceKm = Math.round(totalDistance / 1000)
+
+                const routeInfo = {
+                  route: { distance: totalDistance, duration: totalDuration },
+                  distance: totalDistance,
+                  duration: totalDuration,
+                  hasDriverLocation: !!driverLocation,
+                  stopPoints: stopPointsData,
+                  geometry: route.geometry || { type: 'LineString', coordinates: [] },
+                }
+                console.log('[routes API] Success:', routeInfo)
+                setOptimizedRoute(routeInfo)
+                setEstimatedDistance(routeDistanceKm)
+              } else {
+                console.error('[routes API] No routes returned:', data)
+                setOptimizedRoute(null)
+                setEstimatedDistance(0)
+              }
             }
-            console.log('Setting optimized route:', routeInfo)
-            setOptimizedRoute(routeInfo)
-            setEstimatedDistance(routeDistanceKm)
-          } else {
-            console.error('No routes found:', directionsData)
+          } catch (e) {
+            console.error('[routes API] Fetch error:', e)
             setOptimizedRoute(null)
             setEstimatedDistance(0)
           }
@@ -2180,6 +2176,50 @@ export default function LoadPlanPage() {
         console.error('Error updating trip order number:', updateError)
       }
 
+      // Generate and store loadcon PDF
+      try {
+        const getVehicleReg = () => {
+          const v = vehicles.find((vv) => String(vv.id) === String(selectedVehicleId))
+          return v?.registration_number || ''
+        }
+        const getCompletedBy = async () => {
+          try {
+            const { data: { user } } = await supabase.auth.getUser()
+            return user?.email || user?.user_metadata?.first_name || ''
+          } catch { return '' }
+        }
+        const completedByName = await getCompletedBy()
+        const getClientName = () => {
+          if (selectedClient?.name) return selectedClient.name
+          if (manualClientName) return manualClientName
+          return client
+        }
+
+        const loadconData = {
+          orderNumber: orderNumberStr,
+          loadType: tripType || '',
+          loadDate: etaPickup ? new Date(etaPickup).toLocaleDateString('en-ZA') : '',
+          customerName: getClientName(),
+          collectionAddress: loadingLocation || '',
+          delivery: dropOffPoint || '',
+          collectedBy: getVehicleReg(),
+          deliveredBy: 'Waterford',
+          notes: comment || '',
+          completedBy: completedByName,
+          rate: rate || '',
+          bookingRef: orderNumberStr ? `${orderNumberStr} - ${getClientName()}` : '',
+        }
+
+        const pdfBlob = generateLoadconPdf(loadconData)
+        const pdfUrl = await uploadLoadconPdf(newTripId, pdfBlob)
+        if (pdfUrl) {
+          await updateTripLoadconUrl(newTripId, pdfUrl)
+        }
+        triggerPdfDownload(pdfBlob, `loadcon-${orderNumberStr}.pdf`)
+      } catch (pdfError) {
+        console.error('Error generating loadcon PDF:', pdfError)
+      }
+
       // Save route after trip is created
       if (loadingLocation && dropOffPoint) {
         try {
@@ -2381,7 +2421,64 @@ export default function LoadPlanPage() {
           <div className="space-y-6">
             <Card>
             <CardHeader>
-              <CardTitle>Create New Load</CardTitle>
+              <CardTitle className="flex items-center justify-between">
+                <span>Create New Load</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const getVehicleReg = () => {
+                      if (!selectedVehicleId) return ''
+                      const v = vehicles.find((vv) => String(vv.id) === String(selectedVehicleId))
+                      return v?.registration_number || ''
+                    }
+                    const getDriverName = () => {
+                      const d = driverAssignments[0]
+                      if (!d?.id) return ''
+                      const drv = drivers.find((dd) => String(dd.id) === String(d.id))
+                      return drv ? `${drv.first_name} ${drv.surname}`.trim() : ''
+                    }
+                    const getClientName = () => {
+                      if (selectedClient?.name) return selectedClient.name
+                      if (manualClientName) return manualClientName
+                      if (client) return client
+                      return ''
+                    }
+                    const getCompletedBy = async () => {
+                      try {
+                        const { data: { user } } = await supabase.auth.getUser()
+                        return user?.email || user?.user_metadata?.first_name || ''
+                      } catch { return '' }
+                    }
+                    getCompletedBy().then((completedBy) => {
+                      const data: LoadconPrintData = {
+                        orderNumber: orderNumber || '',
+                        loadType: tripType || '',
+                        loadDate: etaPickup ? new Date(etaPickup).toLocaleDateString('en-ZA') : '',
+                        customerName: getClientName(),
+                        collectionAddress: loadingLocation || '',
+                        delivery: dropOffPoint || '',
+                        weight: '',
+                        collectedBy: getVehicleReg(),
+                        deliveredBy: 'Waterford',
+                        notes: comment || '',
+                        completedBy,
+                        rate: rate || '',
+                        bookingRef: orderNumber ? `${orderNumber} - ${getClientName()}` : '',
+                      }
+                      const html = buildLoadconHTML(data)
+                      const printWindow = window.open('', '_blank', 'width=800,height=1000')
+                      if (!printWindow) return
+                      printWindow.document.write(html)
+                      printWindow.document.close()
+                      setTimeout(() => printWindow.print(), 500)
+                    })
+                  }}
+                >
+                  <Printer className="h-4 w-4 mr-1" /> Print Loadcon
+                </Button>
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleCreate} className="space-y-6">
@@ -2614,6 +2711,7 @@ export default function LoadPlanPage() {
                           index={index}
                           stopPoint={stopPoint}
                           filteredStopPoints={filteredStopPoints}
+                          availableStopPoints={availableStopPoints}
                           isLoadingStopPoints={isLoadingStopPoints}
                           customStopPoint={customStopPoints[index] || ''}
                           customStopSelection={customStopSelections[index]}
@@ -2696,7 +2794,6 @@ export default function LoadPlanPage() {
                       )}
                       <div className="space-y-4">
                         <RoutePreviewMap
-                          key={`${loadingLocation}-${dropOffPoint}-${stopPoints.join(',')}-${customStopPoints.join(',')}`}
                           origin={loadingLocation}
                           destination={dropOffPoint}
                           originCoordinates={loadingLocationSelection ? {
@@ -2707,8 +2804,7 @@ export default function LoadPlanPage() {
                             lat: dropOffSelection.lat,
                             lng: dropOffSelection.lng,
                           } : undefined}
-                          routeData={optimizedRoute}
-                          stopPoints={stopPoints.length > 0 || customStopPoints.some(p => p) ? 'async' : []}
+                           stopPoints={stopPoints.length > 0 || customStopPoints.some(p => p) ? 'async' : []}
                           getStopPointsData={getSelectedStopPointsData}
                           preserveOrder={isManuallyOrdered}
                           driverLocation={selectedDriverLocation ? {
@@ -3233,11 +3329,49 @@ export default function LoadPlanPage() {
                   )}
                   <Button 
                     type="button" 
+                    variant="outline"
+                    onClick={() => {
+                      const getVehicleReg = () => {
+                        if (!selectedVehicleId) return ''
+                        const v = vehicles.find((vv) => String(vv.id) === String(selectedVehicleId))
+                        return v?.registration_number || ''
+                      }
+                      const getClientName = () => {
+                        if (selectedClient?.name) return selectedClient.name
+                        if (manualClientName) return manualClientName
+                        return client
+                      }
+                      const data: LoadconPrintData = {
+                        orderNumber: orderNumber || 'WC000000',
+                        loadType: tripType || '',
+                        loadDate: etaPickup ? new Date(etaPickup).toLocaleDateString('en-ZA') : '',
+                        customerName: getClientName(),
+                        collectionAddress: loadingLocation || '',
+                        delivery: dropOffPoint || '',
+                        collectedBy: getVehicleReg(),
+                        deliveredBy: 'Waterford',
+                        notes: comment || '',
+                        rate: rate || '',
+                        bookingRef: orderNumber && orderNumber !== 'WC000000' ? `${orderNumber} - ${getClientName()}` : '',
+                      }
+                      const html = buildLoadconHTML(data)
+                      const printWindow = window.open('', '_blank', 'width=800,height=1000')
+                      if (!printWindow) return
+                      printWindow.document.write(html)
+                      printWindow.document.close()
+                      setTimeout(() => printWindow.print(), 500)
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    <Printer className="h-4 w-4 mr-1" /> Preview
+                  </Button>
+                  <Button 
+                    type="button" 
                     onClick={handleCreateClick} 
                     className="flex-1"
                     disabled={isSubmitting}
                   >
-                    {isSubmitting ? 'Processing...' : (isEditMode ? 'Update Trip' : 'Create Load')}
+                    {isSubmitting ? 'Processing...' : (isEditMode ? 'Update Trip' : 'Create and Preview')}
                   </Button>
                 </div>
               </form>
@@ -3495,6 +3629,7 @@ function SortableStopPointItem({
   index,
   stopPoint,
   filteredStopPoints,
+  availableStopPoints,
   isLoadingStopPoints,
   customStopPoint,
   customStopSelection,
@@ -3507,6 +3642,7 @@ function SortableStopPointItem({
   index: number
   stopPoint: string
   filteredStopPoints: any[]
+  availableStopPoints: any[]
   isLoadingStopPoints: boolean
   customStopPoint: string
   customStopSelection: any
@@ -3534,7 +3670,7 @@ function SortableStopPointItem({
           <StopPointDropdown
             value={stopPoint}
             onChange={onStopPointChange}
-            stopPoints={filteredStopPoints}
+            stopPoints={availableStopPoints}
             placeholder="Select from existing stop points"
             isLoading={isLoadingStopPoints}
           />

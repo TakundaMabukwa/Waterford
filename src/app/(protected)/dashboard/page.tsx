@@ -478,17 +478,26 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
     )
   }
 
+  const isBreakdown = trip.status?.toLowerCase() === 'breakdown'
+
   return (
     <div className={cn(
-      "w-[30%] rounded-xl p-3 bg-white/30 backdrop-blur-md border border-white/10 shadow-lg transition-transform duration-200 hover:scale-[1.02] hover:shadow-2xl",
-      trip.unauthorized_stops_count > 0 && trip.status?.toLowerCase() !== 'delivered'
-        ? isFlashing
-          ? "ring-2 ring-red-400 animate-pulse"
-          : "ring-1 ring-red-300"
-        : "border-slate-200/30"
+      "w-[30%] rounded-xl p-3 backdrop-blur-md border shadow-lg transition-transform duration-200 hover:scale-[1.02] hover:shadow-2xl",
+      isBreakdown
+        ? "bg-red-50/80 border-red-300/60 animate-pulse"
+        : trip.unauthorized_stops_count > 0 && trip.status?.toLowerCase() !== 'delivered'
+          ? isFlashing
+            ? "ring-2 ring-red-400 animate-pulse bg-white/30 border-white/10"
+            : "ring-1 ring-red-300 bg-white/30 border-white/10"
+          : "bg-white/30 border-slate-200/30"
     )}>
       {/* Top accent */}
-      <div className="h-1 w-full rounded-full bg-gradient-to-r from-blue-400 via-blue-400  to-indigo-500 mb-3 opacity-90" />
+      <div className={cn(
+        "h-1 w-full rounded-full mb-3 opacity-90",
+        trip.status?.toLowerCase() === 'breakdown'
+        ? "bg-gradient-to-r from-red-500 via-red-400 to-red-500"
+        : "bg-gradient-to-r from-blue-400 via-blue-400 to-indigo-500"
+      )} />
 
       <div className="flex items-center gap-2 mb-2">
         <div
@@ -1086,21 +1095,20 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
     }
   }, [trips, isVisible])
 
-  const STATUS_OPTIONS = [
+const STATUS_OPTIONS = [
     { label: "Pending", value: "pending" },
     { label: "Accept", value: "accepted" },
     { label: "Reject", value: "rejected" },
     { label: "Arrived at Loading", value: "arrived-at-loading" },
-    // { label: "Staging Area", value: "staging-area" },
     { label: "Loading", value: "loading" },
     { label: "On Trip", value: "on-trip" },
     { label: "Completed", value: "completed" },
     { label: "Cancelled", value: "cancelled" },
     { label: "Stopped", value: "stopped" },
+    { label: "Breakdown", value: "breakdown" },
     { label: "Offloading", value: "offloading" },
-    // { label: "Weighing In/Out", value: "weighing" },
     { label: "Delivered", value: "delivered" },
-  ]
+]
 
   // Main workflow statuses for progress tracking
   const WORKFLOW_STATUSES = [
@@ -1212,13 +1220,20 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
             />
             {/* Trip Card - 70% */}
             <div className={cn(
-              "w-[70%] rounded-xl p-3 bg-white shadow-sm border border-slate-200 transition-transform duration-200 hover:scale-[1.01] text-black",
-              trip.unauthorized_stops_count > 0 && trip.status?.toLowerCase() !== 'delivered'
-              ? "ring-2 ring-red-400"
-              : "ring-0"
-            )} style={{ backgroundImage: "linear-gradient(180deg, rgba(255,255,255,1), rgba(249,250,251,1))" }}>
+              "w-[70%] rounded-xl p-3 shadow-sm border transition-transform duration-200 hover:scale-[1.01] text-black",
+              trip.status?.toLowerCase() === 'breakdown'
+              ? "bg-red-50 border-red-300 animate-pulse ring-0"
+              : trip.unauthorized_stops_count > 0 && trip.status?.toLowerCase() !== 'delivered'
+              ? "bg-white border-slate-200 ring-2 ring-red-400"
+              : "bg-white border-slate-200 ring-0"
+            )} style={{ backgroundImage: trip.status?.toLowerCase() === 'breakdown' ? "linear-gradient(180deg, rgba(254,226,226,0.6), rgba(254,202,202,0.3))" : "linear-gradient(180deg, rgba(255,255,255,1), rgba(249,250,251,1))" }}>
               {/* Top accent */}
-              <div className="h-1 w-full rounded-full bg-gradient-to-r from-blue-500 via-blue-400 to-blue-400 mb-3 opacity-100" />
+              <div className={cn(
+                "h-1 w-full rounded-full mb-3 opacity-100",
+                trip.status?.toLowerCase() === 'breakdown'
+                ? "bg-gradient-to-r from-red-500 via-red-400 to-red-500"
+                : "bg-gradient-to-r from-blue-500 via-blue-400 to-blue-400"
+              )} />
 
               {/* Elevation Alert Banner */}
               {trip.elevate && (
@@ -1323,6 +1338,7 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
               <div className="flex flex-col items-end">
               <span className={cn(
               "px-2 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide",
+              trip.status?.toLowerCase() === 'breakdown' ? 'bg-red-500 text-white animate-pulse' :
               trip.status?.toLowerCase() === 'delivered' ? 'bg-emerald-100 text-emerald-800' :
               trip.status?.toLowerCase() === 'on-trip' ? 'bg-sky-100 text-sky-800' :
               ['pending', 'accepted'].includes(trip.status?.toLowerCase()) ? 'bg-amber-100 text-amber-800' :
@@ -1420,7 +1436,12 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
               </div>
               <div className="absolute top-3 left-3 right-3 h-1 bg-slate-100 -z-0 rounded">
               <div 
-              className="h-full rounded bg-gradient-to-r from-blue-500 via-sky-500 to-blue-400 transition-all duration-500 ease-out"
+              className={cn(
+                "h-full rounded transition-all duration-500 ease-out",
+                trip.status?.toLowerCase() === 'breakdown'
+                ? "bg-gradient-to-r from-red-500 via-red-400 to-red-500"
+                : "bg-gradient-to-r from-blue-500 via-sky-500 to-blue-400"
+              )}
               style={{ width: `${progress}%` }}
               />
               </div>

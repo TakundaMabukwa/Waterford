@@ -4,10 +4,10 @@ import { createClient } from '@/lib/supabase/server'
 // *****************************
 // update trip
 // *****************************
-export async function PUT(request, { params }) {
+export async function PUT(request, context) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  const { id } = params
+  const { id } = await context.params
   const body = await request.json()
 
   if (!user) {
@@ -61,10 +61,10 @@ export async function PUT(request, { params }) {
 // *****************************
 // delete trip
 // *****************************
-export async function DELETE(request, { params }) {
+export async function DELETE(request, context) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  const { id } = params
+  const { id } = await context.params
 
   if (!user) {
     return NextResponse.json({ error: 'Not authorized' }, { status: 401 })

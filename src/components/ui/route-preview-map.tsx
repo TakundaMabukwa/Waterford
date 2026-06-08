@@ -16,7 +16,6 @@ interface RoutePreviewMapProps {
   destination: string;
   originCoordinates?: { lat: number; lng: number } | null;
   destinationCoordinates?: { lat: number; lng: number } | null;
-  routeData?: any;
   stopPoints?: Array<{
     id: number | string;
     name: string;
@@ -39,7 +38,7 @@ interface RoutePreviewMapProps {
   preserveOrder?: boolean;
 }
 
-export function RoutePreviewMap({ origin, destination, originCoordinates, destinationCoordinates, routeData, stopPoints = [], getStopPointsData, driverLocation, clientLocation, selectedClient, tripId, preserveOrder = false }: RoutePreviewMapProps) {
+export function RoutePreviewMap({ origin, destination, originCoordinates, destinationCoordinates, stopPoints = [], getStopPointsData, driverLocation, clientLocation, selectedClient, tripId, preserveOrder = false }: RoutePreviewMapProps) {
   const { loaded, error: loadError } = useGoogleMaps();
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<google.maps.Map | null>(null);
@@ -188,8 +187,10 @@ export function RoutePreviewMap({ origin, destination, originCoordinates, destin
         let routeStopPoints: any[] = [];
         if (stopPoints === 'async' && getStopPointsData) {
           routeStopPoints = await getStopPointsData();
+          console.log('[RoutePreviewMap] stop points for waypoints:', routeStopPoints.length, routeStopPoints);
         } else if (Array.isArray(stopPoints)) {
           routeStopPoints = stopPoints;
+          console.log('[RoutePreviewMap] static stop points:', routeStopPoints.length);
         }
 
         // Load Mapbox route and render on Google Map
@@ -284,7 +285,7 @@ export function RoutePreviewMap({ origin, destination, originCoordinates, destin
     return () => {
       if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
     };
-  }, [mapLoaded, origin, destination, originCoordinates, destinationCoordinates, selectedClient, tripId, stopPoints, driverLocation, getStopPointsData, preserveOrder, routeData]);
+  }, [mapLoaded, origin, destination, originCoordinates, destinationCoordinates, selectedClient, tripId, stopPoints, driverLocation, getStopPointsData, preserveOrder]);
 
   const getMapboxRoute = async (originCoords: any, destCoords: any, stopPointsList: any[] = []) => {
     if (!originCoords || !destCoords) return null;
@@ -292,99 +293,55 @@ export function RoutePreviewMap({ origin, destination, originCoordinates, destin
     const cacheKey = `route-${originCoords.lat}-${originCoords.lng}-${destCoords.lat}-${destCoords.lng}-${stopPointsList.length}`;
     if (cacheRef.current.has(cacheKey)) return cacheRef.current.get(cacheKey);
 
-    const tryMapbox = async () => {
-      let coordinates = `${originCoords.lng},${originCoords.lat}`;
-
-      if (stopPointsList.length > 0) {
-        const waypoints = stopPointsList.map(point => {
-          const coords = point.coordinates;
-          const avgLng = coords.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coords.length;
-          const avgLat = coords.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coords.length;
-          return `${avgLng},${avgLat}`;
-        }).filter((wp: string) => wp && !wp.includes('NaN'));
-        if (waypoints.length > 0) {
-          coordinates += `;${waypoints.join(';')}`;
-        }
-      }
-
-      coordinates += `;${destCoords.lng},${destCoords.lat}`;
-
-      const endpoint = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordinates}`;
-
-      const response = await fetch(`/api/mapbox?endpoint=${encodeURIComponent(endpoint)}&geometries=geojson&overview=full&exclude=ferry`);
-      if (!response.ok) return null;
-      const data = await response.json();
-      return data.routes?.[0]?.geometry || null;
-    };
-
-    const tryGoogle = async () => {
-      const originStr = `${originCoords.lat},${originCoords.lng}`;
-      const destStr = `${destCoords.lat},${destCoords.lng}`;
-      let waypointStr = '';
-
-      if (stopPointsList.length > 0) {
-        const waypoints = stopPointsList.map(point => {
-          const coords = point.coordinates;
-          const avgLng = coords.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coords.length;
-          const avgLat = coords.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coords.length;
-          return `${avgLat},${avgLng}`;
-        }).filter(wp => wp && !wp.includes('NaN'));
-        if (waypoints.length > 0) {
-          waypointStr = waypoints.join('|');
-        }
-      }
-
-      let apiUrl = `/api/google-directions?origin=${encodeURIComponent(originStr)}&destination=${encodeURIComponent(destStr)}`;
-      if (waypointStr) {
-        apiUrl += `&waypoints=${encodeURIComponent(waypointStr)}`;
-      }
-
-      const response = await fetch(apiUrl);
-      if (!response.ok) return null;
-      const data = await response.json();
-      if (data.status !== 'OK') return null;
-
-      const route = data.routes?.[0];
-      if (!route) return null;
-
-      const decoded = decodeGooglePolyline(route.overview_polyline?.points || '');
-      if (decoded.length === 0) return null;
-
-      const geometry = {
-        type: 'LineString',
-        coordinates: decoded.map((p: any) => [p.lng, p.lat]),
-      };
-      return geometry;
-    };
-
-    const decodeGooglePolyline = (encoded: string): Array<{lat: number; lng: number}> => {
-      if (!encoded || encoded === '') return [];
-      const poly: Array<{lat: number; lng: number}> = [];
-      let index = 0, lat = 0, lng = 0;
-      while (index < encoded.length) {
-        let b, shift = 0, result = 0;
-        do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-        const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
-        lat += dlat;
-        shift = 0; result = 0;
-        do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-        const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
-        lng += dlng;
-        poly.push({ lat: lat / 1e5, lng: lng / 1e5 });
-      }
-      return poly;
+    const getCentroid = (point: any): { lat: number; lng: number } | null => {
+      const coords = point.coordinates;
+      if (!coords || coords.length === 0) return null;
+      const avgLng = coords.reduce((sum: number, c: number[]) => sum + c[0], 0) / coords.length;
+      const avgLat = coords.reduce((sum: number, c: number[]) => sum + c[1], 0) / coords.length;
+      if (isNaN(avgLat) || isNaN(avgLng)) return null;
+      return { lat: avgLat, lng: avgLng };
     };
 
     try {
-      let geometry = await tryMapbox();
-      if (!geometry) {
-        console.warn('Mapbox route failed, falling back to Google Directions');
-        geometry = await tryGoogle();
+      const intermediates = stopPointsList
+        .map(getCentroid)
+        .filter((c): c is { lat: number; lng: number } => c !== null)
+        .map(c => ({ lat: c.lat, lng: c.lng }));
+
+      const routesBody = {
+        origin: { lat: originCoords.lat, lng: originCoords.lng },
+        destination: { lat: destCoords.lat, lng: destCoords.lng },
+        intermediates,
+      };
+
+      const res = await fetch('/api/osrm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(routesBody),
+      });
+
+      if (!res.ok) {
+        console.warn('[RoutePreviewMap] OSRM API HTTP error:', res.status);
+        return null;
       }
-      if (geometry) cacheRef.current.set(cacheKey, geometry);
+
+      const data = await res.json();
+      const route = data.routes?.[0];
+      if (!route) {
+        console.warn('[RoutePreviewMap] No route returned:', data);
+        return null;
+      }
+
+      const geometry = route.geometry;
+      if (!geometry?.coordinates?.length) {
+        console.warn('[RoutePreviewMap] No geometry in route');
+        return null;
+      }
+
+      cacheRef.current.set(cacheKey, geometry);
       return geometry;
     } catch (error) {
-      console.error('Route fetch error:', error);
+      console.error('[RoutePreviewMap] Route fetch error:', error);
       return null;
     }
   };
