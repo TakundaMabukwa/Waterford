@@ -484,7 +484,7 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
     <div className={cn(
       "w-[30%] rounded-xl p-3 backdrop-blur-md border shadow-lg transition-transform duration-200 hover:scale-[1.02] hover:shadow-2xl",
       isBreakdown
-        ? "bg-red-50/80 border-red-300/60 animate-pulse"
+        ? "bg-red-50/80 border-red-300/60"
         : trip.unauthorized_stops_count > 0 && trip.status?.toLowerCase() !== 'delivered'
           ? isFlashing
             ? "ring-2 ring-red-400 animate-pulse bg-white/30 border-white/10"
@@ -1222,7 +1222,7 @@ const STATUS_OPTIONS = [
             <div className={cn(
               "w-[70%] rounded-xl p-3 shadow-sm border transition-transform duration-200 hover:scale-[1.01] text-black",
               trip.status?.toLowerCase() === 'breakdown'
-              ? "bg-red-50 border-red-300 animate-pulse ring-0"
+              ? "bg-red-50 border-red-300 ring-0"
               : trip.unauthorized_stops_count > 0 && trip.status?.toLowerCase() !== 'delivered'
               ? "bg-white border-slate-200 ring-2 ring-red-400"
               : "bg-white border-slate-200 ring-0"
@@ -1338,7 +1338,7 @@ const STATUS_OPTIONS = [
               <div className="flex flex-col items-end">
               <span className={cn(
               "px-2 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide",
-              trip.status?.toLowerCase() === 'breakdown' ? 'bg-red-500 text-white animate-pulse' :
+              trip.status?.toLowerCase() === 'breakdown' ? 'bg-red-500 text-white' :
               trip.status?.toLowerCase() === 'delivered' ? 'bg-emerald-100 text-emerald-800' :
               trip.status?.toLowerCase() === 'on-trip' ? 'bg-sky-100 text-sky-800' :
               ['pending', 'accepted'].includes(trip.status?.toLowerCase()) ? 'bg-amber-100 text-amber-800' :
