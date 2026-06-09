@@ -38,6 +38,7 @@ import {
   ChevronRight,
   Video,
   Gauge,
+  Download,
 } from "lucide-react";
 import { getDashboardStats } from "@/lib/stats/dashboard";
 import { createClient } from "@/lib/supabase/client";
@@ -1620,6 +1621,17 @@ const STATUS_OPTIONS = [
               <FileText className="w-3 h-3 mr-1" />
               {loadingPhotos ? 'Loading...' : 'View Loading Pictures'}
               </Button>
+              {trip.loadcon_url && (
+              <Button
+              size="sm"
+              variant="link"
+              className="h-8 text-xs border border-gray-300"
+              onClick={() => window.open(trip.loadcon_url, '_blank')}
+              >
+              <Download className="w-3 h-3 mr-1" />
+              Loadcon
+              </Button>
+              )}
               </div>
               </div>
             </div>

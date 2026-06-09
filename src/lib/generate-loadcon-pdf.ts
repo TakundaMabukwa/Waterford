@@ -317,6 +317,7 @@ export async function uploadLoadconPdf(tripId: string, pdfBlob: Blob): Promise<s
   }
 
   const { data: urlData } = supabase.storage.from('trip-loadcons').getPublicUrl(filePath)
+  console.log('[loadcon] Uploaded:', urlData?.publicUrl)
   return urlData?.publicUrl || null
 }
 

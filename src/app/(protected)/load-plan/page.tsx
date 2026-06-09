@@ -2195,15 +2195,17 @@ export default function LoadPlanPage() {
           return client
         }
 
+        const createdAt = new Date().toLocaleDateString('en-ZA')
+
         const loadconData = {
           orderNumber: orderNumberStr,
-          loadType: tripType || '',
-          loadDate: etaPickup ? new Date(etaPickup).toLocaleDateString('en-ZA') : '',
+          loadType: 'Cross Border',
+          loadDate: createdAt,
           customerName: getClientName(),
           collectionAddress: loadingLocation || '',
           delivery: dropOffPoint || '',
           collectedBy: getVehicleReg(),
-          deliveredBy: 'Waterford',
+          deliveredBy: getVehicleReg(),
           notes: comment || '',
           completedBy: completedByName,
           rate: rate || '',
@@ -2454,14 +2456,14 @@ export default function LoadPlanPage() {
                     getCompletedBy().then((completedBy) => {
                       const data: LoadconPrintData = {
                         orderNumber: orderNumber || '',
-                        loadType: tripType || '',
-                        loadDate: etaPickup ? new Date(etaPickup).toLocaleDateString('en-ZA') : '',
+                        loadType: 'Cross Border',
+                        loadDate: new Date().toLocaleDateString('en-ZA'),
                         customerName: getClientName(),
                         collectionAddress: loadingLocation || '',
                         delivery: dropOffPoint || '',
                         weight: '',
                         collectedBy: getVehicleReg(),
-                        deliveredBy: 'Waterford',
+                        deliveredBy: getVehicleReg(),
                         notes: comment || '',
                         completedBy,
                         rate: rate || '',
@@ -3343,13 +3345,13 @@ export default function LoadPlanPage() {
                       }
                       const data: LoadconPrintData = {
                         orderNumber: orderNumber || 'WC000000',
-                        loadType: tripType || '',
-                        loadDate: etaPickup ? new Date(etaPickup).toLocaleDateString('en-ZA') : '',
-                        customerName: getClientName(),
-                        collectionAddress: loadingLocation || '',
-                        delivery: dropOffPoint || '',
-                        collectedBy: getVehicleReg(),
-                        deliveredBy: 'Waterford',
+          loadType: 'Cross Border',
+          loadDate: new Date().toLocaleDateString('en-ZA'),
+          customerName: getClientName(),
+          collectionAddress: loadingLocation || '',
+          delivery: dropOffPoint || '',
+          collectedBy: getVehicleReg(),
+          deliveredBy: getVehicleReg(),
                         notes: comment || '',
                         rate: rate || '',
                         bookingRef: orderNumber && orderNumber !== 'WC000000' ? `${orderNumber} - ${getClientName()}` : '',
