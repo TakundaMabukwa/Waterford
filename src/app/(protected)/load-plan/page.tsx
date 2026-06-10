@@ -2182,6 +2182,13 @@ export default function LoadPlanPage() {
           const v = vehicles.find((vv) => String(vv.id) === String(selectedVehicleId))
           return v?.registration_number || ''
         }
+        const getDriverName = () => {
+          const d = driverAssignments[0]
+          if (!d?.id) return ''
+          const drv = drivers.find((dd) => String(dd.id) === String(d.id))
+          return drv ? `${drv.first_name} ${drv.surname}`.trim() : ''
+        }
+        const deliveredByStr = [getVehicleReg(), getDriverName()].filter(Boolean).join(' - ')
         const getCompletedBy = async () => {
           try {
             const { data: { user } } = await supabase.auth.getUser()
@@ -2204,8 +2211,8 @@ export default function LoadPlanPage() {
           customerName: getClientName(),
           collectionAddress: loadingLocation || '',
           delivery: dropOffPoint || '',
-          collectedBy: getVehicleReg(),
-          deliveredBy: getVehicleReg(),
+          collectedBy: deliveredByStr,
+          deliveredBy: deliveredByStr,
           notes: comment || '',
           completedBy: completedByName,
           rate: rate || '',
@@ -2441,6 +2448,7 @@ export default function LoadPlanPage() {
                       const drv = drivers.find((dd) => String(dd.id) === String(d.id))
                       return drv ? `${drv.first_name} ${drv.surname}`.trim() : ''
                     }
+                    const deliveredByStr = [getVehicleReg(), getDriverName()].filter(Boolean).join(' - ')
                     const getClientName = () => {
                       if (selectedClient?.name) return selectedClient.name
                       if (manualClientName) return manualClientName
@@ -2462,8 +2470,8 @@ export default function LoadPlanPage() {
                         collectionAddress: loadingLocation || '',
                         delivery: dropOffPoint || '',
                         weight: '',
-                        collectedBy: getVehicleReg(),
-                        deliveredBy: getVehicleReg(),
+                        collectedBy: deliveredByStr,
+                        deliveredBy: deliveredByStr,
                         notes: comment || '',
                         completedBy,
                         rate: rate || '',
@@ -3338,6 +3346,13 @@ export default function LoadPlanPage() {
                         const v = vehicles.find((vv) => String(vv.id) === String(selectedVehicleId))
                         return v?.registration_number || ''
                       }
+                      const getDriverName = () => {
+                        const d = driverAssignments[0]
+                        if (!d?.id) return ''
+                        const drv = drivers.find((dd) => String(dd.id) === String(d.id))
+                        return drv ? `${drv.first_name} ${drv.surname}`.trim() : ''
+                      }
+                      const deliveredByStr = [getVehicleReg(), getDriverName()].filter(Boolean).join(' - ')
                       const getClientName = () => {
                         if (selectedClient?.name) return selectedClient.name
                         if (manualClientName) return manualClientName
@@ -3350,8 +3365,8 @@ export default function LoadPlanPage() {
           customerName: getClientName(),
           collectionAddress: loadingLocation || '',
           delivery: dropOffPoint || '',
-          collectedBy: getVehicleReg(),
-          deliveredBy: getVehicleReg(),
+          collectedBy: deliveredByStr,
+          deliveredBy: deliveredByStr,
                         notes: comment || '',
                         rate: rate || '',
                         bookingRef: orderNumber && orderNumber !== 'WC000000' ? `${orderNumber} - ${getClientName()}` : '',
