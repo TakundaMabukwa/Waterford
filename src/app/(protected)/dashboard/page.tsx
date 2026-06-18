@@ -919,24 +919,12 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
 });
 
 function LiveElapsed({ timestamp }: { timestamp: string }) {
-  const [elapsed, setElapsed] = useState('')
-
-  useEffect(() => {
-    if (!timestamp) return
-    const tick = () => {
-      const diff = (Date.now() - new Date(timestamp).getTime()) / 1000
-      if (diff < 0) { setElapsed(''); return }
-      if (diff < 60) { setElapsed(`${Math.round(diff)}s`); return }
-      const h = Math.floor(diff / 3600)
-      const m = Math.floor((diff % 3600) / 60)
-      setElapsed(h > 0 ? `${h}h ${m}m` : `${m}m`)
-    }
-    tick()
-    const timer = setInterval(tick, 1000)
-    return () => clearInterval(timer)
-  }, [timestamp])
-
-  return <>{elapsed}</>
+  const diff = (Date.now() - new Date(timestamp).getTime()) / 1000
+  if (diff < 0) return null
+  if (diff < 60) return <>{`${Math.round(diff)}s`}</>
+  const h = Math.floor(diff / 3600)
+  const m = Math.floor((diff % 3600) / 60)
+  return <>{h > 0 ? `${h}h ${m}m` : `${m}m`}</>
 }
 
 // Enhanced routing components with proper waypoints
@@ -1154,17 +1142,28 @@ const STATUS_OPTIONS = [
     const stopsData = trip.stops_data
 
     if (!Array.isArray(stopsData) || stopsData.length === 0) {
-      return WORKFLOW_STATUSES.map((status, index) => ({
-        position: (index / (WORKFLOW_STATUSES.length - 1)) * 100,
-        label: status.label,
-        completed: currentStatusIndex > index,
-        current: currentStatusIndex === index,
-        isStop: false,
-        warningLevel: 'normal' as const,
-        elapsedSeconds: null,
-        elapsedFormatted: '',
-        currentTimestamp: null
-      }))
+      return WORKFLOW_STATUSES.map((status, index) => {
+        const isCurrent = currentStatusIndex === index
+        let currentTimestamp: string | null = null
+        if (isCurrent) {
+          if (status.value === 'pending') {
+            currentTimestamp = trip.created_at || null
+          } else if (currentStatusIndex > 0) {
+            currentTimestamp = trip.created_at || null
+          }
+        }
+        return {
+          position: (index / (WORKFLOW_STATUSES.length - 1)) * 100,
+          label: status.label,
+          completed: currentStatusIndex > index,
+          current: isCurrent,
+          isStop: false,
+          warningLevel: 'normal' as const,
+          elapsedSeconds: null,
+          elapsedFormatted: '',
+          currentTimestamp
+        }
+      })
     }
     
     const elapsedByStatus: Record<string, number> = {}
@@ -1201,6 +1200,16 @@ const STATUS_OPTIONS = [
         else if (minutes >= 15) warningLevel = 'warning'
       }
 
+      let currentTimestamp: string | null = null
+      if (isCurrent) {
+        if (status.value === 'pending') {
+          currentTimestamp = trip.created_at || null
+        } else if (currentStatusIndex > 0) {
+          const prevStatus = WORKFLOW_STATUSES[currentStatusIndex - 1]
+          currentTimestamp = timestampByStatus[prevStatus.value] || trip.created_at || null
+        }
+      }
+
       return {
         position: (index / (WORKFLOW_STATUSES.length - 1)) * 100,
         label: status.label,
@@ -1210,7 +1219,7 @@ const STATUS_OPTIONS = [
         warningLevel,
         elapsedSeconds: isCurrent ? null : (elapsed ?? null),
         elapsedFormatted: isCurrent ? '' : formatElapsed(elapsed),
-        currentTimestamp: isCurrent ? (timestampByStatus[status.value] || null) : null
+        currentTimestamp
       }
     })
 
