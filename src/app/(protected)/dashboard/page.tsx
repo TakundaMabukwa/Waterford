@@ -918,6 +918,27 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
   )
 });
 
+function LiveElapsed({ timestamp }: { timestamp: string }) {
+  const [elapsed, setElapsed] = useState('')
+
+  useEffect(() => {
+    if (!timestamp) return
+    const tick = () => {
+      const diff = (Date.now() - new Date(timestamp).getTime()) / 1000
+      if (diff < 0) { setElapsed(''); return }
+      if (diff < 60) { setElapsed(`${Math.round(diff)}s`); return }
+      const h = Math.floor(diff / 3600)
+      const m = Math.floor((diff % 3600) / 60)
+      setElapsed(h > 0 ? `${h}h ${m}m` : `${m}m`)
+    }
+    tick()
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
+  }, [timestamp])
+
+  return <>{elapsed}</>
+}
+
 // Enhanced routing components with proper waypoints
 const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, refreshTrigger, setRefreshTrigger, setPickupTimeOpen, setDropoffTimeOpen, setCurrentTripForTime, setTimeType, setSelectedTime, currentUnauthorizedTrip, setCurrentUnauthorizedTrip, setUnauthorizedStopModalOpen, loadingPhotos, setLoadingPhotos, setCurrentTripPhotos, setPhotosModalOpen, setCurrentTripAlerts, setAlertsModalOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, isVisible = true }: any) {
   const [trips, setTrips] = useState<any[]>([])
@@ -1130,13 +1151,68 @@ const STATUS_OPTIONS = [
 
   const getWaypointsWithStops = (trip: any) => {
     const currentStatusIndex = WORKFLOW_STATUSES.findIndex(s => s.value === trip.status?.toLowerCase())
-    const baseWaypoints = WORKFLOW_STATUSES.map((status, index) => ({
-      position: (index / (WORKFLOW_STATUSES.length - 1)) * 100,
-      label: status.label,
-      completed: currentStatusIndex > index,
-      current: currentStatusIndex === index,
-      isStop: false
-    }))
+    const stopsData = trip.stops_data
+
+    if (!Array.isArray(stopsData) || stopsData.length === 0) {
+      return WORKFLOW_STATUSES.map((status, index) => ({
+        position: (index / (WORKFLOW_STATUSES.length - 1)) * 100,
+        label: status.label,
+        completed: currentStatusIndex > index,
+        current: currentStatusIndex === index,
+        isStop: false,
+        warningLevel: 'normal' as const,
+        elapsedSeconds: null,
+        elapsedFormatted: '',
+        currentTimestamp: null
+      }))
+    }
+    
+    const elapsedByStatus: Record<string, number> = {}
+    const timestampByStatus: Record<string, string> = {}
+    stopsData.forEach((entry: any) => {
+      if (entry.status) {
+        if (typeof entry.elapsed_seconds === 'number') {
+          elapsedByStatus[entry.status] = entry.elapsed_seconds
+        }
+        if (entry.timestamp) {
+          timestampByStatus[entry.status] = entry.timestamp
+        }
+      }
+    })
+
+    const formatElapsed = (seconds: number | undefined | null): string => {
+      if (seconds == null || seconds < 0) return ''
+      if (seconds < 60) return `${Math.round(seconds)}s`
+      const h = Math.floor(seconds / 3600)
+      const m = Math.floor((seconds % 3600) / 60)
+      if (h > 0) return `${h}h ${m}m`
+      return `${m}m`
+    }
+
+    const baseWaypoints = WORKFLOW_STATUSES.map((status, index) => {
+      const isCompleted = currentStatusIndex > index
+      const isCurrent = currentStatusIndex === index
+      const elapsed = elapsedByStatus[status.value]
+
+      let warningLevel: 'normal' | 'warning' | 'danger' = 'normal'
+      if (isCompleted && elapsed != null) {
+        const minutes = elapsed / 60
+        if (minutes > 30) warningLevel = 'danger'
+        else if (minutes >= 15) warningLevel = 'warning'
+      }
+
+      return {
+        position: (index / (WORKFLOW_STATUSES.length - 1)) * 100,
+        label: status.label,
+        completed: isCompleted,
+        current: isCurrent,
+        isStop: false,
+        warningLevel,
+        elapsedSeconds: isCurrent ? null : (elapsed ?? null),
+        elapsedFormatted: isCurrent ? '' : formatElapsed(elapsed),
+        currentTimestamp: isCurrent ? (timestampByStatus[status.value] || null) : null
+      }
+    })
 
     // Insert stops between Loading (index 4) and On Trip (index 5)
     const stops = trip.selected_stop_points || trip.selectedstoppoints || []
@@ -1402,10 +1478,28 @@ const STATUS_OPTIONS = [
               <div className="flex justify-between items-center">
               {waypoints.map((waypoint, index) => (
               <div key={index} className="flex flex-col items-center relative z-10 group">
+              {waypoint.completed && waypoint.elapsedFormatted ? (
+                <span className={cn(
+                  "text-[9px] font-bold mb-0.5 leading-none",
+                  waypoint.warningLevel === 'danger' ? "text-red-500" :
+                  waypoint.warningLevel === 'warning' ? "text-orange-500" :
+                  "text-emerald-600"
+                )}>
+                  {waypoint.elapsedFormatted}
+                </span>
+              ) : waypoint.current && waypoint.currentTimestamp ? (
+                <span className="text-[9px] font-bold mb-0.5 leading-none text-sky-600">
+                  <LiveElapsed timestamp={waypoint.currentTimestamp} />
+                </span>
+              ) : (
+                <span className="text-[9px] mb-0.5 leading-none">&nbsp;</span>
+              )}
               <div className={cn(
               "w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all duration-300",
               waypoint.isStop ? "bg-orange-500 border-orange-600 text-white" :
               waypoint.current ? "bg-blue-500 border-blue-700 text-white" :
+              waypoint.completed && waypoint.warningLevel === 'danger' ? "bg-red-500 border-red-600 text-white" :
+              waypoint.completed && waypoint.warningLevel === 'warning' ? "bg-orange-500 border-orange-600 text-white" :
               waypoint.completed ? "bg-emerald-600 border-emerald-700 text-white" :
               "bg-slate-100 border-slate-200 text-slate-600"
               )}>
@@ -1423,6 +1517,8 @@ const STATUS_OPTIONS = [
               "text-xs mt-1 text-center max-w-12 leading-tight",
               waypoint.isStop ? "text-orange-600 font-medium" :
               waypoint.current ? "text-sky-700 font-semibold" :
+              waypoint.completed && waypoint.warningLevel === 'danger' ? "text-red-600 font-medium" :
+              waypoint.completed && waypoint.warningLevel === 'warning' ? "text-orange-600 font-medium" :
               waypoint.completed ? "text-emerald-700 font-medium" :
               "text-gray-600"
               )}>
@@ -1436,13 +1532,17 @@ const STATUS_OPTIONS = [
               </div>
               ))}
               </div>
-              <div className="absolute top-3 left-3 right-3 h-1 bg-slate-100 -z-0 rounded">
+              <div className="absolute top-[24px] left-3 right-3 h-1 bg-slate-100 -z-0 rounded">
               <div 
               className={cn(
                 "h-full rounded transition-all duration-500 ease-out",
                 trip.status?.toLowerCase() === 'breakdown'
                 ? "bg-gradient-to-r from-red-500 via-red-400 to-red-500"
-                : "bg-gradient-to-r from-blue-500 via-sky-500 to-blue-400"
+                : waypoints.some(w => w.completed && w.warningLevel === 'danger')
+                  ? "bg-gradient-to-r from-emerald-500 via-orange-400 to-red-500"
+                  : waypoints.some(w => w.completed && w.warningLevel === 'warning')
+                    ? "bg-gradient-to-r from-emerald-500 via-orange-400 to-orange-500"
+                    : "bg-gradient-to-r from-blue-500 via-sky-500 to-blue-400"
               )}
               style={{ width: `${progress}%` }}
               />
@@ -2265,12 +2365,6 @@ export default function Dashboard() {
               >
                 Trip Reports
               </TabsTrigger>
-              <TabsTrigger
-                value="executive"
-                className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
-              >
-                Executive
-              </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -2312,12 +2406,6 @@ export default function Dashboard() {
                 className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
                 Trip Reports
-              </TabsTrigger>
-              <TabsTrigger
-                value="executive"
-                className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
-              >
-                Executive
               </TabsTrigger>
             </TabsList>
           </Tabs>

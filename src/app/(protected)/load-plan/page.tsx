@@ -2288,9 +2288,10 @@ export default function LoadPlanPage() {
       fetchData()
       
       showToast(`Load ${orderNumberStr} created successfully!`, 'success')
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error creating load:', err)
-      showToast('Something went wrong while creating the load', 'error')
+      const msg = err?.message || String(err)
+      showToast(`Something went wrong: ${msg}`, 'error')
     } finally {
       setIsSubmitting(false)
     }
