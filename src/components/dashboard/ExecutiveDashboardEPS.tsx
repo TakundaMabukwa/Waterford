@@ -5,9 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { BarChart } from '@mui/x-charts/BarChart'
-import { LineChart } from '@mui/x-charts/LineChart'
-import { PieChart } from '@mui/x-charts/PieChart'
-import FleetRiskGauge from '@/components/charts/FleetFuelGauge'
 import { RefreshCw, TrendingUp, AlertTriangle, Users, Award } from 'lucide-react'
 
 interface DashboardData {
@@ -110,7 +107,6 @@ export default function ExecutiveDashboardEPS() {
         </div>
       </div>
 
-      {/* Executive KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="p-4">
@@ -171,9 +167,7 @@ export default function ExecutiveDashboardEPS() {
         </Card>
       </div>
 
-      {/* Main Dashboard Charts */}
       <div className="space-y-8">
-        {/* Best Performers */}
         <Card className="min-h-[400px]">
           <CardHeader>
             <CardTitle className="text-xl font-bold text-gray-800">🏆 Top Performers - Leaderboard</CardTitle>
@@ -201,7 +195,6 @@ export default function ExecutiveDashboardEPS() {
           </CardContent>
         </Card>
 
-        {/* Risk Assessment and Violations */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <Card className="min-h-[400px]">
             <CardHeader>
@@ -255,10 +248,8 @@ export default function ExecutiveDashboardEPS() {
             </CardContent>
           </Card>
         </div>
-
       </div>
 
-      {/* Top Speeders Table */}
       <Card>
         <CardHeader>
           <CardTitle className="text-xl font-bold text-gray-800">🚨 Top Speeding Drivers</CardTitle>
@@ -299,7 +290,6 @@ export default function ExecutiveDashboardEPS() {
         </CardContent>
       </Card>
 
-      {/* Risk Assessment Table */}
       <Card>
         <CardHeader>
           <CardTitle className="text-xl font-bold text-gray-800">Leaderboard - All Drivers</CardTitle>
@@ -341,7 +331,6 @@ export default function ExecutiveDashboardEPS() {
         </CardContent>
       </Card>
 
-      {/* Monthly Statistics Table */}
       <Card>
         <CardHeader>
           <CardTitle className="text-xl font-bold text-gray-800">Monthly Fleet Statistics</CardTitle>

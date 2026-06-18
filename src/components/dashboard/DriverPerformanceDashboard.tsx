@@ -23,20 +23,16 @@ export default function DriverPerformanceDashboard() {
   const fetchDriverPerformance = async () => {
     try {
       setLoading(true)
-      console.log('Using proxy POST method...')
-      const HTTP_SERVER_ENDPOINT = process.env.NEXT_PUBLIC_HTTP_SERVER_ENDPOINT || 'http://localhost:3001'
-      console.log('Target endpoint:', `${HTTP_SERVER_ENDPOINT}/api/eps-rewards/all-driver-profiles`)
+      const HTTP_SERVER_ENDPOINT = process.env.NEXT_PUBLIC_CAN_BUS_ENDPOINT || process.env.NEXT_PUBLIC_EPS_HTTP_SERVER_ENDPOINT || 'http://209.38.217.58:3001'
       const response = await fetch('/api/eps-rewards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ endpoint: `${HTTP_SERVER_ENDPOINT}/api/eps-rewards/all-driver-profiles` })
       })
-      console.log('Proxy response status:', response.status)
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
       const data = await response.json()
-      console.log('Data received:', data)
       setDrivers(data.drivers || [])
     } catch (error) {
       console.error('Error fetching driver performance:', error)

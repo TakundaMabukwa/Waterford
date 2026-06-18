@@ -67,6 +67,7 @@ import { cn } from "@/lib/utils";
 import { FuelGaugesView } from "@/components/fuelGauge/FuelGaugesView";
 import FuelCanBusDisplay from "@/components/FuelCanBusDisplay";
 import DriverPerformanceDashboard from "@/components/dashboard/DriverPerformanceDashboard";
+import ExecutiveReportTab from "@/components/executive-report-tab";
 import TestRouteMap from "@/components/map/test-route-map";
 import GoogleMapView from "@/components/map/google-map-view";
 import { DateTimePicker } from "@/components/ui/datetime-picker";
@@ -2264,6 +2265,12 @@ export default function Dashboard() {
               >
                 Trip Reports
               </TabsTrigger>
+              <TabsTrigger
+                value="executive"
+                className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                Executive
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -2274,38 +2281,6 @@ export default function Dashboard() {
   return (
     <>
       <div className="flex-1 space-y-4 p-4 pt-6">
-        {/* Top Tabs Navigation */}
-        {/* <div className="flex items-center justify-between">
-          <Tabs
-            value={activeTab}
-            onValueChange={(v) => setActiveTab(v)}
-            className="w-full"
-          >
-            <TabsList className="flex w-fit items-center rounded-full bg-white/80 dark:bg-slate-800 p-1.5 shadow-lg ring-1 ring-slate-200 dark:ring-slate-700">
-              <TabsTrigger
-                value="routing"
-                className="px-4 py-2 text-sm font-medium rounded-full data-[state=active]:bg-primary data-[state=active]:text-white hover:brightness-95"
-              >
-                Routing
-              </TabsTrigger>
-              <TabsTrigger
-                value="financials"
-                className="px-4 py-2 text-sm font-medium rounded-full data-[state=active]:bg-primary data-[state=active]:text-white hover:brightness-95"
-              >
-                Financials
-              </TabsTrigger>
-              <TabsTrigger
-                value="audit"
-                className="px-4 py-2 text-sm font-medium rounded-full data-[state=active]:bg-primary data-[state=active]:text-white hover:brightness-95"
-              >
-                Audit
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div> */}
-
-
-
         {/* Top Tabs Navigation */}
         <div className="flex items-center justify-between mb-6">
           <Tabs
@@ -2337,6 +2312,12 @@ export default function Dashboard() {
                 className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
                 Trip Reports
+              </TabsTrigger>
+              <TabsTrigger
+                value="executive"
+                className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                Executive
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -2609,6 +2590,10 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {activeTab === "executive" && (
+          <ExecutiveReportTab />
         )}
       </div>
 

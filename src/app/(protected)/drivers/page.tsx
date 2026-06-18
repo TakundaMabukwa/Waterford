@@ -595,7 +595,7 @@ export default function Drivers() {
               <span className="sm:hidden">Drivers</span>
             </button>
 
-            {/* <button
+            <button
               onClick={() => setActiveTab('executive-dashboard')}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
                 activeTab === 'executive-dashboard'
@@ -630,7 +630,7 @@ export default function Drivers() {
               <Settings className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Monitoring Config</span>
               <span className="sm:hidden">Config</span>
-            </button> */}
+            </button>
           </div>
         </div>
       </div>
@@ -1636,7 +1636,7 @@ export default function Drivers() {
             </div>
           )}
 
-          {false && (
+          {activeTab === 'executive-dashboard' && (
             <div className="space-y-6">
               {/* Chart Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1649,7 +1649,7 @@ export default function Drivers() {
             </div>
           )}
 
-          {false && (
+          {activeTab === 'executive-dashboard' && (
             <div className="space-y-6">
               <div className="bg-gradient-to-r from-sky-100 via-blue-50 to-cyan-50 shadow-lg p-6 border border-blue-200 rounded-lg text-slate-800">
                 <h1 className="font-bold text-2xl text-center">
@@ -2206,7 +2206,7 @@ export default function Drivers() {
             </div>
           )}
 
-          {false && (
+          {activeTab === 'drivers-performance' && (
             <div className="space-y-6">
               {performanceLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -2414,7 +2414,7 @@ export default function Drivers() {
             </div>
           )}
 
-          {false && (
+          {activeTab === 'driver-monitoring-config' && (
             <div className="bg-white shadow-sm border border-gray-200 rounded-lg">
               <div className="overflow-x-auto">
                 <table className="w-full">

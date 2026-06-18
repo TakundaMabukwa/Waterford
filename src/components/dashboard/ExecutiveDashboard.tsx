@@ -55,12 +55,10 @@ export default function ExecutiveDashboard() {
         }).then(res => res.json())
       ])
 
-      // Handle API errors
       if (execData?.error || riskData?.error || activeVehicles?.error) {
         console.error('API errors:', { execData, riskData, activeVehicles })
       }
 
-      // Transform data based on new API structure
       const topPerformers = execData?.driver_performance?.performance_levels ? [
         { driverName: 'Top Gold Driver', totalPoints: 100, rewardLevel: 'Gold' },
         { driverName: 'Second Gold Driver', totalPoints: 95, rewardLevel: 'Gold' },

@@ -7,6 +7,7 @@ import {
   BarChart3,
   CheckCircle2,
   FileDown,
+  FileText,
   Plus,
   Route,
   Trash2,
@@ -20,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import TripRouteMap from '@/components/audit/TripRouteMap'
+import GenerateInvoiceModal from '@/components/audit/GenerateInvoiceModal'
 import {
   AFRICAN_CURRENCY_OPTIONS,
   AuditFinanceEntry,
@@ -235,6 +237,7 @@ export default function AuditTripWorkspace({
   const [fxError, setFxError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [pendingSplitCategory, setPendingSplitCategory] = useState<string>('driver_cost')
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
 
   useEffect(() => {
     setActiveTab(initialTab)
@@ -249,11 +252,11 @@ export default function AuditTripWorkspace({
   }, [initialFinanceEntries])
 
   useEffect(() => {
-    const nextActualRate = toNumber(record?.actual_rate ?? 0)
-    setActualRate(nextActualRate)
-    setAmountToSplit(nextActualRate)
+    const nextInvoiceRate = toNumber(record?.invoice_rate ?? record?.rate ?? 0)
+    setActualRate(toNumber(record?.actual_rate ?? 0))
+    setAmountToSplit(nextInvoiceRate)
     setActualCurrency(normalizeCurrency(record?.actual_currency ?? 'ZAR'))
-    setInvoiceRate(toNumber(record?.invoice_rate ?? record?.rate ?? 0))
+    setInvoiceRate(nextInvoiceRate)
     setInvoiceCurrency(normalizeCurrency(record?.invoice_currency ?? record?.actual_currency ?? 'ZAR'))
   }, [record])
 
@@ -571,15 +574,10 @@ export default function AuditTripWorkspace({
       </header>
 
       <div className="flex-1 overflow-y-auto px-5 py-4">
-        <section className="mb-4 grid grid-cols-2 gap-3 xl:grid-cols-6">
+        <section className="mb-4 grid grid-cols-2 gap-3 xl:grid-cols-5">
           <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
             <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Planned Rate</div>
             <div className="mt-1 text-lg font-extrabold text-[#001e42]">{currency(plannedRate)}</div>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Actual Rate</div>
-            <div className="mt-1 text-lg font-extrabold text-amber-700">{currency(actualRate, actualCurrency)}</div>
-            <div className="text-xs text-slate-500">{actualCurrency}</div>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
             <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Invoice Rate</div>
@@ -592,7 +590,7 @@ export default function AuditTripWorkspace({
               <div className="mt-1 text-sm font-bold text-slate-500">Currency mismatch</div>
             ) : (
               <div className={`mt-1 text-lg font-extrabold ${myRate >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {currency(myRate, actualCurrency)}
+                {currency(myRate, invoiceCurrency)}
               </div>
             )}
           </div>
@@ -638,7 +636,7 @@ export default function AuditTripWorkspace({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4 md:grid-cols-4">
+                <div className="grid grid-cols-3 gap-4 border-t border-slate-100 pt-4 md:grid-cols-3">
                   <div>
                     <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">Planned Rate</p>
                     <p className="text-lg font-bold text-slate-900">{currency(plannedRate)}</p>
@@ -648,13 +646,9 @@ export default function AuditTripWorkspace({
                     <p className="text-lg font-bold text-slate-900">{currency(invoiceRate, invoiceCurrency)}</p>
                   </div>
                   <div>
-                    <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">Actual Rate</p>
-                    <p className="text-lg font-bold text-amber-700">{currency(actualRate, actualCurrency)}</p>
-                  </div>
-                  <div>
                     <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">My Rate</p>
                     <p className={`text-lg font-bold ${myRate != null && myRate >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      {myRate == null ? 'Currency mismatch' : currency(myRate, actualCurrency)}
+                      {myRate == null ? 'Currency mismatch' : currency(myRate, invoiceCurrency)}
                     </p>
                   </div>
                 </div>
@@ -966,44 +960,17 @@ export default function AuditTripWorkspace({
                 <div className="mt-2 text-2xl font-black text-slate-900">{currency(plannedRate)}</div>
               </div>
               <div className="rounded-lg border border-slate-200 p-4 sm:p-5 xl:col-span-3">
-                <div className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Actual Rate</div>
-                <div className="space-y-2">
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    value={formatEditableNumber(actualRate)}
-                    onChange={(e) => {
-                      const next = parseEditableNumber(e.target.value)
-                      setActualRate(next)
-                      setAmountToSplit(next)
-                    }}
-                    className="h-11 text-base font-bold sm:text-lg"
-                  />
-                  <Select value={actualCurrency} onValueChange={(value: AuditCurrencyCode) => setActualCurrency(value)}>
-                    <SelectTrigger className="h-11 font-semibold">
-                      <SelectValue placeholder="Currency" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-72">
-                      {AFRICAN_CURRENCY_OPTIONS.map((option) => (
-                        <SelectItem key={option.code} value={option.code}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <div className="text-xs text-slate-500">
-                    Split currency: <span className="font-semibold text-slate-700">{actualCurrency}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-4 sm:p-5 xl:col-span-3">
                 <div className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Invoice Rate</div>
                 <div className="space-y-2">
                   <Input
                     type="text"
                     inputMode="decimal"
                     value={formatEditableNumber(invoiceRate)}
-                    onChange={(e) => setInvoiceRate(parseEditableNumber(e.target.value))}
+                    onChange={(e) => {
+                      const next = parseEditableNumber(e.target.value)
+                      setInvoiceRate(next)
+                      setAmountToSplit(next)
+                    }}
                     className="h-11 text-base font-bold sm:text-lg"
                   />
                   <Select value={invoiceCurrency} onValueChange={(value: AuditCurrencyCode) => setInvoiceCurrency(value)}>
@@ -1038,32 +1005,42 @@ export default function AuditTripWorkspace({
                         : 'Latest reference rate'}
                 </div>
               </div>
+              <div className="flex items-center xl:col-span-3">
+                <Button
+                  onClick={() => setShowInvoiceModal(true)}
+                  className="h-full w-full bg-[#001e42] text-white hover:bg-[#0b2955]"
+                  disabled={!invoiceRate}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Generate Invoice
+                </Button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Amount To Split</div>
-                <div className="mt-2 text-2xl font-black text-[#001e42]">{currency(amountToSplit, actualCurrency)}</div>
+                <div className="mt-2 text-2xl font-black text-[#001e42]">{currency(amountToSplit, invoiceCurrency)}</div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Allocated</div>
-                <div className="mt-2 text-2xl font-black text-[#001e42]">{currency(allocatedTotal, actualCurrency)}</div>
+                <div className="mt-2 text-2xl font-black text-[#001e42]">{currency(allocatedTotal, invoiceCurrency)}</div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Remaining</div>
-                <div className={`mt-2 text-2xl font-black ${unallocated >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{currency(unallocated, actualCurrency)}</div>
+                <div className={`mt-2 text-2xl font-black ${unallocated >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{currency(unallocated, invoiceCurrency)}</div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual In Invoice Currency</div>
+                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual Cost</div>
                 <div className="mt-2 text-2xl font-black text-slate-900">
-                  {convertedActualToInvoice != null ? currency(convertedActualToInvoice, invoiceCurrency) : 'Unavailable'}
+                  {currency(actualTotalCost, invoiceCurrency)}
                 </div>
               </div>
             </div>
 
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-              Split rows are built per driver across the primary and handover vehicle sets. Enter the actual
-              rate, then allocate it until the remaining value reaches exactly <span className="font-bold text-slate-900">{currency(0, actualCurrency)}</span>.
+              Split rows are built per driver across the primary and handover vehicle sets. Enter the invoice
+              rate, then allocate it until the remaining value reaches exactly <span className="font-bold text-slate-900">{currency(0, invoiceCurrency)}</span>.
             </div>
 
             <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 lg:grid-cols-3">
@@ -1548,17 +1525,17 @@ export default function AuditTripWorkspace({
           <div className="flex flex-wrap items-center gap-5">
             <div>
               <div className="text-xs font-black uppercase tracking-widest text-slate-500">Amount To Split</div>
-              <div className="text-lg font-black text-[#001e42]">{currency(amountToSplit, actualCurrency)}</div>
+              <div className="text-lg font-black text-[#001e42]">{currency(amountToSplit, invoiceCurrency)}</div>
             </div>
             <div className="hidden h-8 w-px bg-slate-200 sm:block" />
             <div>
               <div className="text-xs font-black uppercase tracking-widest text-slate-500">Total Actual Cost</div>
-              <div className="text-lg font-black text-[#001e42]">{currency(actualTotalCost)}</div>
+              <div className="text-lg font-black text-[#001e42]">{currency(actualTotalCost, invoiceCurrency)}</div>
             </div>
             <div className="hidden h-8 w-px bg-slate-200 sm:block" />
             <div>
               <div className="text-xs font-black uppercase tracking-widest text-slate-500">Unallocated Funds</div>
-              <div className={`text-lg font-black ${unallocated >= 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{currency(Math.abs(unallocated), actualCurrency)}</div>
+              <div className={`text-lg font-black ${unallocated >= 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{currency(Math.abs(unallocated), invoiceCurrency)}</div>
           </div>
           </div>
 
@@ -1576,6 +1553,18 @@ export default function AuditTripWorkspace({
           </div>
         </div>
       </footer>
+
+      {showInvoiceModal && (
+        <GenerateInvoiceModal
+          open={showInvoiceModal}
+          onClose={() => setShowInvoiceModal(false)}
+          record={record}
+          invoiceRate={invoiceRate}
+          invoiceCurrency={invoiceCurrency}
+          splitRows={visibleSplitRows}
+          calcSplitTotal={calcSplitTotal}
+        />
+      )}
     </div>
   )
 }
