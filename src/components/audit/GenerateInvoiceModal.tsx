@@ -4,7 +4,7 @@
 import { useState } from 'react'
 import { X, Plus, Trash2, Download } from 'lucide-react'
 import jsPDF from 'jspdf'
-import 'jspdf-autotable'
+import autoTable from 'jspdf-autotable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -205,7 +205,7 @@ export default function GenerateInvoiceModal({
       ]
     })
 
-    ;(doc as any).autoTable({
+    autoTable(doc, {
       startY: y,
       head: [['Description', 'Quantity', 'Unit Price', 'VAT', 'Amount']],
       body: tableData,
