@@ -1193,13 +1193,6 @@ const STATUS_OPTIONS = [
       const isCurrent = currentStatusIndex === index
       const elapsed = elapsedByStatus[status.value]
 
-      let warningLevel: 'normal' | 'warning' | 'danger' = 'normal'
-      if (isCompleted && elapsed != null) {
-        const minutes = elapsed / 60
-        if (minutes > 30) warningLevel = 'danger'
-        else if (minutes >= 15) warningLevel = 'warning'
-      }
-
       let currentTimestamp: string | null = null
       if (isCurrent) {
         if (status.value === 'pending') {
@@ -1208,6 +1201,17 @@ const STATUS_OPTIONS = [
           const prevStatus = WORKFLOW_STATUSES[currentStatusIndex - 1]
           currentTimestamp = timestampByStatus[prevStatus.value] || trip.created_at || null
         }
+      }
+
+      let warningLevel: 'normal' | 'warning' | 'danger' = 'normal'
+      if (isCompleted && elapsed != null) {
+        const minutes = elapsed / 60
+        if (minutes > 30) warningLevel = 'danger'
+        else if (minutes >= 15) warningLevel = 'warning'
+      } else if (isCurrent && currentTimestamp) {
+        const liveMinutes = (Date.now() - new Date(currentTimestamp).getTime()) / 60000
+        if (liveMinutes > 30) warningLevel = 'danger'
+        else if (liveMinutes >= 15) warningLevel = 'warning'
       }
 
       return {
@@ -1497,7 +1501,12 @@ const STATUS_OPTIONS = [
                   {waypoint.elapsedFormatted}
                 </span>
               ) : waypoint.current && waypoint.currentTimestamp ? (
-                <span className="text-[9px] font-bold mb-0.5 leading-none text-sky-600">
+                <span className={cn(
+                  "text-[9px] font-bold mb-0.5 leading-none",
+                  waypoint.warningLevel === 'danger' ? "text-red-500" :
+                  waypoint.warningLevel === 'warning' ? "text-orange-500" :
+                  "text-sky-600"
+                )}>
                   <LiveElapsed timestamp={waypoint.currentTimestamp} />
                 </span>
               ) : (
@@ -1506,6 +1515,8 @@ const STATUS_OPTIONS = [
               <div className={cn(
               "w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all duration-300",
               waypoint.isStop ? "bg-orange-500 border-orange-600 text-white" :
+              waypoint.current && waypoint.warningLevel === 'danger' ? "bg-red-500 border-red-600 text-white" :
+              waypoint.current && waypoint.warningLevel === 'warning' ? "bg-orange-500 border-orange-600 text-white" :
               waypoint.current ? "bg-blue-500 border-blue-700 text-white" :
               waypoint.completed && waypoint.warningLevel === 'danger' ? "bg-red-500 border-red-600 text-white" :
               waypoint.completed && waypoint.warningLevel === 'warning' ? "bg-orange-500 border-orange-600 text-white" :
@@ -1525,6 +1536,8 @@ const STATUS_OPTIONS = [
               <span className={cn(
               "text-xs mt-1 text-center max-w-12 leading-tight",
               waypoint.isStop ? "text-orange-600 font-medium" :
+              waypoint.current && waypoint.warningLevel === 'danger' ? "text-red-600 font-semibold" :
+              waypoint.current && waypoint.warningLevel === 'warning' ? "text-orange-600 font-semibold" :
               waypoint.current ? "text-sky-700 font-semibold" :
               waypoint.completed && waypoint.warningLevel === 'danger' ? "text-red-600 font-medium" :
               waypoint.completed && waypoint.warningLevel === 'warning' ? "text-orange-600 font-medium" :
