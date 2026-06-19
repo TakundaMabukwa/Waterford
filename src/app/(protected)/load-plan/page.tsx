@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { X, FileText, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin, Building2, GripVertical, Printer } from 'lucide-react'
+import { X, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin, Building2, GripVertical, Printer, Search } from 'lucide-react'
 import { LoadconPrint, type LoadconPrintData } from '@/components/ui/loadcon-print'
 import { generateLoadconPdf, uploadLoadconPdf, updateTripLoadconUrl, triggerPdfDownload, buildLoadconHTML } from '@/lib/generate-loadcon-pdf'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
@@ -53,6 +53,7 @@ export default function LoadPlanPage() {
   const [isEditMode, setIsEditMode] = useState(false)
   const [editTripId, setEditTripId] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [tripSearch, setTripSearch] = useState('')
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type, isVisible: true })
   }
@@ -498,7 +499,7 @@ export default function LoadPlanPage() {
         { data: costCentersData, error: costCentersError },
         trackingVehicles
       ] = await Promise.all([
-        supabase.from('trips').select('*').order('created_at', { ascending: false }),
+        supabase.from('trips').select('*').order('created_at', { ascending: false }).not('status', 'in', '("delivered","completed")'),
         fetch('/api/eps-client-list').then(res => res.json()).then(data => ({ data: data.data, error: null })).catch(error => ({ data: null, error })),
         fetchAllVehicles(),
         supabase.from('drivers').select('*'),
@@ -2354,53 +2355,65 @@ export default function LoadPlanPage() {
 
           <div className="bg-white rounded-xl border shadow-sm">
             <div className="p-4">
+              <div className="relative mb-4">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search by order number or driver name..."
+                  value={tripSearch}
+                  onChange={(e) => setTripSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                />
+                {tripSearch && (
+                  <button onClick={() => setTripSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
 
+              {(() => {
+                const q = tripSearch.toLowerCase().trim()
+                const filtered = q ? loads.filter(row => {
+                  if (row.ordernumber?.toLowerCase().includes(q)) return true
+                  if (row.trip_id?.toLowerCase().includes(q)) return true
+                  const assignments = parseJsonField(row.vehicleassignments) || []
+                  return assignments.some(a => (a.drivers || []).some(d => (d.first_name || d.name || '').toLowerCase().includes(q)))
+                }) : loads
+
+              return (
               <Table>
                 <TableHeader>
                   <TableRow className="bg-blue-100">
-                    <TableHead>Client</TableHead>
-                    <TableHead>Commodity</TableHead>
-                    <TableHead>Rate</TableHead>
-                    <TableHead>Pickup</TableHead>
-                    <TableHead>Drop Off</TableHead>
-                    <TableHead>Assignments</TableHead>
+                    <TableHead>Order Number</TableHead>
+                    <TableHead>Driver</TableHead>
+                    <TableHead>Vehicle</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loads.length === 0 ? (
+                  {filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                        No trips available. Total loads: {loads.length}
+                      <TableCell colSpan={4} className="text-center py-8 text-gray-500">
+                        {tripSearch ? 'No trips match your search' : 'No trips available'}
                       </TableCell>
                     </TableRow>
-                  ) : loads.map((row) => (
+                  ) : filtered.map((row) => (
                     <TableRow key={row.id} className="hover:bg-muted/50">
-                      <TableCell>{row.client}</TableCell>
-                      <TableCell>{row.commodity}</TableCell>
-                      <TableCell>{row.rate}</TableCell>
+                      <TableCell className="font-medium">{row.ordernumber || row.trip_id || row.id}</TableCell>
                       <TableCell>
-                        {row.etaPickup ? (
-                          row.etaPickup.includes('T') ? new Date(row.etaPickup).toLocaleString() : row.etaPickup
-                        ) : (row.startdate || '-')}
-                      </TableCell>
-                      <TableCell>
-                        {row.etaDropoff ? (
-                          row.etaDropoff.includes('T') ? new Date(row.etaDropoff).toLocaleString() : row.etaDropoff
-                        ) : (row.enddate || '-')}
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate">
                         {(() => {
                           const assignments = parseJsonField(row.vehicleassignments) || []
-                          if (!assignments.length) return 'Unassigned'
-                          return assignments.map(assignment => {
-                            const vehicleName = assignment.vehicle?.name || 'Unknown Vehicle'
-                            const driverNames = assignment.drivers?.map(d => d.name).filter(Boolean).join(', ') || 'No Driver'
-                            return `${vehicleName} (${driverNames})`
-                          }).join('; ')
-                        })()
-                        }
+                          if (!assignments.length) return '-'
+                          const driverNames = assignments.flatMap(a => (a.drivers || []).map(d => d.first_name || d.name).filter(Boolean))
+                          return driverNames.length ? driverNames.join(', ') : '-'
+                        })()}
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const assignments = parseJsonField(row.vehicleassignments) || []
+                          if (!assignments.length) return '-'
+                          return assignments.map(a => a.vehicle?.name).filter(Boolean).join(', ') || '-'
+                        })()}
                       </TableCell>
                       <TableCell>
                         <span className={cn(
@@ -2413,16 +2426,11 @@ export default function LoadPlanPage() {
                           {row.status || 'pending'}
                         </span>
                       </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm">
-                          <FileText className="h-4 w-4" />
-                          Summary
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+              )})()}
             </div>
           </div>
         </TabsContent>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, memo } from "react";
+import { useState, useEffect, useMemo, memo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Card,
@@ -39,6 +39,7 @@ import {
   Video,
   Gauge,
   Download,
+  Search,
 } from "lucide-react";
 import { getDashboardStats } from "@/lib/stats/dashboard";
 import { createClient } from "@/lib/supabase/client";
@@ -139,18 +140,13 @@ const vehicleDataCache = {
     this.isLoading = true;
     
     try {
-      const [waterfordResult, epsResult, ctrackResult] = await Promise.allSettled([
-        fetch('/api/waterford-sites'),
-        fetch('/api/eps-vehicles'),
-        fetch('/api/ctrack-data')
-      ]);
+      const waterfordResult = await fetch('/api/waterford-sites');
       
       const vehicles: any[] = [];
 
-      // Process Waterford Sites API (primary live locations)
-      if (waterfordResult.status === 'fulfilled') {
+      if (waterfordResult.ok) {
         try {
-          const waterfordData = await waterfordResult.value.json();
+          const waterfordData = await waterfordResult.json();
           const waterfordVehicles = Array.isArray(waterfordData)
             ? waterfordData.map((v: any) => ({
                 ...v,
@@ -167,25 +163,6 @@ const vehicleDataCache = {
               }))
             : [];
           vehicles.push(...waterfordVehicles);
-        } catch (e) {}
-      }
-      
-      // Process EPS API
-      if (epsResult.status === 'fulfilled') {
-        try {
-          const epsData = await epsResult.value.json();
-          const epsVehicles = Array.isArray(epsData)
-            ? epsData
-            : (epsData.data || epsData.result?.data || []);
-          vehicles.push(...epsVehicles);
-        } catch (e) {}
-      }
-      
-      // Process CTrack API
-      if (ctrackResult.status === 'fulfilled') {
-        try {
-          const ctrackData = await ctrackResult.value.json();
-          vehicles.push(...(ctrackData.vehicles || []));
         } catch (e) {}
       }
       
@@ -378,90 +355,51 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
   }, [trip.unauthorized_stops_count])
 
   useEffect(() => {
-    // Only fetch if this card is visible (not on another tab)
-    if (!isVisible) {
-      return;
+    if (!isVisible) return
+
+    const assignments = trip.vehicleassignments || trip.vehicle_assignments || []
+    const assignment = assignments[0]
+    if (!assignment) return
+
+    // Use driver data from assignment JSON — no extra DB query
+    let driverToFetch = assignment.drivers?.[0]
+    if (trip.status?.toLowerCase() === 'handover' && assignment.drivers?.[1]) {
+      driverToFetch = assignment.drivers[1]
     }
 
-    async function fetchAssignmentInfo() {
-      const assignments = trip.vehicleassignments || trip.vehicle_assignments || []
-      if (!assignments.length) {
-        setLoading(false)
-        return
-      }
-
-      setLoading(true)
-      try {
-        const supabase = createClient()
-        const assignment = assignments[0]
-        setAssignment(assignment)
-        
-        // Switch to second driver if status is handover and second driver exists
-        let driverToFetch = assignment.drivers?.[0]
-        if (trip.status?.toLowerCase() === 'handover' && assignment.drivers?.[1]) {
-          driverToFetch = assignment.drivers[1]
-        }
-        
-        // Fetch driver info by ID from database
-        if (driverToFetch?.id) {
-          const { data: driver } = await supabase
-            .from('drivers')
-            .select('*')
-            .eq('id', driverToFetch.id)
-            .single()
-          
-          if (driver) {
-            setDriverInfo(driver)
-            
-            // Try to find vehicle location using multiple strategies
-            await findVehicleLocation(driver, assignment)
-          } else {
-            // Fallback to assignment data if driver not found in DB
-            const driverInfo = {
-              id: driverToFetch.id,
-              first_name: driverToFetch.first_name || driverToFetch.name?.split(' ')[0] || '',
-              surname: driverToFetch.surname || driverToFetch.name || 'Unknown',
-              phone_number: driverToFetch.phone_number || '',
-              available: true
-            }
-            setDriverInfo(driverInfo)
-            await findVehicleLocation(driverInfo, assignment)
-          }
-        }
-        
-        // Set vehicle info from assignment
-        if (assignment.vehicle?.name) {
-          const vehicleInfo = {
-            id: assignment.vehicle.id,
-            registration_number: assignment.vehicle.name
-          }
-          setVehicleInfo(vehicleInfo)
-        }
-      } catch (err) {
-        console.error('Error fetching assignment info:', err)
-      }
-      setLoading(false)
+    if (driverToFetch) {
+      setDriverInfo({
+        id: driverToFetch.id,
+        first_name: driverToFetch.first_name || driverToFetch.name?.split(' ')[0] || '',
+        surname: driverToFetch.surname || driverToFetch.name || 'Unknown',
+        phone_number: driverToFetch.phone_number || '',
+        available: true
+      })
     }
 
-    async function findVehicleLocation(driver: any, assignment: any) {
+    setAssignment(assignment)
+
+    if (assignment.vehicle?.name) {
+      setVehicleInfo({
+        id: assignment.vehicle.id,
+        registration_number: assignment.vehicle.name
+      })
+    }
+
+    // Fetch vehicle location from cache (no extra API call if cached)
+    async function loadLocation() {
       const vehiclePlate = assignment?.vehicle?.name
       if (!vehiclePlate) return
-      
       try {
-        // Use cached vehicle data
-        await vehicleDataCache.fetch();
-        const found = vehicleDataCache.findVehicle(vehiclePlate);
-        
+        await vehicleDataCache.fetch()
+        const found = vehicleDataCache.findVehicle(vehiclePlate)
         if (found && found.latitude && found.longitude) {
-          setVehicleLocation(found);
+          setVehicleLocation(found)
         }
-      } catch (e) {
-        console.error('Error finding vehicle location:', e);
-      }
+      } catch (e) {}
     }
-
-    fetchAssignmentInfo()
-  }, [trip.id, JSON.stringify(trip.vehicleassignments || trip.vehicle_assignments), isVisible])
+    loadLocation()
+  }, [trip.id, trip.status, JSON.stringify(trip.vehicleassignments || trip.vehicle_assignments), isVisible])
 
   const driverName = driverInfo ? `${driverInfo.first_name || ''} ${driverInfo.surname || ''}`.trim() || 'Unassigned' : 'Unassigned'
   const initials = driverName !== 'Unassigned' ? driverName.split(' ').map((s: string) => s[0]).slice(0,2).join('') : 'DR'
@@ -588,6 +526,33 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
           </div>
         )}
       </div>
+
+      {(() => {
+        const handover = trip.handed_vehicleassignments
+        if (!Array.isArray(handover) || handover.length === 0) return null
+        const entry = handover[0]
+        const handoverDrivers = entry?.drivers || []
+        const handoverVehicle = entry?.vehicle?.name
+        const handoverDriver = handoverDrivers[0]
+        if (!handoverDriver && !handoverVehicle) return null
+        const handoverName = handoverDriver
+          ? (handoverDriver.name || [handoverDriver.first_name, handoverDriver.surname].filter(Boolean).join(' ') || 'Unknown')
+          : null
+        return (
+          <div className="mb-2 p-2 rounded-lg bg-amber-50/60 border border-amber-200/40">
+            <div className="flex items-center gap-1 mb-1">
+              <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+              <span className="text-xs font-medium text-amber-700 uppercase">Handover</span>
+            </div>
+            {handoverName && (
+              <div className="text-xs font-medium text-amber-900">{handoverName}</div>
+            )}
+            {handoverVehicle && (
+              <div className="text-xs text-amber-700">{handoverVehicle}</div>
+            )}
+          </div>
+        )
+      })()}
 
       <div className="grid grid-cols-2 gap-2">
         <Button
@@ -932,6 +897,7 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
   const [trips, setTrips] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [dropoffEtaByTrip, setDropoffEtaByTrip] = useState<Record<string, TripEtaState>>({})
+  const [tripSearch, setTripSearch] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -983,18 +949,55 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
   }, [refreshTrigger])
 
   // Sort trips to put unauthorized stops at the top
-  const tripsList = trips
-    .filter(trip => trip.status?.toLowerCase() !== 'delivered' && trip.status?.toLowerCase() !== 'completed')
-    .sort((a, b) => {
-      // First sort by unauthorized stops (descending)
-      const aUnauthorized = a.unauthorized_stops_count || 0
-      const bUnauthorized = b.unauthorized_stops_count || 0
-      if (aUnauthorized !== bUnauthorized) {
-        return bUnauthorized - aUnauthorized
+  const tripsList = useMemo(() => {
+    const filtered = trips
+      .filter(trip => trip.status?.toLowerCase() !== 'delivered' && trip.status?.toLowerCase() !== 'completed')
+      .sort((a, b) => {
+        const aUnauthorized = a.unauthorized_stops_count || 0
+        const bUnauthorized = b.unauthorized_stops_count || 0
+        if (aUnauthorized !== bUnauthorized) return bUnauthorized - aUnauthorized
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      })
+
+    if (!tripSearch.trim()) return filtered
+
+    const q = tripSearch.toLowerCase().trim()
+    return filtered.filter(trip => {
+      if (trip.ordernumber?.toLowerCase().includes(q)) return true
+      if (trip.trip_id?.toLowerCase().includes(q)) return true
+      if (trip.id?.toString().includes(q)) return true
+      if (trip.origin?.toLowerCase().includes(q)) return true
+      if (trip.destination?.toLowerCase().includes(q)) return true
+      if (trip.cargo?.toLowerCase().includes(q)) return true
+
+      const assignments = trip.vehicleassignments || trip.vehicle_assignments || []
+      for (const a of assignments) {
+        if (a.vehicle?.name?.toLowerCase().includes(q)) return true
+        for (const d of (a.drivers || [])) {
+          if (d.first_name?.toLowerCase().includes(q)) return true
+          if (d.surname?.toLowerCase().includes(q)) return true
+          if (d.name?.toLowerCase().includes(q)) return true
+        }
       }
-      // Then by creation date (newest first)
-      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+
+      const handover = trip.handed_vehicleassignments
+      if (Array.isArray(handover)) {
+        for (const h of handover) {
+          if (h.vehicle?.name?.toLowerCase().includes(q)) return true
+          for (const d of (h.drivers || [])) {
+            if (d.first_name?.toLowerCase().includes(q)) return true
+            if (d.surname?.toLowerCase().includes(q)) return true
+            if (d.name?.toLowerCase().includes(q)) return true
+          }
+        }
+      }
+
+      const clientDetails = typeof trip.clientdetails === 'string' ? (() => { try { return JSON.parse(trip.clientdetails) } catch { return null } })() : trip.clientdetails
+      if (clientDetails?.name?.toLowerCase().includes(q)) return true
+
+      return false
     })
+  }, [trips, tripSearch])
 
   useEffect(() => {
     let cancelled = false
@@ -1279,6 +1282,24 @@ const STATUS_OPTIONS = [
 
   return (
     <div className="space-y-6">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search by order, driver, vehicle, trip ID, origin, destination..."
+            value={tripSearch}
+            onChange={(e) => setTripSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-lg bg-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+          />
+          {tripSearch && (
+            <button
+              onClick={() => setTripSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
 	      {tripsList.map((trip: any) => {
 	        const waypoints = getWaypointsWithStops(trip)
 	        const progress = getTripProgress(trip.status)
