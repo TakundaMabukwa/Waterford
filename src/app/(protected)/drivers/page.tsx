@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { SecureButton } from '@/components/SecureButton'
 import {
@@ -54,6 +54,7 @@ import { epsApi, BiWeeklyCategory, DailyStats } from '@/lib/eps-api'
 
 import ViolationsChart from '@/components/charts/ViolationsChart'
 import SpeedingViolationsChart from '@/components/charts/SpeedingViolationsChart'
+import ExecutiveDashboardTab from '@/components/ExecutiveDashboardTab'
 
 // NOTE: This file is self-contained for convenience. It uploads files to
 // the Supabase storage *bucket* named `files` and places them under:
@@ -74,6 +75,7 @@ type Driver = {
   email_address?: string | null
   cell_number?: string | null
   apointment_date?: string | null
+  appointment_date?: string | null
   sa_issued?: boolean
   work_permit_upload?: string | null
   license_number?: string | null
@@ -90,6 +92,10 @@ type Driver = {
   pop?: string | null
   salary?: number | null
   hourly_rate?: number | null
+  driver_code?: string | null
+  available?: boolean | null
+  testing?: boolean | null
+  status?: string | null
   created_at?: string | null
   created_by?: string | null
   user_id?: string | null
@@ -99,30 +105,16 @@ const getDriverFullName = (driver?: Partial<Driver> | null) =>
   [driver?.first_name, driver?.surname].filter(Boolean).join(' ').trim() || 'Unnamed Driver'
 
 const DRIVER_SELECT_COLUMNS = [
-  'id',
-  'first_name',
-  'surname',
-  'id_or_passport_number',
-  'id_or_passport_document',
-  'email_address',
-  'cell_number',
-  'sa_issued',
-  'work_permit_upload',
-  'license_number',
-  'license_expiry_date',
-  'license_code',
-  'driver_restriction_code',
-  'vehicle_restriction_code',
-  'front_of_driver_pic',
-  'rear_of_driver_pic',
-  'professional_driving_permit',
-  'pdp_expiry_date',
-  'created_at',
-  'created_by',
-  'user_id',
+  'id', 'first_name', 'surname', 'id_or_passport_number', 'id_or_passport_document',
+  'email_address', 'cell_number', 'sa_issued', 'work_permit_upload', 'license_number',
+  'license_expiry_date', 'license_code', 'driver_restriction_code', 'vehicle_restriction_code',
+  'front_of_driver_pic', 'rear_of_driver_pic', 'professional_driving_permit', 'pdp_expiry_date',
+  'created_at', 'created_by', 'user_id', 'status', 'apointment_date', 'passport_expiry',
+  'appointment_date', '"hazCamDate"', 'medic_exam_date', 'pop', 'passport_status',
+  'available', 'salary', 'hourly_rate', 'driver_code', 'testing',
 ].join(', ')
 
-const withTimeout = async <T,>(promise: Promise<T>, label: string, timeoutMs = 15000): Promise<T> => {
+const withTimeout = async <T,>(promise: Promise<T>, label: string, timeoutMs = 30000): Promise<T> => {
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined
 
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -158,6 +150,44 @@ const buildDriverPayload = (driver: Driver, userId: string | null): Record<strin
   pdp_expiry_date: driver.pdp_expiry_date || null,
   created_by: driver.created_by ?? userId,
 })
+
+const isExpiringSoon = (dateStr: string | null | undefined): boolean => {
+  if (!dateStr) return false
+  const d = new Date(dateStr)
+  const now = new Date()
+  const in30 = new Date()
+  in30.setDate(now.getDate() + 30)
+  return d <= in30 && d >= now
+}
+
+const isExpired = (dateStr: string | null | undefined): boolean => {
+  if (!dateStr) return false
+  return new Date(dateStr) < new Date()
+}
+
+function RollingCount({ value, duration = 800 }: { value: number; duration?: number }) {
+  const [display, setDisplay] = useState(0)
+  const frameRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const start = performance.now()
+    const from = 0
+    const to = value
+    const animate = (now: number) => {
+      const elapsed = now - start
+      const progress = Math.min(elapsed / duration, 1)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setDisplay(Math.round(from + (to - from) * eased))
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(animate)
+      }
+    }
+    frameRef.current = requestAnimationFrame(animate)
+    return () => { if (frameRef.current) cancelAnimationFrame(frameRef.current) }
+  }, [value, duration])
+
+  return <>{display}</>
+}
 
 export default function Drivers() {
   const supabase = createClient()
@@ -220,6 +250,7 @@ export default function Drivers() {
   const [licenseFilter, setLicenseFilter] = useState<'all' | 'sa' | 'foreign'>(
     'all',
   )
+  const [cardFilter, setCardFilter] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [editingDriverId, setEditingDriverId] = useState<number | null>(null)
 
@@ -573,13 +604,29 @@ export default function Drivers() {
       (licenseFilter === 'sa' && driver.sa_issued) ||
       (licenseFilter === 'foreign' && !driver.sa_issued)
 
-    return matchesSearch && matchesFilter
+    let matchesCard = true
+    if (cardFilter === 'license-expiring') {
+      matchesCard = isExpired(driver.license_expiry_date) || isExpiringSoon(driver.license_expiry_date)
+    } else if (cardFilter === 'pdp-expiring') {
+      matchesCard = isExpired(driver.pdp_expiry_date) || isExpiringSoon(driver.pdp_expiry_date)
+    } else if (cardFilter === 'hazcam-expiring') {
+      matchesCard = isExpired(driver.hazCamDate) || isExpiringSoon(driver.hazCamDate)
+    } else if (cardFilter === 'medic-expiring') {
+      matchesCard = isExpired(driver.medic_exam_date) || isExpiringSoon(driver.medic_exam_date)
+    }
+
+    return matchesSearch && matchesFilter && matchesCard
   })
+
+  const licenseExpiringCount = drivers.filter(d => isExpired(d.license_expiry_date) || isExpiringSoon(d.license_expiry_date)).length
+  const pdpExpiringCount = drivers.filter(d => isExpired(d.pdp_expiry_date) || isExpiringSoon(d.pdp_expiry_date)).length
+  const hazcamExpiringCount = drivers.filter(d => isExpired(d.hazCamDate) || isExpiringSoon(d.hazCamDate)).length
+  const medicExpiringCount = drivers.filter(d => isExpired(d.medic_exam_date) || isExpiringSoon(d.medic_exam_date)).length
 
   return (
     <div className="min-h-screen bg-background">
       {/* Tab Navigation */}
-      <div className="sticky top-0 z-30 border-b border-border bg-card/80 backdrop-blur-md">
+      <div className="sticky top-[52px] z-40 border-b border-border bg-white shadow-sm">
         <div className="max-w-screen-2xl mx-auto">
           <div className="flex gap-1 px-4 py-2">
             <button
@@ -1145,88 +1192,28 @@ export default function Drivers() {
               </div>
 
               {/* Stats Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Card className="border-border/60">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-chart-1/10">
-                        <Users className="h-5 w-5 text-chart-1" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Total Drivers</p>
-                        <p className="text-xl font-bold text-foreground">{drivers.length}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-border/60">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-chart-2/10">
-                        <Star className="h-5 w-5 text-chart-2" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">SA Licensed</p>
-                        <p className="text-xl font-bold text-foreground">
-                          {drivers.filter((d) => d.sa_issued).length}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-border/60">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-chart-4/10">
-                        <Activity className="h-5 w-5 text-chart-4" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Active PDP</p>
-                        <p className="text-xl font-bold text-foreground">
-                          {
-                            drivers.filter(
-                              (d) =>
-                                d.professional_driving_permit &&
-                                d.pdp_expiry_date &&
-                                new Date(d.pdp_expiry_date) > new Date(),
-                            ).length
-                          }
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-border/60">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-destructive/10">
-                        <AlertTriangle className="h-5 w-5 text-destructive" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Expiring Soon</p>
-                        <p className="text-xl font-bold text-foreground">
-                          {
-                            drivers.filter((d) => {
-                              if (!d.license_expiry_date) return false
-                              const expiryDate = new Date(d.license_expiry_date)
-                              const thirtyDaysFromNow = new Date()
-                              thirtyDaysFromNow.setDate(
-                                thirtyDaysFromNow.getDate() + 30,
-                              )
-                              return (
-                                expiryDate <= thirtyDaysFromNow &&
-                                expiryDate > new Date()
-                              )
-                            }).length
-                          }
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                {([
+                  { key: null, label: 'Total Drivers', count: drivers.length, icon: Users, bg: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', sub: '' },
+                  { key: 'license-expiring', label: 'License Expiring', count: licenseExpiringCount, icon: AlertTriangle, bg: 'linear-gradient(135deg, #fb923c 0%, #ea580c 100%)', sub: 'expired or within 30 days' },
+                  { key: 'pdp-expiring', label: 'PDP Expiring', count: pdpExpiringCount, icon: AlertTriangle, bg: 'linear-gradient(135deg, #2dd4bf 0%, #0d9488 100%)', sub: 'expired or within 30 days' },
+                  { key: 'hazcam-expiring', label: 'HazCam Expiring', count: hazcamExpiringCount, icon: AlertTriangle, bg: 'linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%)', sub: 'expired or within 30 days' },
+                  { key: 'medic-expiring', label: 'Medic Exam Expiring', count: medicExpiringCount, icon: AlertTriangle, bg: 'linear-gradient(135deg, #f472b6 0%, #e11d48 100%)', sub: 'expired or within 30 days' },
+                ] as const).map((card) => (
+                  <button
+                    key={card.label}
+                    onClick={() => setCardFilter(cardFilter === card.key ? null : card.key)}
+                    className={`relative overflow-hidden rounded-xl p-4 text-left text-white transition-all duration-200 hover:scale-[1.03] hover:shadow-lg shadow-md ${cardFilter === card.key ? 'ring-2 ring-white ring-offset-2' : ''}`}
+                    style={{ background: card.bg }}
+                  >
+                    <div className="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-white/10" />
+                    <div className="absolute -bottom-6 -right-6 h-20 w-20 rounded-full bg-white/10" />
+                    <card.icon className="mb-2 h-5 w-5 text-white/80" />
+                    <p className="text-xs font-medium text-white/90">{card.label}</p>
+                    <p className="mt-1 text-2xl font-bold"><RollingCount value={card.count} /></p>
+                    {card.sub && <p className="mt-0.5 text-[10px] text-white/70">{card.sub}</p>}
+                  </button>
+                ))}
               </div>
 
               {/* Search and Filters */}
@@ -1281,28 +1268,26 @@ export default function Drivers() {
 
               {/* Drivers Table */}
               <Card className="border-border/60">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-semibold">Driver Database</CardTitle>
-                </CardHeader>
-                <CardContent>
+                <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b border-border bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-                          <th className="px-4 py-3 text-left font-medium">Driver Code</th>
-                          <th className="px-4 py-3 text-left font-medium">Name</th>
-                          <th className="px-4 py-3 text-left font-medium">ID/Passport</th>
-                          <th className="px-4 py-3 text-left font-medium">Cell Number</th>
-                          <th className="px-4 py-3 text-left font-medium">PDP Expiry</th>
-                          <th className="px-4 py-3 text-left font-medium">HazCam Date</th>
-                          <th className="px-4 py-3 text-left font-medium">Medic Exam</th>
-                          <th className="px-4 py-3 text-left font-medium">Actions</th>
+                        <tr className="bg-[#0C1E3D] text-white text-xs uppercase tracking-wide">
+                          <th className="px-4 py-3 text-left font-semibold">Code</th>
+                          <th className="px-4 py-3 text-left font-semibold">Name</th>
+                          <th className="px-4 py-3 text-left font-semibold">ID/Passport</th>
+                          <th className="px-4 py-3 text-left font-semibold">Cell</th>
+                          <th className="px-4 py-3 text-left font-semibold">License Expiry</th>
+                          <th className="px-4 py-3 text-left font-semibold">PDP Expiry</th>
+                          <th className="px-4 py-3 text-left font-semibold">HazCam</th>
+                          <th className="px-4 py-3 text-left font-semibold">Medic Exam</th>
+                          <th className="px-4 py-3 text-left font-semibold">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
                         {isLoading ? (
                           <tr>
-                            <td colSpan={8} className="px-4 py-8 text-center">
+                            <td colSpan={9} className="px-4 py-8 text-center">
                               <div className="flex items-center justify-center">
                                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                                 <span className="ml-2 text-muted-foreground">Loading drivers...</span>
@@ -1311,32 +1296,55 @@ export default function Drivers() {
                           </tr>
                         ) : drivers.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                            <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                               No drivers found
                             </td>
                           </tr>
+                        ) : filteredDrivers.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                              No drivers match your filters
+                            </td>
+                          </tr>
                         ) : (
-                          filteredDrivers.map((driver, i) => (
-                            <tr key={driver.id} className={`transition-colors hover:bg-muted/30 ${i % 2 === 1 ? 'bg-muted/10' : ''}`}>
-                              <td className="px-4 py-3">{driver.driver_restriction_code || '-'}</td>
-                              <td className="px-4 py-3 font-medium">{getDriverFullName(driver)}</td>
-                              <td className="px-4 py-3">{driver.id_or_passport_document || '-'}</td>
-                              <td className="px-4 py-3">{driver.cell_number || '-'}</td>
-                              <td className="px-4 py-3">{formatDate(driver.pdp_expiry_date)}</td>
-                              <td className="px-4 py-3">{formatDate(driver.hazCamDate)}</td>
-                              <td className="px-4 py-3">{formatDate(driver.medic_exam_date)}</td>
-                              <td className="px-4 py-3">
-                                <div className="flex gap-1">
-                                  <Button size="sm" variant="outline" onClick={() => handleViewDriver(driver)}>
-                                    View
-                                  </Button>
-                                  <SecureButton page="drivers" action="edit" size="sm" variant="outline" onClick={() => startEditDriver(driver)}>
-                                    Edit
-                                  </SecureButton>
-                                </div>
-                              </td>
-                            </tr>
-                          ))
+                          filteredDrivers.map((driver, i) => {
+                            const licenseExpiring = isExpired(driver.license_expiry_date) || isExpiringSoon(driver.license_expiry_date)
+                            const pdpExpiring = isExpired(driver.pdp_expiry_date) || isExpiringSoon(driver.pdp_expiry_date)
+                            const hazcamExpiring = isExpired(driver.hazCamDate) || isExpiringSoon(driver.hazCamDate)
+                            const medicExpiring = isExpired(driver.medic_exam_date) || isExpiringSoon(driver.medic_exam_date)
+                            return (
+                              <tr key={driver.id} className={`transition-colors hover:bg-muted/30 ${i % 2 === 1 ? 'bg-muted/10' : ''}`}>
+                                <td className="px-4 py-3 text-xs">{driver.driver_code || driver.driver_restriction_code || '-'}</td>
+                                <td className="px-4 py-3 font-medium">
+                                  <div>{driver.first_name} {driver.surname}</div>
+                                </td>
+                                <td className="px-4 py-3">{driver.id_or_passport_number || '-'}</td>
+                                <td className="px-4 py-3">{driver.cell_number || '-'}</td>
+                                <td className={`px-4 py-3 text-xs font-medium ${licenseExpiring ? 'text-red-600' : ''}`}>
+                                  {formatDate(driver.license_expiry_date)}
+                                </td>
+                                <td className={`px-4 py-3 text-xs font-medium ${pdpExpiring ? 'text-red-600' : ''}`}>
+                                  {formatDate(driver.pdp_expiry_date)}
+                                </td>
+                                <td className={`px-4 py-3 text-xs font-medium ${hazcamExpiring ? 'text-red-600' : ''}`}>
+                                  {formatDate(driver.hazCamDate)}
+                                </td>
+                                <td className={`px-4 py-3 text-xs font-medium ${medicExpiring ? 'text-red-600' : ''}`}>
+                                  {formatDate(driver.medic_exam_date)}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex gap-1">
+                                    <Button size="sm" variant="outline" onClick={() => handleViewDriver(driver)}>
+                                      View
+                                    </Button>
+                                    <SecureButton page="drivers" action="edit" size="sm" variant="outline" onClick={() => startEditDriver(driver)}>
+                                      Edit
+                                    </SecureButton>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })
                         )}
                       </tbody>
                     </table>
@@ -1637,573 +1645,7 @@ export default function Drivers() {
           )}
 
           {activeTab === 'executive-dashboard' && (
-            <div className="space-y-6">
-              {/* Chart Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <ViolationsChart />
-                <SpeedingViolationsChart />
-              </div>
-
-              {/* Full Executive Dashboard */}
-              <ExecutiveDashboardEPS />
-            </div>
-          )}
-
-          {activeTab === 'executive-dashboard' && (
-            <div className="space-y-6">
-              <div className="bg-gradient-to-r from-sky-100 via-blue-50 to-cyan-50 shadow-lg p-6 border border-blue-200 rounded-lg text-slate-800">
-                <h1 className="font-bold text-2xl text-center">
-                  EPS Courier Services - Executive Dashboard
-                </h1>
-              </div>
-
-              {/* Executive Charts */}
-              <div>
-                <MaterialCharts
-                  biWeeklyData={biWeeklyData}
-                  dailyStats={dailyStats}
-                />
-              </div>
-
-              {/* Monthly Event Count (Executive) */}
-              <Card className="p-4">
-                <h3 className="mb-2 font-semibold text-sm text-center">
-                  Monthly Event Count
-                </h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full table-fixed border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-50">
-                        <th className="px-2 py-1 border text-left">Event</th>
-                        <th className="px-2 py-1 border text-center">July</th>
-                        <th className="px-2 py-1 border text-center">August</th>
-                        <th className="px-2 py-1 border text-center">
-                          September
-                        </th>
-                        <th className="px-2 py-1 border text-center">
-                          October
-                        </th>
-                        <th className="px-2 py-1 border text-center">
-                          November
-                        </th>
-                        <th className="px-2 py-1 border text-center">
-                          December
-                        </th>
-                        <th className="px-2 py-1 border text-center">
-                          January
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y">
-                      <tr>
-                        <td className="px-2 py-1 border">
-                          Speeding &gt; 85 km/h
-                        </td>
-                        <td className="px-2 py-1 border text-center">1651</td>
-                        <td className="px-2 py-1 border text-center">1778</td>
-                        <td className="px-2 py-1 border text-center">1838</td>
-                        <td className="px-2 py-1 border text-center">1528</td>
-                        <td className="px-2 py-1 border text-center">1536</td>
-                        <td className="px-2 py-1 border text-center">1327</td>
-                        <td className="px-2 py-1 border text-center">1209</td>
-                      </tr>
-                      <tr>
-                        <td className="px-2 py-1 border">Harsh Braking</td>
-                        <td className="px-2 py-1 border text-center">2981</td>
-                        <td className="px-2 py-1 border text-center">2626</td>
-                        <td className="px-2 py-1 border text-center">5633</td>
-                        <td className="px-2 py-1 border text-center">6672</td>
-                        <td className="px-2 py-1 border text-center">2980</td>
-                        <td className="px-2 py-1 border text-center">2501</td>
-                        <td className="px-2 py-1 border text-center">2525</td>
-                      </tr>
-                      <tr>
-                        <td className="px-2 py-1 border">
-                          Total Harsh Accel. Count
-                        </td>
-                        <td className="px-2 py-1 border text-center">8488</td>
-                        <td className="px-2 py-1 border text-center">8650</td>
-                        <td className="px-2 py-1 border text-center">8783</td>
-                        <td className="px-2 py-1 border text-center">9171</td>
-                        <td className="px-2 py-1 border text-center">12004</td>
-                        <td className="px-2 py-1 border text-center">9987</td>
-                        <td className="px-2 py-1 border text-center">9587</td>
-                      </tr>
-                      <tr>
-                        <td className="px-2 py-1 border">Excessive Day</td>
-                        <td className="px-2 py-1 border text-center">474</td>
-                        <td className="px-2 py-1 border text-center">485</td>
-                        <td className="px-2 py-1 border text-center">409</td>
-                        <td className="px-2 py-1 border text-center">396</td>
-                        <td className="px-2 py-1 border text-center">376</td>
-                        <td className="px-2 py-1 border text-center">341</td>
-                        <td className="px-2 py-1 border text-center">290</td>
-                      </tr>
-                      <tr>
-                        <td className="px-2 py-1 border">Excessive Night</td>
-                        <td className="px-2 py-1 border text-center">624</td>
-                        <td className="px-2 py-1 border text-center">670</td>
-                        <td className="px-2 py-1 border text-center">606</td>
-                        <td className="px-2 py-1 border text-center">640</td>
-                        <td className="px-2 py-1 border text-center">642</td>
-                        <td className="px-2 py-1 border text-center">524</td>
-                        <td className="px-2 py-1 border text-center">504</td>
-                      </tr>
-                      <tr>
-                        <td className="px-2 py-1 border">
-                          Night Time Driving (hrs)
-                        </td>
-                        <td className="px-2 py-1 border text-center">462</td>
-                        <td className="px-2 py-1 border text-center">552</td>
-                        <td className="px-2 py-1 border text-center">487</td>
-                        <td className="px-2 py-1 border text-center">537</td>
-                        <td className="px-2 py-1 border text-center">503</td>
-                        <td className="px-2 py-1 border text-center">426</td>
-                        <td className="px-2 py-1 border text-center">413</td>
-                      </tr>
-                      <tr>
-                        <td className="px-2 py-1 border">
-                          Total over RPM Count
-                        </td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                      </tr>
-                      <tr>
-                        <td className="px-2 py-1 border">
-                          Total Idle &gt; 10 min Count
-                        </td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                      </tr>
-                      <tr>
-                        <td className="px-2 py-1 border">Kilometres</td>
-                        <td className="px-2 py-1 border text-center">
-                          690,019
-                        </td>
-                        <td className="px-2 py-1 border text-center">
-                          728,783
-                        </td>
-                        <td className="px-2 py-1 border text-center">
-                          710,921
-                        </td>
-                        <td className="px-2 py-1 border text-center">
-                          745,486
-                        </td>
-                        <td className="px-2 py-1 border text-center">
-                          733,432
-                        </td>
-                        <td className="px-2 py-1 border text-center">
-                          619,449
-                        </td>
-                        <td className="px-2 py-1 border text-center">
-                          569,940
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="px-2 py-1 border">Fleet Size</td>
-                        <td className="px-2 py-1 border text-center">82</td>
-                        <td className="px-2 py-1 border text-center">85</td>
-                        <td className="px-2 py-1 border text-center">83</td>
-                        <td className="px-2 py-1 border text-center">82</td>
-                        <td className="px-2 py-1 border text-center">84</td>
-                        <td className="px-2 py-1 border text-center">77</td>
-                        <td className="px-2 py-1 border text-center">97</td>
-                      </tr>
-                      <tr>
-                        <td className="px-2 py-1 border">Vehicles Reporting</td>
-                        <td className="px-2 py-1 border text-center">82</td>
-                        <td className="px-2 py-1 border text-center">85</td>
-                        <td className="px-2 py-1 border text-center">83</td>
-                        <td className="px-2 py-1 border text-center">82</td>
-                        <td className="px-2 py-1 border text-center">84</td>
-                        <td className="px-2 py-1 border text-center">77</td>
-                        <td className="px-2 py-1 border text-center">96</td>
-                      </tr>
-                      <tr>
-                        <td className="px-2 py-1 border">
-                          Vehicles Not Reporting
-                        </td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">0</td>
-                        <td className="px-2 py-1 border text-center">1</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-
-              {/* Monthly Statistics Table */}
-              <Card className="p-6">
-                <h3 className="mb-4 font-semibold text-lg text-center">
-                  Monthly Fleet Statistics
-                </h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-gradient-to-r from-cyan-50 to-blue-50">
-                      <tr>
-                        <th className="px-6 py-4 font-semibold text-cyan-700 text-xs text-left uppercase tracking-wider">
-                          Month
-                        </th>
-                        <th className="px-6 py-4 font-semibold text-cyan-700 text-xs text-center uppercase tracking-wider">
-                          Kilometres
-                        </th>
-                        <th className="px-6 py-4 font-semibold text-cyan-700 text-xs text-center uppercase tracking-wider">
-                          Trips
-                        </th>
-                        <th className="px-6 py-4 font-semibold text-cyan-700 text-xs text-center uppercase tracking-wider">
-                          Risk Events
-                        </th>
-                        <th className="px-6 py-4 font-semibold text-cyan-700 text-xs text-center uppercase tracking-wider">
-                          Performance
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      <tr className="hover:bg-cyan-50">
-                        <td className="px-6 py-4 font-medium text-gray-900 text-sm">
-                          August
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          729,751
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          28,671
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">12</td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="inline-flex items-center bg-green-100 px-2.5 py-0.5 rounded-full font-medium text-green-800 text-xs">
-                            Good
-                          </span>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-cyan-50">
-                        <td className="px-6 py-4 font-medium text-gray-900 text-sm">
-                          September
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          745,448
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          30,876
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">8</td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="inline-flex items-center bg-green-100 px-2.5 py-0.5 rounded-full font-medium text-green-800 text-xs">
-                            Excellent
-                          </span>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-cyan-50">
-                        <td className="px-6 py-4 font-medium text-gray-900 text-sm">
-                          October
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          733,432
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          33,858
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">15</td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="inline-flex items-center bg-yellow-100 px-2.5 py-0.5 rounded-full font-medium text-yellow-800 text-xs">
-                            Average
-                          </span>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-cyan-50">
-                        <td className="px-6 py-4 font-medium text-gray-900 text-sm">
-                          November
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          649,340
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          33,008
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">18</td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="inline-flex items-center bg-yellow-100 px-2.5 py-0.5 rounded-full font-medium text-yellow-800 text-xs">
-                            Average
-                          </span>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-cyan-50">
-                        <td className="px-6 py-4 font-medium text-gray-900 text-sm">
-                          December
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          549,840
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          26,785
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">22</td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="inline-flex items-center bg-red-100 px-2.5 py-0.5 rounded-full font-medium text-red-800 text-xs">
-                            Poor
-                          </span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-
-              {/* Top Speeding Offenders */}
-              <Card className="p-6">
-                <h3 className="mb-4 font-semibold text-lg text-center">
-                  Top Speeding Offenders
-                </h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-gradient-to-r from-red-50 to-orange-50">
-                      <tr>
-                        <th className="px-6 py-4 font-semibold text-red-700 text-xs text-left uppercase tracking-wider">
-                          Driver Name
-                        </th>
-                        <th className="px-6 py-4 font-semibold text-red-700 text-xs text-center uppercase tracking-wider">
-                          Violations
-                        </th>
-                        <th className="px-6 py-4 font-semibold text-red-700 text-xs text-center uppercase tracking-wider">
-                          Risk Level
-                        </th>
-                        <th className="px-6 py-4 font-semibold text-red-700 text-xs text-center uppercase tracking-wider">
-                          Action Required
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      <tr className="hover:bg-red-50">
-                        <td className="px-6 py-4 font-medium text-gray-900 text-sm">
-                          ZARAFENDHOSA SWAMUTHI
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          <span className="inline-flex items-center bg-red-100 px-2.5 py-0.5 rounded-full font-medium text-red-800 text-xs">
-                            15
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="inline-flex items-center bg-red-100 px-2.5 py-0.5 rounded-full font-medium text-red-800 text-xs">
-                            High
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <Button
-                            size="sm"
-                            className="bg-red-500 hover:bg-red-600 text-white"
-                          >
-                            Training Required
-                          </Button>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-red-50">
-                        <td className="px-6 py-4 font-medium text-gray-900 text-sm">
-                          NQOBANE
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          <span className="inline-flex items-center bg-orange-100 px-2.5 py-0.5 rounded-full font-medium text-orange-800 text-xs">
-                            12
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="inline-flex items-center bg-orange-100 px-2.5 py-0.5 rounded-full font-medium text-orange-800 text-xs">
-                            Medium
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <Button
-                            size="sm"
-                            className="bg-orange-500 hover:bg-orange-600 text-white"
-                          >
-                            Warning Issued
-                          </Button>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-red-50">
-                        <td className="px-6 py-4 font-medium text-gray-900 text-sm">
-                          NQOBILE MONDO
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          <span className="inline-flex items-center bg-yellow-100 px-2.5 py-0.5 rounded-full font-medium text-yellow-800 text-xs">
-                            10
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="inline-flex items-center bg-yellow-100 px-2.5 py-0.5 rounded-full font-medium text-yellow-800 text-xs">
-                            Medium
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <Button
-                            size="sm"
-                            className="bg-yellow-500 hover:bg-yellow-600 text-white"
-                          >
-                            Monitor
-                          </Button>
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-red-50">
-                        <td className="px-6 py-4 font-medium text-gray-900 text-sm">
-                          SIFISO
-                        </td>
-                        <td className="px-6 py-4 text-center text-sm">
-                          <span className="inline-flex items-center bg-yellow-100 px-2.5 py-0.5 rounded-full font-medium text-yellow-800 text-xs">
-                            8
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="inline-flex items-center bg-green-100 px-2.5 py-0.5 rounded-full font-medium text-green-800 text-xs">
-                            Low
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <Button
-                            size="sm"
-                            className="bg-green-500 hover:bg-green-600 text-white"
-                          >
-                            Good Standing
-                          </Button>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-
-              {/* Overall Risk Score Bar Chart */}
-              <Card className="p-6">
-                <h3 className="mb-4 font-semibold text-purple-800 text-lg text-center">
-                  Overall Risk Score by Month
-                </h3>
-                <div className="h-80">
-                  <div className="grid grid-cols-6 gap-4 h-full items-end">
-                    <div className="flex flex-col items-center">
-                      <div
-                        className="bg-teal-500 w-12 rounded-t"
-                        style={{ height: '29%' }}
-                      ></div>
-                      <span className="text-xs mt-2 text-gray-600">July</span>
-                      <span className="text-xs text-gray-500">29</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div
-                        className="bg-teal-500 w-12 rounded-t"
-                        style={{ height: '26%' }}
-                      ></div>
-                      <span className="text-xs mt-2 text-gray-600">Aug</span>
-                      <span className="text-xs text-gray-500">26</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div
-                        className="bg-teal-500 w-12 rounded-t"
-                        style={{ height: '26%' }}
-                      ></div>
-                      <span className="text-xs mt-2 text-gray-600">Sep</span>
-                      <span className="text-xs text-gray-500">26</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div
-                        className="bg-teal-500 w-12 rounded-t"
-                        style={{ height: '26%' }}
-                      ></div>
-                      <span className="text-xs mt-2 text-gray-600">Oct</span>
-                      <span className="text-xs text-gray-500">26</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div
-                        className="bg-teal-500 w-12 rounded-t"
-                        style={{ height: '26%' }}
-                      ></div>
-                      <span className="text-xs mt-2 text-gray-600">Nov</span>
-                      <span className="text-xs text-gray-500">26</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div
-                        className="bg-teal-500 w-12 rounded-t"
-                        style={{ height: '20%' }}
-                      ></div>
-                      <span className="text-xs mt-2 text-gray-600">Dec</span>
-                      <span className="text-xs text-gray-500">20</span>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-
-              {/* Driver Performance Bar Chart */}
-              <Card className="p-6">
-                <h3 className="mb-4 font-semibold text-lg text-center">
-                  Driver Performance Scores
-                </h3>
-                <div className="h-64">
-                  <div className="grid grid-cols-5 gap-4 h-full items-end">
-                    <div className="flex flex-col items-center">
-                      <div
-                        className="bg-blue-500 w-16 rounded-t"
-                        style={{ height: '85%' }}
-                      ></div>
-                      <span className="text-xs mt-2 text-gray-600 text-center">
-                        AMOS NTSAKO
-                      </span>
-                      <span className="text-xs text-gray-500">85%</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div
-                        className="bg-green-500 w-16 rounded-t"
-                        style={{ height: '78%' }}
-                      ></div>
-                      <span className="text-xs mt-2 text-gray-600 text-center">
-                        ANDRIES HABOFANOE
-                      </span>
-                      <span className="text-xs text-gray-500">78%</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div
-                        className="bg-yellow-500 w-16 rounded-t"
-                        style={{ height: '72%' }}
-                      ></div>
-                      <span className="text-xs mt-2 text-gray-600 text-center">
-                        AVHATAKALI
-                      </span>
-                      <span className="text-xs text-gray-500">72%</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div
-                        className="bg-red-500 w-16 rounded-t"
-                        style={{ height: '68%' }}
-                      ></div>
-                      <span className="text-xs mt-2 text-gray-600 text-center">
-                        BANDILE LOREN
-                      </span>
-                      <span className="text-xs text-gray-500">68%</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div
-                        className="bg-purple-500 w-16 rounded-t"
-                        style={{ height: '82%' }}
-                      ></div>
-                      <span className="text-xs mt-2 text-gray-600 text-center">
-                        BANNANA
-                      </span>
-                      <span className="text-xs text-gray-500">82%</span>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            </div>
+            <ExecutiveDashboardTab />
           )}
 
           {activeTab === 'drivers-performance' && (

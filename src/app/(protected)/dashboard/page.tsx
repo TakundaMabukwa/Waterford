@@ -334,7 +334,7 @@ const parseClientNotes = (trip: any): Array<{ message: string; created_at: strin
 }
 
 // Driver Card Component with fetched driver info
-const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, isVisible = true }: any) {
+const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, isVisible = true, fuelData = null }: any) {
   const router = useRouter()
   const [driverInfo, setDriverInfo] = useState<any>(null)
   const [vehicleInfo, setVehicleInfo] = useState<any>(null)
@@ -463,18 +463,53 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
         </div>
       </div>
 
-      {/* Rate Information */}
-      {trip.rate && (
-        <div className="mb-2 p-2 rounded-lg bg-white/20 border border-white/5">
-          <div className="flex items-center gap-1 mb-1">
-            <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-            <span className="text-xs font-medium text-slate-700 uppercase">Rate</span>
+      {/* Rate + Fuel Info */}
+      <div className="flex gap-2 mb-2">
+        {trip.rate && (
+          <div className="flex-1 p-2 rounded-lg bg-white/20 border border-white/5">
+            <div className="flex items-center gap-1 mb-1">
+              <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+              <span className="text-xs font-medium text-slate-700 uppercase">Rate</span>
+            </div>
+            <div className="text-xs font-medium text-green-600">
+              R{parseFloat(trip.rate).toLocaleString()}
+            </div>
           </div>
-          <div className="text-xs font-medium text-green-600">
-            R{parseFloat(trip.rate).toLocaleString()}
+        )}
+        {fuelData && (
+          <div className="flex-1 p-2 rounded-lg bg-white/20 border border-white/5">
+            <div className="flex items-center gap-1 mb-1">
+              <div className="w-1.5 h-1.5 bg-orange-500 rounded-full" />
+              <span className="text-xs font-medium text-slate-700 uppercase">Fuel</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="relative w-10 h-10 flex-shrink-0">
+                <svg height={40} width={40} className="-rotate-90 transform">
+                  <circle stroke="#f1f5f9" fill="transparent" strokeWidth={4} r={16} cx={20} cy={20} />
+                  <circle
+                    stroke={fuelData.fuelLevel > 0 ? (fuelData.fuelPercentage < 25 ? '#ef4444' : fuelData.fuelPercentage < 50 ? '#f97316' : '#22c55e') : '#94a3b8'}
+                    fill="transparent"
+                    strokeWidth={4}
+                    strokeDasharray={`${100.53} ${100.53}`}
+                    style={{ strokeDashoffset: 100.53 - ((fuelData.fuelPercentage || 0) / 100) * 100.53 }}
+                    r={16}
+                    cx={20}
+                    cy={20}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-[9px] font-bold text-slate-900">{Math.round(fuelData.fuelLevel || 0)}</span>
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] font-medium text-slate-800">{Math.round(fuelData.fuelLevel || 0)}L</div>
+                <div className="text-[9px] text-slate-500">Used: {(fuelData.totalFuelUsed / 1000).toFixed(1)}kL</div>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Unauthorized Stop Alert */}
       {trip.unauthorized_stops_count > 0 && trip.status?.toLowerCase() !== 'delivered' && (
@@ -827,9 +862,7 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
           </Button>
         )}
 
-        <SecureButton
-          page="dashboard"
-          action="delete"
+        <Button
           size="sm"
           variant="destructive"
           className="h-8 text-xs border"
@@ -840,7 +873,7 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
           }}
         >
           <X className="w-3 h-3" /> Close
-        </SecureButton>
+        </Button>
       </div>
 
       {/* Full-width Video Button */}
@@ -893,7 +926,7 @@ function LiveElapsed({ timestamp }: { timestamp: string }) {
 }
 
 // Enhanced routing components with proper waypoints
-const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, refreshTrigger, setRefreshTrigger, setPickupTimeOpen, setDropoffTimeOpen, setCurrentTripForTime, setTimeType, setSelectedTime, currentUnauthorizedTrip, setCurrentUnauthorizedTrip, setUnauthorizedStopModalOpen, loadingPhotos, setLoadingPhotos, setCurrentTripPhotos, setPhotosModalOpen, setCurrentTripAlerts, setAlertsModalOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, isVisible = true }: any) {
+const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, refreshTrigger, setRefreshTrigger, setPickupTimeOpen, setDropoffTimeOpen, setCurrentTripForTime, setTimeType, setSelectedTime, currentUnauthorizedTrip, setCurrentUnauthorizedTrip, setUnauthorizedStopModalOpen, loadingPhotos, setLoadingPhotos, setCurrentTripPhotos, setPhotosModalOpen, setCurrentTripAlerts, setAlertsModalOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, isVisible = true, fuelMap = null }: any) {
   const [trips, setTrips] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [dropoffEtaByTrip, setDropoffEtaByTrip] = useState<Record<string, TripEtaState>>({})
@@ -1303,6 +1336,8 @@ const STATUS_OPTIONS = [
 	      {tripsList.map((trip: any) => {
 	        const waypoints = getWaypointsWithStops(trip)
 	        const progress = getTripProgress(trip.status)
+	        const tripAssignment = (trip.vehicleassignments || trip.vehicle_assignments || [])[0]
+	        const tripVehiclePlate = tripAssignment?.vehicle?.name || ''
 
 	        const clientDetails = typeof trip.clientdetails === 'string' ? JSON.parse(trip.clientdetails) : trip.clientdetails
 	        const title = clientDetails?.name || trip.selectedClient || trip.clientDetails?.name || `Trip ${trip.trip_id || trip.id}`
@@ -1315,6 +1350,7 @@ const STATUS_OPTIONS = [
               trip={trip} 
               userRole={userRole}
               isVisible={isVisible}
+              fuelData={fuelMap.get(tripVehiclePlate) || null}
               handleViewMap={handleViewMap}
               setCurrentTripForNote={setCurrentTripForNote}
               setNoteText={setNoteText}
@@ -2187,6 +2223,7 @@ export default function Dashboard() {
   const [currentTripForApproval, setCurrentTripForApproval] = useState<any>(null);
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [currentTripForVideo, setCurrentTripForVideo] = useState<any>(null);
+  const [fuelMap, setFuelMap] = useState<Map<string, any>>(new Map());
   useEffect(() => {
     const getCookie = (name: string) => {
       const value = `; ${document.cookie}`;
@@ -2211,6 +2248,20 @@ export default function Dashboard() {
       }
     }
     fetchTrips();
+  }, []);
+
+  useEffect(() => {
+    async function fetchFuelData() {
+      try {
+        const res = await fetch('/api/fuel')
+        if (!res.ok) return
+        const data = await res.json()
+        const map = new Map<string, any>()
+        data.forEach((v: any) => map.set(v.plate, v))
+        setFuelMap(map)
+      } catch (e) { /* silent */ }
+    }
+    fetchFuelData()
   }, []);
 
   const handleViewMap = async (driverName: string, trip?: any) => {
@@ -2496,6 +2547,7 @@ export default function Dashboard() {
               setEditTripOpen={setEditTripOpen}
               setCurrentTripForApproval={setCurrentTripForApproval}
               setApprovalModalOpen={setApprovalModalOpen}
+              fuelMap={fuelMap}
             />
           </div>
         )}
