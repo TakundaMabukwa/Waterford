@@ -6,7 +6,7 @@ const notificationapi = require('notificationapi-node-server-sdk').default;
 export async function sendWelcomeEmail(options: any) {
   const { email, password, role, company, phone } = options;
   const companyName = company || "Waterford Carriers";
-  const loginUrl = "https://epscourier.online";
+  const loginUrl = "https://waterfordcarriers.online";
 
   // Check if NotificationAPI credentials are configured
   if (!process.env.NOTIFICATIONAPI_CLIENT_ID || !process.env.NOTIFICATIONAPI_CLIENT_SECRET) {
