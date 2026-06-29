@@ -21,8 +21,10 @@ interface FuelConsumptionData {
   company: string;
   fuel_probe_1_level_percentage: number;
   fuel_probe_1_volume_in_tank: number;
+  fuel_probe_2_level: number;
   fuel_probe_2_level_percentage: number;
   fuel_probe_2_volume_in_tank: number;
+  fuel_probe_2_temperature: number;
   current_status: string;
   last_message_date: string;
   updated_at?: string;
@@ -105,8 +107,10 @@ export function FuelGaugesView({ onBack }: FuelGaugesViewProps) {
       company: vehicle.company,
       fuel_probe_1_level_percentage: parseFloat(vehicle.fuel_probe_1_level_percentage) || 0,
       fuel_probe_1_volume_in_tank: parseFloat(vehicle.fuel_probe_1_volume_in_tank) || 0,
+      fuel_probe_2_level: parseFloat(vehicle.fuel_probe_2_level) || 0,
       fuel_probe_2_level_percentage: parseFloat(vehicle.fuel_probe_2_level_percentage) || 0,
       fuel_probe_2_volume_in_tank: parseFloat(vehicle.fuel_probe_2_volume_in_tank) || 0,
+      fuel_probe_2_temperature: parseFloat(vehicle.fuel_probe_2_temperature) || 0,
       current_status: vehicle.drivername || 'Unknown',
       last_message_date: vehicle.last_message_date,
       updated_at: vehicle.updated_at,

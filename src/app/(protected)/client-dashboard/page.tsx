@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, PackageSearch, Clock3, CircleCheckBig, AlertTriangle, TrendingUp, MapPin, Truck, User } from "lucide-react";
+import ClientTripRouting from "@/components/ClientTripRouting";
 
 type ClientTrip = {
   id: number;
@@ -411,66 +412,15 @@ export default function ClientDashboardPage() {
         </Card>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs defaultValue="trip-routing" className="space-y-4">
         <TabsList className="w-full justify-start rounded-2xl bg-slate-100 p-1">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="trip-routing">Trip Routing</TabsTrigger>
           <TabsTrigger value="active">Active Trips</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-4">
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-slate-700" />
-                <CardTitle>Recent Trips</CardTitle>
-              </div>
-              <CardDescription>Latest trip records for this company only.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex items-center justify-center py-12 text-slate-500">
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Loading trips...
-                </div>
-              ) : trips.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-600">
-                  <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-amber-500" />
-                  No trips found for this client yet.
-                </div>
-              ) : (
-                <div className="overflow-hidden rounded-2xl border border-slate-200">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Trip</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Route</TableHead>
-                        <TableHead>Driver</TableHead>
-                        <TableHead>Vehicle</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {trips.map((trip) => (
-                        <TableRow key={trip.id}>
-                          <TableCell>
-                            <div className="font-medium text-slate-900">{trip.trip_id}</div>
-                            <div className="text-xs text-slate-500">{trip.origin || 'Origin not set'} → {trip.destination || 'Destination not set'}</div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={statusTone(trip.status)}>{trip.status}</Badge>
-                          </TableCell>
-                          <TableCell className="text-sm text-slate-600">{trip.route || 'No route assigned'}</TableCell>
-                          <TableCell className="text-sm text-slate-600">{trip.driver || 'Unassigned'}</TableCell>
-                          <TableCell className="text-sm text-slate-600">{trip.vehicle || 'Unassigned'}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        <TabsContent value="trip-routing" className="space-y-4">
+          <ClientTripRouting trips={trips} />
         </TabsContent>
 
         <TabsContent value="active" className="space-y-4">

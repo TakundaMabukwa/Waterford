@@ -349,28 +349,16 @@ function DashboardContent({
     const fetchLiveData = async () => {
       if (!open || !plateCandidates.length) return
       try {
-        const [energyRiteResponse, epsResponse] = await Promise.all([
-          fetch("/api/energy-rite/vehicles", { cache: "no-store" }),
-          fetch("/api/eps-vehicles", { cache: "no-store" }),
-        ])
+        const primaryPlate = normalizePlate(plateCandidates[0])
+        const vehicleResponse = await fetch(`/api/vehicles/${encodeURIComponent(primaryPlate)}`, { cache: "no-store" })
 
-        let energyRiteMatch = null
-        if (energyRiteResponse.ok) {
-          const payload = await energyRiteResponse.json()
-          const list = Array.isArray(payload) ? payload : payload?.data || payload?.result?.data || []
-          energyRiteMatch = findBestPlateMatch(list, plateCandidates)
+        let vehicleMatch = null
+        if (vehicleResponse.ok) {
+          vehicleMatch = await vehicleResponse.json()
         }
 
-        let epsMatch = null
-        if (epsResponse.ok) {
-          const payload = await epsResponse.json()
-          const list = Array.isArray(payload) ? payload : payload?.data || payload?.result?.data || []
-          epsMatch = findBestPlateMatch(list, plateCandidates)
-        }
-
-        const nextData = energyRiteMatch || epsMatch || null
         if (active) {
-          setLiveVehicleData((prev: any) => (isSameLiveVehicleData(prev, nextData) ? prev : nextData))
+          setLiveVehicleData((prev: any) => (isSameLiveVehicleData(prev, vehicleMatch) ? prev : vehicleMatch))
         }
       } catch {
         if (active) setLiveVehicleData(null)

@@ -27,9 +27,17 @@ export async function CreateUser(formData: FormData) {
         return { success: false, message: "Invalid role selected" };
     }
 
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !serviceKey) {
+        console.error('Missing Supabase env vars:', { url: !!supabaseUrl, key: !!serviceKey });
+        return { success: false, message: "Server configuration error: missing Supabase credentials" };
+    }
+
     const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!,
+        supabaseUrl,
+        serviceKey,
         {
             auth: {
                 autoRefreshToken: false,
@@ -78,8 +86,8 @@ export async function CreateUser(formData: FormData) {
 
     if (createError) {
         console.error("Error creating user:", createError.message);
-        console.error("Full error:", createError);
-        return { success: false, message: createError.message };
+        console.error("Full error:", JSON.stringify(createError));
+        return { success: false, message: `Auth error: ${createError.message} (${createError.status || 'unknown'})` };
     }
 
     const userId = newUser.user?.id;

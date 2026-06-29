@@ -240,38 +240,7 @@ export function FuelGauge({
           </div>
         </div>
 
-        {status && (
-          <TooltipProvider>
-            <Tooltip
-              open={isTouchDevice ? isStatusTooltipOpen : undefined}
-              onOpenChange={isTouchDevice ? setIsStatusTooltipOpen : undefined}
-            >
-              <TooltipTrigger asChild>
-                <Badge
-                  variant="outline"
-                  className={cn('font-medium text-xs px-2 py-0.5 cursor-help', getStatusColor(status))}
-                  onClick={() => {
-                    if (!isTouchDevice) return;
-                    setIsStatusTooltipOpen((open) => !open);
-                  }}
-                >
-                  {getDisplayStatus(status)}
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent
-                className="bg-white border border-gray-200 shadow-lg max-w-xs"
-                side="bottom"
-                align="center"
-                sideOffset={5}
-              >
-                <div className="flex flex-col items-center py-1 px-2">
-                  <p className="text-sm text-black font-medium">Status Update</p>
-                  <p className="text-xs text-gray-700">{formatForDisplay(vehicleData?.loctime || lastUpdated)}</p>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
+
       </div>
 
       <div className="flex justify-center mb-3">
@@ -314,10 +283,10 @@ export function FuelGauge({
                       />
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <Gauge className="mb-0.5 h-2.5 w-2.5 text-gray-400" />
-                      <span className="text-[10px] font-medium leading-none text-gray-500">Tank 1</span>
-                      <span className="text-[1.5rem] font-semibold leading-none text-gray-900">{tank1Percent}</span>
-                      <span className="text-[10px] font-semibold leading-none text-gray-400">%</span>
+                      <Gauge className="mb-0 h-2 w-2 text-gray-400" />
+                      <span className="text-[8px] font-medium leading-none text-gray-500">Tank 1</span>
+                      <span className="text-lg font-semibold leading-none text-gray-900">{tank1Percent}</span>
+                      <span className="text-[8px] font-semibold leading-none text-gray-400">%</span>
                     </div>
                   </div>
 
@@ -345,17 +314,17 @@ export function FuelGauge({
                         />
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <Gauge className="mb-0.5 h-2.5 w-2.5 text-gray-400" />
-                      <span className="text-[10px] font-medium leading-none text-gray-500">Tank 2</span>
-                      <span className="text-[1.5rem] font-semibold leading-none text-gray-900">{tank2Percent}</span>
-                      <span className="text-[10px] font-semibold leading-none text-gray-400">%</span>
+                      <Gauge className="mb-0 h-2 w-2 text-gray-400" />
+                      <span className="text-[8px] font-medium leading-none text-gray-500">Tank 2</span>
+                      <span className="text-lg font-semibold leading-none text-gray-900">{tank2Percent}</span>
+                      <span className="text-[8px] font-semibold leading-none text-gray-400">%</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex min-w-[52px] items-center justify-center rounded-md border border-emerald-500 bg-white px-2 py-0.5 shadow-sm">
+                <div className="flex min-w-[40px] items-center justify-center rounded-md border border-emerald-500 bg-white px-1.5 py-0.5 shadow-sm">
                   <div className="flex flex-col items-center leading-none">
-                    <span className="text-sm font-bold text-emerald-600">{totalPercent}%</span>
+                    <span className="text-xs font-bold text-emerald-600">{totalPercent}%</span>
                   </div>
                 </div>
               </>

@@ -487,11 +487,11 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
                 <svg height={40} width={40} className="-rotate-90 transform">
                   <circle stroke="#f1f5f9" fill="transparent" strokeWidth={4} r={16} cx={20} cy={20} />
                   <circle
-                    stroke={fuelData.fuelLevel > 0 ? (fuelData.fuelPercentage < 25 ? '#ef4444' : fuelData.fuelPercentage < 50 ? '#f97316' : '#22c55e') : '#94a3b8'}
+                    stroke={fuelData.combinedFuelPercentage > 0 ? (fuelData.combinedFuelPercentage < 25 ? '#ef4444' : fuelData.combinedFuelPercentage < 50 ? '#f97316' : '#22c55e') : '#94a3b8'}
                     fill="transparent"
                     strokeWidth={4}
                     strokeDasharray={`${100.53} ${100.53}`}
-                    style={{ strokeDashoffset: 100.53 - ((fuelData.fuelPercentage || 0) / 100) * 100.53 }}
+                    style={{ strokeDashoffset: 100.53 - ((fuelData.combinedFuelPercentage || 0) / 100) * 100.53 }}
                     r={16}
                     cx={20}
                     cy={20}
@@ -499,12 +499,12 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-[9px] font-bold text-slate-900">{Math.round(fuelData.fuelLevel || 0)}</span>
+                  <span className="text-[9px] font-bold text-slate-900">{fuelData.combinedFuelPercentage || 0}%</span>
                 </div>
               </div>
               <div>
-                <div className="text-[10px] font-medium text-slate-800">{Math.round(fuelData.fuelLevel || 0)}L</div>
-                <div className="text-[9px] text-slate-500">Used: {(fuelData.totalFuelUsed / 1000).toFixed(1)}kL</div>
+                <div className="text-[10px] font-medium text-slate-800">{Math.round(fuelData.combinedFuelVolume || 0)}L</div>
+                <div className="text-[9px] text-slate-500">{fuelData.fuelProbe2VolumeInTank > 0 ? `T1: ${Math.round(fuelData.fuelLevel)}L / T2: ${Math.round(fuelData.fuelProbe2VolumeInTank)}L` : `Single tank`}</div>
               </div>
             </div>
           </div>

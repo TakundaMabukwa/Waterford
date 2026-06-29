@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { FuelGauge } from '@/components/ui/fuel-gauge'
+import { FuelGauge } from '@/components/fuel-system/components/ui/fuel-gauge'
 import { Button } from '@/components/ui/button'
 import { RefreshCw, Fuel } from 'lucide-react'
 import { formatForDisplay } from '@/lib/utils/date-formatter'
@@ -13,6 +13,11 @@ interface FuelData {
   fuelPercentage: number
   engineTemperature: number
   totalFuelUsed: number
+  fuelProbe2Level: number
+  fuelProbe2Percentage: number
+  fuelProbe2VolumeInTank: number
+  fuelProbe2Temperature: number
+  engineStatus: string
 }
 
 export default function FuelCanBusDisplay() {
@@ -56,24 +61,30 @@ export default function FuelCanBusDisplay() {
       const fuelLevel = vehicle.fuelLevel || 0
       const fuelPercent = vehicle.fuelPercentage || 0
       const engineTemp = vehicle.engineTemperature || 0
-      const isEngineOn = engineTemp > 40
-
-      // Use liters as main, percentage as fallback
-      const displayPercent = fuelLevel > 0 ? fuelLevel : fuelPercent
 
       const result = {
         id: vehicle.plate,
         location: vehicle.plate,
-        fuelLevel: displayPercent,
+        fuelLevel: fuelPercent > 0 ? fuelPercent : fuelLevel,
         temperature: engineTemp,
         volume: fuelLevel,
-
-        status: isEngineOn ? 'Active' : 'Engine Off',
+        currentVolume: vehicle.totalFuelUsed || 0,
+        remaining: '',
+        status: vehicle.engineStatus || '',
         lastUpdated: formatForDisplay(vehicle.timestamp),
-        updated_at: vehicle.timestamp
+        updated_at: vehicle.timestamp,
+        vehicleData: {
+          fuel_probe_1_level: vehicle.fuelLevel || 0,
+          fuel_probe_1_level_percentage: vehicle.fuelPercentage || 0,
+          fuel_probe_1_temperature: vehicle.engineTemperature || 0,
+          fuel_probe_1_volume_in_tank: vehicle.totalFuelUsed || 0,
+          fuel_probe_2_level: vehicle.fuelProbe2Level || 0,
+          fuel_probe_2_level_percentage: vehicle.fuelProbe2Percentage || 0,
+          fuel_probe_2_temperature: vehicle.fuelProbe2Temperature || null,
+          fuel_probe_2_volume_in_tank: vehicle.fuelProbe2VolumeInTank || null,
+        }
       }
 
-      console.log(`Gauge ${vehicle.plate}:`, { fuelLevel: result.fuelLevel, volume: result.volume, temp: result.temperature })
       return result
     })
     
@@ -129,11 +140,12 @@ export default function FuelCanBusDisplay() {
                 fuelLevel={data.fuelLevel}
                 temperature={data.temperature}
                 volume={data.volume}
-
+                currentVolume={data.currentVolume}
+                remaining=""
                 status={data.status}
                 lastUpdated={data.lastUpdated}
                 updated_at={data.updated_at}
-
+                vehicleData={data.vehicleData}
                 className="hover:scale-105 transition-transform duration-200 transform"
               />
             ))}

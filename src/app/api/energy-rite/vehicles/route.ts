@@ -2,25 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
-const DEFAULT_VEHICLES_ENDPOINT = 'http://209.38.217.58:8000/api/waterford-sites';
+const NEW_API_URL = 'http://138.197.183.168:4000/api/vehicles';
 
 export async function GET(request: NextRequest) {
   try {
-    const upstreamBase =
-      process.env.NEXT_PUBLIC_VEHICLE_API_ENDPOINT ||
-      process.env.VEHICLE_API_ENDPOINT ||
-      DEFAULT_VEHICLES_ENDPOINT;
-
-    const { searchParams } = new URL(request.url);
-    const query = searchParams.toString();
-    const upstreamUrl = query ? `${upstreamBase}?${query}` : upstreamBase;
-
-    const response = await fetch(upstreamUrl, {
+    const response = await fetch(NEW_API_URL, {
       method: 'GET',
-      headers: {
-        'Accept': 'application/json'
-      },
-      cache: 'no-store'
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store',
     });
 
     if (!response.ok) {
@@ -30,17 +19,44 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const data = await response.json();
+    const json = await response.json();
+    const rawVehicles = json.vehicles || json;
 
-    // Allow clients to handle either array or object payloads.
-    if (Array.isArray(data)) {
-      return NextResponse.json(data, { status: 200 });
-    }
+    const vehicles = rawVehicles.map((v) => ({
+      id: v.plate,
+      Plate: v.plate,
+      plate: v.plate,
+      branch: v.plate,
+      company: v.cost_code || '',
+      cost_code: v.cost_code || '',
+      Speed: v.speed || 0,
+      speed: v.speed || 0,
+      Latitude: v.latitude,
+      longitude: v.longitude,
+      Geozone: v.geozone || '',
+      address: v.geozone || '',
+      DriverName: v.driver_name || '',
+      drivername: v.driver_name || '',
+      fuel_probe_1_level: v.fuel_probe_1_level || 0,
+      fuel_probe_1_volume_in_tank: v.fuel_probe_1_volume_in_tank || 0,
+      fuel_probe_1_temperature: v.fuel_probe_1_temperature || 0,
+      fuel_probe_1_level_percentage: v.fuel_probe_1_level_percentage || 0,
+      fuel_probe_2_level: v.fuel_probe_2_level || 0,
+      fuel_probe_2_volume_in_tank: v.fuel_probe_2_volume_in_tank || 0,
+      fuel_probe_2_temperature: v.fuel_probe_2_temperature || 0,
+      fuel_probe_2_level_percentage: v.fuel_probe_2_level_percentage || 0,
+      volume: v.fuel_probe_1_volume_in_tank || 0,
+      last_message_date: v.loc_time || v.updated_at || new Date().toISOString(),
+      updated_at: v.updated_at || new Date().toISOString(),
+      mileage: v.mileage || '',
+      status: v.status || '',
+      item_installed: v.item_installed || '',
+    }));
 
-    return NextResponse.json({ success: true, data }, { status: 200 });
-  } catch (error: any) {
+    return NextResponse.json(vehicles, { status: 200 });
+  } catch (error) {
     return NextResponse.json(
-      { success: false, error: error?.message || 'Failed to fetch vehicles' },
+      { success: false, error: 'Failed to fetch vehicles' },
       { status: 500 }
     );
   }

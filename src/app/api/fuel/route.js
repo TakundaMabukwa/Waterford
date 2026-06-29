@@ -2,65 +2,47 @@ import { NextResponse } from 'next/server'
 
 export async function GET() {
   try {
-    const endpoint = process.env.NEXT_PUBLIC_CAN_BUS_ENDPOINT
-    const key = process.env.NEXT_PUBLIC_CANBUS_KEY
-    
-    if (!endpoint || !key) {
-      console.error('CAN bus endpoint or key not configured')
-      return NextResponse.json({ error: 'CAN bus not configured' }, { status: 500 })
-    }
+    const response = await fetch('http://138.197.183.168:4000/api/vehicles', {
+      cache: 'no-store',
+    })
 
-    console.log('Fetching fuel data from:', `${endpoint}/canbus/snapshot?key=${key}&company=eps`)
-    const response = await fetch(`${endpoint}/canbus/snapshot?key=${key}&company=eps`)
-    
     if (!response.ok) {
-      console.error(`API error: ${response.status} ${response.statusText}`)
       throw new Error(`API error: ${response.status}`)
     }
-    
-    const vehicles = await response.json()
-    
-    // Get unique vehicles with latest timestamp
-    const uniqueVehicles = new Map()
-    vehicles.forEach(vehicle => {
-      const existing = uniqueVehicles.get(vehicle.plate)
-      if (!existing || new Date(vehicle.timestamp) > new Date(existing.timestamp)) {
-        uniqueVehicles.set(vehicle.plate, vehicle)
-      }
-    })
-    
-    // Process fuel data from CAN bus snapshot
-    const processedData = Array.from(uniqueVehicles.values()).map(vehicle => {
-      const fuelLevelItem = vehicle.data?.find(item => 
-        item.name === 'fuel Level Liter' || item.code === '96'
-      )
-      const fuelPercentItem = vehicle.data?.find(item => 
-        item.name === 'fuel level %' || item.code === '60'
-      )
-      const totalFuelUsedItem = vehicle.data?.find(item => 
-        item.name === 'total fuel used' || item.code === 'FA'
-      )
-      const engineTempItem = vehicle.data?.find(item => 
-        item.name === 'engine temperature' || item.code === '6E'
-      )
 
-      console.log(`${vehicle.plate}:`, {
-        fuelLevel: fuelLevelItem,
-        fuelPercent: fuelPercentItem,
-        engineTemp: engineTempItem
-      })
+    const json = await response.json()
+    const vehicles = json.vehicles || json
+
+    const processedData = vehicles.map((v) => {
+      const p1Vol = v.fuel_probe_1_volume_in_tank || 0
+      const p2Vol = v.fuel_probe_2_volume_in_tank || 0
+      const p1Pct = v.fuel_probe_1_level_percentage || 0
+      const p2Pct = v.fuel_probe_2_level_percentage || 0
+      const hasP2 = p2Pct > 0 || p2Vol > 0
 
       return {
-        plate: vehicle.plate,
-        timestamp: vehicle.timestamp,
-        fuelLevel: fuelLevelItem?.value || 0,
-        fuelPercentage: fuelPercentItem?.value || 0,
-        totalFuelUsed: totalFuelUsedItem?.value || 0,
-        engineTemperature: engineTempItem?.value || 0
+        plate: v.plate,
+        timestamp: v.updated_at || v.loc_time || '',
+        fuelLevel: p1Vol,
+        fuelPercentage: p1Pct,
+        totalFuelUsed: p1Vol,
+        engineTemperature: v.fuel_probe_1_temperature || 0,
+        fuelProbe2Level: v.fuel_probe_2_level || 0,
+        fuelProbe2Percentage: p2Pct,
+        fuelProbe2VolumeInTank: p2Vol,
+        fuelProbe2Temperature: v.fuel_probe_2_temperature || 0,
+        combinedFuelVolume: hasP2 ? p1Vol + p2Vol : p1Vol,
+        combinedFuelPercentage: hasP2 ? Math.round((p1Pct + p2Pct) / 2) : p1Pct,
+        speed: v.speed || 0,
+        latitude: v.latitude,
+        longitude: v.longitude,
+        mileage: v.mileage || '',
+        driverName: v.driver_name || '',
+        geozone: v.geozone || '',
+        engineStatus: v.status || '',
       }
     })
-    
-    console.log('Fuel data processed:', processedData.length, 'vehicles')
+
     return NextResponse.json(processedData)
   } catch (error) {
     console.error('Fuel proxy error:', error)

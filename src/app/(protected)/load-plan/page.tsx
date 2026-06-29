@@ -17,7 +17,7 @@ import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalList
 import { CSS } from '@dnd-kit/utilities'
 import { X, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin, Building2, GripVertical, Printer, Search } from 'lucide-react'
 import { LoadconPrint, type LoadconPrintData } from '@/components/ui/loadcon-print'
-import { generateLoadconPdf, uploadLoadconPdf, updateTripLoadconUrl, triggerPdfDownload, buildLoadconHTML } from '@/lib/generate-loadcon-pdf'
+import { generateLoadconPdf, uploadLoadconPdf, updateTripLoadconUrl, triggerPdfDownload, buildLoadconHTML, generateAndStoreLoadcon } from '@/lib/generate-loadcon-pdf'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -2063,7 +2063,60 @@ export default function LoadPlanPage() {
         .eq('id', editTripId)
       
       if (error) throw error
-      
+
+      // Regenerate and store loadcon PDF
+      try {
+        const getVehicleReg = () => {
+          const currentAssignment = buildCurrentAssignment()
+          const vId = currentAssignment?.id || currentAssignment?.vehicle_id
+          if (!vId) return ''
+          const v = vehicles.find((vv) => String(vv.id) === String(vId))
+          return v?.registration_number || ''
+        }
+        const getDriverName = () => {
+          const currentAssignment = buildCurrentAssignment()
+          const dId = currentAssignment?.id || currentAssignment?.driver_id
+          if (!dId) return ''
+          const drv = drivers.find((dd) => String(dd.id) === String(dId))
+          return drv ? `${drv.first_name} ${drv.surname}`.trim() : ''
+        }
+        const deliveredByStr = [getVehicleReg(), getDriverName()].filter(Boolean).join(' - ')
+        const getCompletedBy = async () => {
+          try {
+            const { data: { user } } = await supabase.auth.getUser()
+            return user?.email || user?.user_metadata?.first_name || ''
+          } catch { return '' }
+        }
+        const completedByName = await getCompletedBy()
+        const getClientName = () => {
+          if (selectedClient?.name) return selectedClient.name
+          if (manualClientName) return manualClientName
+          return client
+        }
+
+        const loadconData = {
+          orderNumber: orderNumber || '',
+          loadType: 'Cross Border',
+          loadDate: new Date().toLocaleDateString('en-ZA'),
+          customerName: getClientName(),
+          collectionAddress: loadingLocation || '',
+          delivery: dropOffPoint || '',
+          collectedBy: deliveredByStr,
+          deliveredBy: deliveredByStr,
+          notes: comment || '',
+          completedBy: completedByName,
+          rate: rate || '',
+          bookingRef: orderNumber ? `${orderNumber} - ${getClientName()}` : '',
+        }
+
+        const { blob, url } = await generateAndStoreLoadcon(editTripId, loadconData)
+        if (url) {
+          triggerPdfDownload(blob, `loadcon-${orderNumber}.pdf`)
+        }
+      } catch (pdfError) {
+        console.error('Error regenerating loadcon PDF:', pdfError)
+      }
+
       showToast('Trip updated successfully!', 'success')
       
       // Clear sessionStorage and redirect
