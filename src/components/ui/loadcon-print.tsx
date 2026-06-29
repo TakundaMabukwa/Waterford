@@ -100,24 +100,16 @@ export function LoadconPrint({ data }: { data: LoadconPrintData }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
             <tbody>
               <tr>
-                <td style={{ ...labelStyle, width: '150px' }}>Load Type:</td>
-                <td style={valueStyle}>{data.loadType || ''}</td>
-              </tr>
-              <tr>
-                <td style={labelStyle}>Customer Reference:</td>
-                <td style={valueStyle}>{data.customerReference || ''}</td>
+                <td style={{ ...labelStyle, width: '150px' }}>Customer Name:</td>
+                <td style={valueStyle}>{data.customerName || ''}</td>
               </tr>
               <tr>
                 <td style={labelStyle}>Booking Ref:</td>
                 <td style={{ ...valueStyle, backgroundColor: '#fef9c3' }}>{data.bookingRef || data.orderNumber || ''}</td>
               </tr>
               <tr>
-                <td style={labelStyle}>Load Date:</td>
-                <td style={valueStyle}>{data.loadDate || ''}</td>
-              </tr>
-              <tr>
-                <td style={labelStyle}>Customer Name:</td>
-                <td style={valueStyle}>{data.customerName || ''}</td>
+                <td style={labelStyle}>Customer Reference:</td>
+                <td style={valueStyle}>{data.customerReference || ''}</td>
               </tr>
               <tr>
                 <td style={labelStyle}>Collection Address:</td>
@@ -126,6 +118,14 @@ export function LoadconPrint({ data }: { data: LoadconPrintData }) {
               <tr>
                 <td style={labelStyle}>Delivery:</td>
                 <td style={valueStyle}>{data.delivery || ''}</td>
+              </tr>
+              <tr>
+                <td style={labelStyle}>Load Type:</td>
+                <td style={valueStyle}>{data.loadType || ''}</td>
+              </tr>
+              <tr>
+                <td style={labelStyle}>Load Date:</td>
+                <td style={valueStyle}>{data.loadDate || ''}</td>
               </tr>
               <tr>
                 <td style={labelStyle}>Vessel:</td>

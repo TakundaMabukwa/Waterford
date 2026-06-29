@@ -273,7 +273,7 @@ export default function ClientTripRouting({ trips }: { trips: any[] }) {
                       </div>
                     ))}
                   </div>
-                  <div className="absolute top-[24px] left-3 right-3 h-1 bg-slate-100 -z-0 rounded">
+                  <div className="absolute top-[25px] left-3 right-3 h-1 bg-slate-100 -z-0 rounded">
                     <div
                       className={cn(
                         "h-full rounded transition-all duration-500 ease-out",

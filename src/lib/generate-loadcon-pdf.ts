@@ -81,13 +81,13 @@ export function buildLoadconHTML(data: LoadconPdfData): string {
   <div style="border:2px solid #dc2626;padding:2px;margin-bottom:20px">
     <table style="width:100%;border-collapse:collapse;font-size:11px">
       <tbody>
-        ${row('Load Type:', data.loadType)}
-        ${row('Customer Reference:', data.customerReference)}
-        ${row('Booking Ref:', data.bookingRef, true)}
-        ${row('Load Date:', data.loadDate)}
         ${row('Customer Name:', data.customerName)}
+        ${row('Booking Ref:', data.bookingRef, true)}
+        ${row('Customer Reference:', data.customerReference)}
         ${row('Collection Address:', data.collectionAddress)}
         ${row('Delivery:', data.delivery)}
+        ${row('Load Type:', data.loadType)}
+        ${row('Load Date:', data.loadDate)}
         ${row('Vessel:', data.vessel)}
         ${row('Weight:', data.weight)}
         ${row('Container Number:', data.containerNumber)}
@@ -211,13 +211,13 @@ export function generateLoadconPdf(data: LoadconPdfData): Blob {
   doc.setDrawColor(220, 38, 38)
   doc.setLineWidth(0.5)
 
-  drawRow('Load Type:', data.loadType)
-  drawRow('Customer Reference:', data.customerReference)
-  drawRow('Booking Ref:', data.bookingRef, true)
-  drawRow('Load Date:', data.loadDate)
   drawRow('Customer Name:', data.customerName)
+  drawRow('Booking Ref:', data.bookingRef, true)
+  drawRow('Customer Reference:', data.customerReference)
   drawRow('Collection Address:', data.collectionAddress)
   drawRow('Delivery:', data.delivery)
+  drawRow('Load Type:', data.loadType)
+  drawRow('Load Date:', data.loadDate)
   drawRow('Vessel:', data.vessel)
   drawRow('Weight:', data.weight)
   drawRow('Container Number:', data.containerNumber)
