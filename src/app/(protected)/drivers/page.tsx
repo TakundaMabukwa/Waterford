@@ -260,7 +260,7 @@ export default function Drivers() {
   
   // Driver performance data from EPS API
   const [driverPerformanceData, setDriverPerformanceData] = useState<any[]>([])
-  const [topSpeedingDrivers, setTopSpeedingDrivers] = useState<any[]>([])
+  
   const [performanceLoading, setPerformanceLoading] = useState(false)
 
   const emptyForm: Driver = {
@@ -319,26 +319,27 @@ export default function Drivers() {
   const fetchDriverPerformanceData = async () => {
     setPerformanceLoading(true)
     try {
-      const currentDate = new Date()
-      const year = currentDate.getFullYear()
-      const month = currentDate.getMonth() + 1
+      const scoreRes = await fetch('/api/driver/scorecard')
+      const scoreData = await scoreRes.json()
+      const drivers = Array.isArray(scoreData?.data) ? scoreData.data : []
 
-      // Fetch all driver performance scorecards
-      const perfResponse = await fetch(
-        `/api/eps-rewards?endpoint=driver-performance/all?year=${year}&month=${month}`
-      )
-      const perfData = await perfResponse.json()
-      setDriverPerformanceData(perfData.scorecards || [])
-
-      // Fetch top speeding drivers
-      const speedResponse = await fetch(
-        `/api/eps-rewards?endpoint=top-speeding-drivers?limit=10`
-      )
-      const speedData = await speedResponse.json()
-      setTopSpeedingDrivers(speedData.top_speeding_drivers || [])
+      const mapped = drivers.map((d: any) => {
+        const totalViolations = (d.speeding_count || 0) + (d.acceleration_count || 0) + (d.braking_count || 0) + (d.excessive_day_count || 0) + (d.excessive_night_count || 0)
+        const score = d.score ?? d.latest_score ?? 100
+        let rewardLevel = 'Bronze'
+        if (score >= 100) rewardLevel = 'Gold'
+        else if (score >= 80) rewardLevel = 'Silver'
+        return {
+          driver_name: d.full_name || d.name || '',
+          plate: '',
+          points: { current_points: score, points_deducted: 0, reward_level: rewardLevel },
+          violations: { total: totalViolations, speed: d.speeding_count || 0, harsh_braking: d.braking_count || 0, night_driving: (d.excessive_night_count || 0) + (d.excessive_day_count || 0) },
+          raw: d,
+        }
+      })
+      setDriverPerformanceData(mapped)
     } catch (err) {
       console.error('Failed to fetch driver performance data', err)
-      toast.error('Failed to load driver performance data')
     } finally {
       setPerformanceLoading(false)
     }
@@ -1796,61 +1797,6 @@ export default function Drivers() {
                       </div>
                     </CardContent>
                   </Card>
-
-                  {/* Top Speeding Drivers */}
-                  {topSpeedingDrivers.length > 0 && (
-                    <Card className="border-border/60">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                          <AlertTriangle className="h-4 w-4 text-destructive" />
-                          Top Speeding Drivers
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b border-border bg-destructive/5 text-xs uppercase tracking-wide text-muted-foreground">
-                                <th className="px-4 py-3 text-left font-medium">Rank</th>
-                                <th className="px-4 py-3 text-left font-medium">Driver Name</th>
-                                <th className="px-4 py-3 text-left font-medium">Plate</th>
-                                <th className="px-4 py-3 text-center font-medium">Speeding Violations</th>
-                                <th className="px-4 py-3 text-right font-medium">Points Deducted</th>
-                                <th className="px-4 py-3 text-right font-medium">Current Points</th>
-                                <th className="px-4 py-3 text-left font-medium">Level</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
-                              {topSpeedingDrivers.map((driver, i) => (
-                                <tr key={driver.rank} className={`transition-colors hover:bg-destructive/5 ${i % 2 === 1 ? 'bg-muted/10' : ''}`}>
-                                  <td className="px-4 py-3 font-bold">{driver.rank}</td>
-                                  <td className="px-4 py-3 font-medium">{driver.driver_name}</td>
-                                  <td className="px-4 py-3 font-mono text-xs">{driver.plate}</td>
-                                  <td className="px-4 py-3 text-center">
-                                    <Badge variant="destructive">{driver.speeding_violations}</Badge>
-                                  </td>
-                                  <td className="px-4 py-3 text-right text-destructive font-mono">{driver.points_deducted}</td>
-                                  <td className="px-4 py-3 text-right font-semibold font-mono">{driver.current_points}</td>
-                                  <td className="px-4 py-3">
-                                    <Badge
-                                      className={
-                                        driver.current_level === 'Gold'
-                                          ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                          : 'bg-slate-50 text-slate-700 border-slate-200'
-                                      }
-                                      variant="outline"
-                                    >
-                                      {driver.current_level}
-                                    </Badge>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
                 </>
               )}
             </div>
