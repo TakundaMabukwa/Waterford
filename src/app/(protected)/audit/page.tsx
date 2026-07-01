@@ -47,6 +47,7 @@ export default function AuditPage() {
   const [filteredRecords, setFilteredRecords] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('all')
+  const [invoicedFilter, setInvoicedFilter] = useState<'all' | 'invoiced' | 'not_invoiced'>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [documentsOpen, setDocumentsOpen] = useState(false)
   const [selectedDocumentRecord, setSelectedDocumentRecord] = useState<any>(null)
@@ -124,6 +125,12 @@ export default function AuditPage() {
       next = next.filter((record) => record.status === 'delivered' || record.status === 'completed')
     }
 
+    if (invoicedFilter === 'invoiced') {
+      next = next.filter((record) => record.is_invoiced)
+    } else if (invoicedFilter === 'not_invoiced') {
+      next = next.filter((record) => !record.is_invoiced)
+    }
+
     if (searchTerm) {
       const query = searchTerm.toLowerCase()
       next = next.filter(
@@ -136,7 +143,7 @@ export default function AuditPage() {
     }
 
     setFilteredRecords(next)
-  }, [records, statusFilter, searchTerm])
+  }, [records, statusFilter, invoicedFilter, searchTerm])
 
   const summary = useMemo(() => {
     const totalTrips = filteredRecords.length
@@ -284,6 +291,32 @@ export default function AuditPage() {
                 <SelectItem value="completed">Completed</SelectItem>
               </SelectContent>
             </Select>
+            <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+              <button
+                onClick={() => setInvoicedFilter('all')}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  invoicedFilter === 'all' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setInvoicedFilter('not_invoiced')}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  invoicedFilter === 'not_invoiced' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Not Invoiced
+              </button>
+              <button
+                onClick={() => setInvoicedFilter('invoiced')}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  invoicedFilter === 'invoiced' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Invoiced
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-lg border">
