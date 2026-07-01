@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Download, Paperclip, Route, Truck } from 'lucide-react'
+import { Download, FileText, Paperclip, Route, Truck } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -60,7 +60,7 @@ export default function AuditPage() {
         setLoading(true)
         const { data: auditData, error: auditError } = await supabase
           .from('audit')
-          .select('*')
+          .select('*, invoice_url')
           .order('updated_at', { ascending: false })
 
         if (auditError) throw auditError
@@ -324,7 +324,20 @@ export default function AuditPage() {
                     </td>
                     <td className="px-3 py-2 text-center">
                       {record.is_invoiced ? (
-                        <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Invoiced</Badge>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Invoiced</Badge>
+                          {record.invoice_url && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                              onClick={() => window.open(record.invoice_url, '_blank')}
+                              title="Download Invoice"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       ) : (
                         <Badge variant="outline" className="text-[10px] px-2 py-0.5 text-slate-400">Pending</Badge>
                       )}

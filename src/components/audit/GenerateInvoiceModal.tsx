@@ -10,6 +10,12 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AuditCurrencyCode } from '@/lib/audit-utils'
 import { toast } from 'sonner'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
+)
 
 type InvoiceLineItem = {
   id: string
@@ -153,10 +159,14 @@ export default function GenerateInvoiceModal({
   const totalZar = subtotal + totalVat
   const amountDue = totalZar - lessAmountPaid - lessAmountCredited
 
-  const markAuditInvoiced = async () => {
+  const markAuditInvoiced = async (invoiceUrl?: string) => {
     if (!record?.id) return
     try {
-      await fetch(`/api/audit/${record.id}/mark-invoiced`, { method: 'POST' })
+      await fetch(`/api/audit/${record.id}/mark-invoiced`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceUrl: invoiceUrl || null }),
+      })
     } catch (err) {
       console.error('Failed to mark audit invoiced:', err)
     }
@@ -411,10 +421,26 @@ export default function GenerateInvoiceModal({
       y
     )
 
-    doc.save(`${invoiceNumber || 'invoice'}.pdf`)
+    const fileName = `${invoiceNumber || 'invoice'}.pdf`
+    doc.save(fileName)
 
-    await markAuditInvoiced()
-    toast.success('Invoice generated and audit marked as invoiced')
+    // Upload PDF to Supabase storage
+    const pdfBlob = doc.output('blob')
+    const filePath = `invoices/${fileName}`
+    const { error: uploadError } = await supabase.storage
+      .from('invoices')
+      .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true })
+
+    let invoiceUrl = null
+    if (!uploadError) {
+      const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(filePath)
+      invoiceUrl = urlData?.publicUrl || null
+    } else {
+      console.error('Upload error:', uploadError)
+    }
+
+    await markAuditInvoiced(invoiceUrl || undefined)
+    toast.success('Invoice generated and stored')
     setGenerating(false)
   }
 

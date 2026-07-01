@@ -2,16 +2,22 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
 export async function POST(
-  _req: Request,
+  req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await context.params;
     const supabase = await createClient();
+    const body = await req.json().catch(() => ({}));
+
+    const updateData: Record<string, any> = { is_invoiced: true };
+    if (body.invoiceUrl) {
+      updateData.invoice_url = body.invoiceUrl;
+    }
 
     const { data, error } = await supabase
       .from('audit')
-      .update({ is_invoiced: true })
+      .update(updateData)
       .eq('id', Number(id))
       .select()
       .single();
