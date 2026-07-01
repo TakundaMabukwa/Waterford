@@ -1,14 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useState } from 'react'
-import { X, Plus, Trash2, Download } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X, Plus, Trash2, Download, Loader2 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AuditCurrencyCode } from '@/lib/audit-utils'
+import { toast } from 'sonner'
 
 type InvoiceLineItem = {
   id: string
@@ -25,7 +26,7 @@ const VAT_RATES: Record<string, number> = {
 }
 
 const VAT_LABELS: Record<string, string> = {
-  zero: 'Zero Rate',
+  zero: 'Zero Rate\n(Excluding\nGoods Exported)',
   standard: '15% VAT',
   exempt: 'Exempt',
 }
@@ -37,6 +38,9 @@ const formatCurrency = (value: number, currencyCode: AuditCurrencyCode = 'ZAR') 
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value)
+
+const formatNum = (value: number) =>
+  new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
 
 type Props = {
   open: boolean
@@ -73,12 +77,34 @@ export default function GenerateInvoiceModal({
   const orderNum = record?.ordernumber || record?.trip_id || ''
 
   const [invoiceDate, setInvoiceDate] = useState(today)
-  const [invoiceNumber, setInvoiceNumber] = useState(`INV-${orderNum}`)
+  const [invoiceNumber, setInvoiceNumber] = useState('')
+  const [invoiceLoading, setInvoiceLoading] = useState(true)
   const [customerName, setCustomerName] = useState(getClientName())
   const [customerAddress, setCustomerAddress] = useState('')
   const [customerVat, setCustomerVat] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [notes, setNotes] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [lessAmountPaid, setLessAmountPaid] = useState(0)
+  const [lessAmountCredited, setLessAmountCredited] = useState(0)
+
+  useEffect(() => {
+    if (!open) return
+    const fetchNumber = async () => {
+      setInvoiceLoading(true)
+      try {
+        const res = await fetch('/api/next-invoice-number', { method: 'POST' })
+        const data = await res.json()
+        if (data.invoiceNumber) setInvoiceNumber(data.invoiceNumber)
+        else setInvoiceNumber(`INV${orderNum}`)
+      } catch {
+        setInvoiceNumber(`INV${orderNum}`)
+      } finally {
+        setInvoiceLoading(false)
+      }
+    }
+    fetchNumber()
+  }, [open, orderNum])
 
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>(() => {
     if (splitRows.length) {
@@ -125,170 +151,271 @@ export default function GenerateInvoiceModal({
   const subtotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
   const totalVat = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice * VAT_RATES[item.vatType], 0)
   const totalZar = subtotal + totalVat
+  const amountDue = totalZar - lessAmountPaid - lessAmountCredited
 
-  const generatePdf = () => {
+  const markAuditInvoiced = async () => {
+    if (!record?.id) return
+    try {
+      await fetch(`/api/audit/${record.id}/mark-invoiced`, { method: 'POST' })
+    } catch (err) {
+      console.error('Failed to mark audit invoiced:', err)
+    }
+  }
+
+  const generatePdf = async () => {
+    setGenerating(true)
     const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
-    const pageWidth = doc.internal.pageSize.getWidth()
-    const margin = 20
-    let y = margin
+    const pw = doc.internal.pageSize.getWidth()
+    const ml = 15
+    const mr = 15
+    let y = 15
 
-    // Header - WATERFORD
+    // ── WATERFORD LOGO (top right) ─────────────────────────────────
     doc.setFontSize(24)
     doc.setFont('helvetica', 'bold')
-    doc.text('WATERFORD', margin, y + 10)
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'normal')
-    doc.text('carriers', margin + 2, y + 16)
-
-    y += 25
-
-    // TAX INVOICE title
-    doc.setFontSize(18)
-    doc.setFont('helvetica', 'bold')
-    doc.text('TAX INVOICE', margin, y)
-    y += 15
-
-    // Left side - Customer info
+    doc.setTextColor(0, 30, 66)
+    doc.text('WATERFORD', pw - mr, y + 8, { align: 'right' })
     doc.setFontSize(10)
     doc.setFont('helvetica', 'bold')
-    doc.text(customerName || 'Customer', margin, y)
+    doc.setTextColor(232, 153, 63)
+    doc.text('carriers', pw - mr, y + 14, { align: 'right' })
+
+    y += 22
+
+    // ── TAX INVOICE (left) ─────────────────────────────────────────
+    doc.setFontSize(24)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(0, 0, 0)
+    doc.text('TAX INVOICE', ml, y)
+    y += 12
+
+    // ── LEFT: Customer details ─────────────────────────────────────
+    const custY = y + 2
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(0, 0, 0)
+    doc.text(customerName || 'Customer', ml, custY)
     doc.setFont('helvetica', 'normal')
-    if (customerAddress) {
-      const addrLines = doc.splitTextToSize(customerAddress, 80)
-      doc.text(addrLines, margin, y + 6)
-      y += 6 + addrLines.length * 5
+    doc.setFontSize(9)
+    const addrLines = customerAddress ? doc.splitTextToSize(customerAddress, 65) : []
+    if (addrLines.length) {
+      doc.text(addrLines, ml, custY + 5)
     }
     if (customerVat) {
-      doc.text(`VAT Number: ${customerVat}`, margin, y + 6)
-      y += 6
+      doc.text(`VAT Number: ${customerVat}`, ml, custY + 5 + addrLines.length * 4.5 + 2)
     }
 
-    // Right side - Invoice details
-    const rightX = pageWidth - margin
-    let ry = margin + 5
+    // ── RIGHT: Invoice details + Company info ──────────────────────
+    const invLabelX = 100
+    const invValueX = 132
+    const coInfoX = 165
+    const refMaxW = coInfoX - invValueX - 2
+    let ry = custY - 5
 
+    // Row 1: Invoice Date + Company line 1
     doc.setFont('helvetica', 'bold')
-    doc.text('Invoice Date', rightX - 60, ry)
+    doc.setFontSize(9)
+    doc.text('Invoice Date', invLabelX, ry)
     doc.setFont('helvetica', 'normal')
-    doc.text(invoiceDate, rightX, ry, { align: 'right' })
-    ry += 6
+    doc.text(invoiceDate, invValueX, ry)
+    doc.text('Waterford Carriers (Pty)', coInfoX, ry)
+    ry += 5
 
+    // Row 2: Invoice Number + Company line 2
     doc.setFont('helvetica', 'bold')
-    doc.text('Invoice Number', rightX - 60, ry)
+    doc.text('Invoice Number', invLabelX, ry)
     doc.setFont('helvetica', 'normal')
-    doc.text(invoiceNumber, rightX, ry, { align: 'right' })
-    ry += 6
+    doc.text(invoiceNumber, invValueX, ry)
+    doc.text('Ltd', coInfoX, ry)
+    ry += 5
 
+    // Row 3: Reference (may wrap) + Company line 3
     doc.setFont('helvetica', 'bold')
-    doc.text('Reference', rightX - 60, ry)
+    doc.text('Reference', invLabelX, ry)
     doc.setFont('helvetica', 'normal')
-    doc.text(orderNum, rightX, ry, { align: 'right' })
-    ry += 6
+    const refFullText = orderNum ? `${orderNum} - ADDITIONAL INVOICE S/T` : 'ADDITIONAL INVOICE S/T'
+    const refWrapped = doc.splitTextToSize(refFullText, refMaxW)
+    doc.text(refWrapped[0], invValueX, ry)
+    doc.text('96 Cavaleros Drive', coInfoX, ry)
+    ry += 5
 
+    if (refWrapped.length > 1) {
+      doc.text(refWrapped[1], invValueX, ry)
+    }
+    doc.text('Industries West', coInfoX, ry)
+    ry += 5
+
+    doc.text('Germiston, 1401', coInfoX, ry)
+    ry += 5
+
+    doc.text('SOUTH AFRICA', coInfoX, ry)
+    ry += 5
+
+    doc.text('Tel: +27 (10) 300 8398', coInfoX, ry)
+    ry += 5
+
+    doc.text('Co Reg: 2020/601042/07', coInfoX, ry)
+    ry += 7
+
+    // VAT Number row
     doc.setFont('helvetica', 'bold')
-    doc.text('Due Date', rightX - 60, ry)
+    doc.setFontSize(9)
+    doc.text('VAT Number', invLabelX, ry)
     doc.setFont('helvetica', 'normal')
-    doc.text(dueDate || 'On Receipt', rightX, ry, { align: 'right' })
+    doc.text('4090291693', invValueX, ry)
 
-    y += 20
+    y = Math.max(custY + 5 + addrLines.length * 4.5 + (customerVat ? 8 : 0), ry) + 8
 
-    // Line items table
+    // ── LINE ITEMS TABLE ───────────────────────────────────────────
     const tableData = lineItems.map((item) => {
       const lineTotal = item.quantity * item.unitPrice
-      const vatAmount = lineTotal * VAT_RATES[item.vatType]
       return [
         item.description,
-        String(item.quantity),
-        formatCurrency(item.unitPrice, invoiceCurrency),
-        VAT_LABELS[item.vatType],
-        formatCurrency(lineTotal, invoiceCurrency),
+        String(item.quantity ? formatNum(item.quantity) : ''),
+        formatNum(item.unitPrice),
+        VAT_LABELS[item.vatType] || '',
+        formatNum(lineTotal),
       ]
     })
 
     autoTable(doc, {
       startY: y,
-      head: [['Description', 'Quantity', 'Unit Price', 'VAT', 'Amount']],
+      head: [['Description', 'Quantity', 'Unit Price', 'VAT', 'Amount ZAR']],
       body: tableData,
-      theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 4 },
+      theme: 'plain',
+      styles: {
+        fontSize: 9,
+        cellPadding: { top: 5, bottom: 5, left: 2, right: 2 },
+        lineWidth: 0,
+        lineColor: [255, 255, 255],
+        overflow: 'linebreak',
+        borderColor: [255, 255, 255],
+      },
       headStyles: {
-        fillColor: [0, 30, 66],
-        textColor: [255, 255, 255],
+        textColor: [0, 0, 0],
         fontStyle: 'bold',
+        fontSize: 9,
+        cellPadding: { top: 4, bottom: 6, left: 2, right: 2 },
+        lineWidth: 0,
+        lineColor: [255, 255, 255],
+        borderColor: [255, 255, 255],
       },
       columnStyles: {
-        0: { cellWidth: 60 },
-        1: { halign: 'right', cellWidth: 20 },
-        2: { halign: 'right', cellWidth: 35 },
-        3: { halign: 'center', cellWidth: 30 },
-        4: { halign: 'right', cellWidth: 35 },
+        0: { cellWidth: 58, halign: 'left' },
+        1: { cellWidth: 22, halign: 'right' },
+        2: { cellWidth: 25, halign: 'right' },
+        3: { cellWidth: 38, halign: 'left', overflow: 'linebreak' },
+        4: { cellWidth: 30, halign: 'right' },
+      },
+      didDrawCell: (data) => {
+        const { doc: d } = data
+        if (data.section === 'head' && data.column.index === 0) {
+          const lineY = data.cell.y + data.cell.height + 1
+          d.setDrawColor(0, 0, 0)
+          d.setLineWidth(0.5)
+          d.line(ml, lineY, pw - mr, lineY)
+        }
+        if (data.section === 'body' && data.column.index === 4) {
+          const lineY = data.cell.y + data.cell.height + 3
+          d.setDrawColor(220, 220, 220)
+          d.setLineWidth(0.2)
+          d.line(data.cell.x, lineY, data.cell.x + data.cell.width, lineY)
+        }
       },
     })
 
     y = (doc as any).lastAutoTable.finalY + 10
 
-    // Summary
-    const summaryX = pageWidth - margin - 70
+    // ── SUMMARY (right-aligned) ────────────────────────────────────
+    const sL = pw - mr - 80
+    const sV = pw - mr
 
     doc.setFont('helvetica', 'normal')
-    doc.text('Subtotal', summaryX, y)
-    doc.text(formatCurrency(subtotal, invoiceCurrency), pageWidth - margin, y, { align: 'right' })
+    doc.setFontSize(10)
+    doc.setTextColor(0, 0, 0)
+
+    doc.text('Subtotal', sL, y)
+    doc.text(formatNum(subtotal), sV, y, { align: 'right' })
     y += 6
 
-    doc.text('Total VAT', summaryX, y)
-    doc.text(formatCurrency(totalVat, invoiceCurrency), pageWidth - margin, y, { align: 'right' })
+    doc.text('TOTAL VAT', sL, y)
+    doc.text(formatNum(totalVat), sV, y, { align: 'right' })
+    y += 5
+
+    doc.setDrawColor(180, 180, 180)
+    doc.setLineWidth(0.3)
+    doc.line(sL, y, sV, y)
+    y += 5
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.text('TOTAL ZAR', sL, y)
+    doc.text(formatNum(totalZar), sV, y, { align: 'right' })
+    y += 6
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.text('Less Amount Paid', sL, y)
+    doc.text(lessAmountPaid > 0 ? formatNum(lessAmountPaid) : '-', sV, y, { align: 'right' })
+    y += 6
+
+    doc.text('Less Amount Credited', sL, y)
+    doc.text(lessAmountCredited > 0 ? formatNum(lessAmountCredited) : '-', sV, y, { align: 'right' })
+    y += 5
+
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.3)
+    doc.line(sL, y, sV, y)
+    y += 5
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.text('AMOUNT DUE ZAR', sL, y)
+    doc.text(formatNum(amountDue), sV, y, { align: 'right' })
+
+    y += 16
+
+    // ── BANK DETAILS ───────────────────────────────────────────────
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(0, 0, 0)
+    doc.text(`Due Date: ${dueDate || 'On Receipt'}`, ml, y)
+    y += 7
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text('Bank accounts:', ml, y)
+    y += 5
+    doc.text('South African Rand (ZAR)', ml, y)
+    y += 4
+    doc.text('First National Bank (FNB), Branch 210554, Acc 62878278946', ml, y)
     y += 8
 
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(12)
-    doc.text('TOTAL', summaryX, y)
-    doc.text(formatCurrency(totalZar, invoiceCurrency), pageWidth - margin, y, { align: 'right' })
-    y += 10
+    doc.text('Global account (USD)', ml, y)
+    y += 4
+    doc.text('Capitec Bank, Swift CABLZAJJ, Branch 450105, Acc 5000040384', ml, y)
+    y += 4
+    doc.text('Acc type CFC Call Account', ml, y)
+    y += 4
+    doc.text('142 West Street, Sandton, Johannesburg, 2196', ml, y)
 
-    doc.setFontSize(14)
-    doc.text('AMOUNT DUE', summaryX, y)
-    doc.text(formatCurrency(totalZar, invoiceCurrency), pageWidth - margin, y, { align: 'right' })
+    y += 14
 
-    y += 20
-
-    // Bank details section
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Bank Details', margin, y)
-    y += 6
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    doc.text('South African Rand (ZAR)', margin, y)
-    y += 5
-    doc.text('First National Bank (FNB), Branch 210554, Acc: 62878378945', margin, y)
-    y += 10
-
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(10)
-    doc.text('Global Account (USD)', margin, y)
-    y += 6
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    doc.text('COHEN MABUKWA, ZAZAJ, Branch 450105, Acc 5000040384', margin, y)
-    y += 5
-    doc.text('Acc type CFC Call Account', margin, y)
-    y += 5
-    doc.text('142 West Street, Sandton, Johannesburg, 2196', margin, y)
-
-    y += 15
-
-    // Footer
+    // ── FOOTER ─────────────────────────────────────────────────────
     doc.setFontSize(7)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(128, 128, 128)
     doc.text(
-      'Company Registration No: 2020/801042/07. Registered Office: 96 CAVALEROS DRIVE, INDUSTRIES WEST, GEORGINA, GERMINSTON, GAUTENG, 1401, SOUTH AFRICA',
-      pageWidth / 2,
-      y,
-      { align: 'center' }
+      'Company Registration No: 2020/601042/07.  Registered Office: 96 CAVALEROS DRIVE, INDUSTRIES WEST, GERMISTON, GERMISTON, GAUTENG, 1401, SOUTH AFRICA',
+      ml,
+      y
     )
 
     doc.save(`${invoiceNumber || 'invoice'}.pdf`)
+
+    await markAuditInvoiced()
+    toast.success('Invoice generated and audit marked as invoiced')
+    setGenerating(false)
   }
 
   if (!open) return null
@@ -316,7 +443,12 @@ export default function GenerateInvoiceModal({
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Number</label>
-              <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+              <div className="relative">
+                <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} disabled={invoiceLoading} />
+                {invoiceLoading && (
+                  <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-slate-400" />
+                )}
+              </div>
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer Name</label>
@@ -333,6 +465,28 @@ export default function GenerateInvoiceModal({
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Due Date</label>
               <Input value={dueDate} onChange={(e) => setDueDate(e.target.value)} placeholder="On Receipt" />
+            </div>
+          </div>
+
+          {/* Payments & Credits */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Less Amount Paid (ZAR)</label>
+              <Input
+                type="number"
+                value={lessAmountPaid || ''}
+                onChange={(e) => setLessAmountPaid(Number(e.target.value) || 0)}
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Less Amount Credited (ZAR)</label>
+              <Input
+                type="number"
+                value={lessAmountCredited || ''}
+                onChange={(e) => setLessAmountCredited(Number(e.target.value) || 0)}
+                placeholder="0.00"
+              />
             </div>
           </div>
 
@@ -422,25 +576,33 @@ export default function GenerateInvoiceModal({
 
           {/* Summary */}
           <div className="flex justify-end">
-            <div className="w-72 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div className="w-80 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="flex justify-between text-sm">
                 <span className="text-slate-600">Subtotal</span>
                 <span className="font-medium">{formatCurrency(subtotal, invoiceCurrency)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-600">Total VAT</span>
+                <span className="text-slate-600">TOTAL VAT</span>
                 <span className="font-medium">{formatCurrency(totalVat, invoiceCurrency)}</span>
               </div>
               <div className="border-t border-slate-300 pt-2">
                 <div className="flex justify-between">
-                  <span className="text-sm font-bold">TOTAL</span>
+                  <span className="text-sm font-bold">TOTAL ZAR</span>
                   <span className="text-lg font-bold">{formatCurrency(totalZar, invoiceCurrency)}</span>
                 </div>
               </div>
-              <div className="border-t border-slate-300 pt-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600">Less Amount Paid</span>
+                <span className="font-medium">{lessAmountPaid > 0 ? formatCurrency(lessAmountPaid, invoiceCurrency) : '-'}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600">Less Amount Credited</span>
+                <span className="font-medium">{lessAmountCredited > 0 ? formatCurrency(lessAmountCredited, invoiceCurrency) : '-'}</span>
+              </div>
+              <div className="border-t border-[#001e42] pt-2">
                 <div className="flex justify-between">
-                  <span className="text-sm font-bold text-[#001e42]">AMOUNT DUE</span>
-                  <span className="text-lg font-bold text-[#001e42]">{formatCurrency(totalZar, invoiceCurrency)}</span>
+                  <span className="text-sm font-bold text-[#001e42]">AMOUNT DUE ZAR</span>
+                  <span className="text-lg font-bold text-[#001e42]">{formatCurrency(amountDue, invoiceCurrency)}</span>
                 </div>
               </div>
             </div>
@@ -460,10 +622,13 @@ export default function GenerateInvoiceModal({
         </div>
 
         <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={generatePdf} className="bg-[#001e42] text-white hover:bg-[#0b2955]">
-            <Download className="mr-2 h-4 w-4" />
-            Generate Invoice PDF
+          <Button variant="outline" onClick={onClose} disabled={generating}>Cancel</Button>
+          <Button onClick={generatePdf} className="bg-[#001e42] text-white hover:bg-[#0b2955]" disabled={invoiceLoading || generating}>
+            {generating ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
+            ) : (
+              <><Download className="mr-2 h-4 w-4" /> Generate Invoice PDF</>
+            )}
           </Button>
         </div>
       </div>

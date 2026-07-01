@@ -297,6 +297,7 @@ export default function AuditPage() {
                   <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Planned</th>
                   <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Actual</th>
                   <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Fuel</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
                 </tr>
               </thead>
@@ -320,6 +321,13 @@ export default function AuditPage() {
                     <td className="px-3 py-2 text-sm text-slate-700">
                       <div>{toNumber(record.fuel_used_liters).toFixed(1)} L</div>
                       <div className="text-xs text-slate-500">{toNumber(record.fuel_liters_per_km).toFixed(3)} L/km</div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {record.is_invoiced ? (
+                        <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Invoiced</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] px-2 py-0.5 text-slate-400">Pending</Badge>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex justify-end gap-1">
