@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   BarChart3,
   CheckCircle2,
+  Download,
   FileDown,
   FileText,
   Plus,
@@ -1006,14 +1007,24 @@ export default function AuditTripWorkspace({
                 </div>
               </div>
               <div className="flex items-center xl:col-span-3">
-                <Button
-                  onClick={() => setShowInvoiceModal(true)}
-                  className="h-full w-full bg-[#001e42] text-white hover:bg-[#0b2955]"
-                  disabled={!invoiceRate}
-                >
-                  <FileText className="mr-2 h-4 w-4" />
-                  Generate Invoice
-                </Button>
+                {record?.is_invoiced && record?.invoice_url ? (
+                  <Button
+                    onClick={() => window.open(record.invoice_url, '_blank')}
+                    className="h-full w-full bg-emerald-700 text-white hover:bg-emerald-800"
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download Invoice
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => setShowInvoiceModal(true)}
+                    className="h-full w-full bg-[#001e42] text-white hover:bg-[#0b2955]"
+                    disabled={!invoiceRate}
+                  >
+                    <FileText className="mr-2 h-4 w-4" />
+                    Generate Invoice
+                  </Button>
+                )}
               </div>
             </div>
 
