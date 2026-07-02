@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, PackageSearch, Clock3, CircleCheckBig, AlertTriangle, TrendingUp, MapPin, Truck, User } from "lucide-react";
 import ClientTripRouting from "@/components/ClientTripRouting";
+import ClientDriverCard from "@/components/ClientDriverCard";
 
 type ClientTrip = {
   id: number;
@@ -436,71 +437,21 @@ export default function ClientDashboardPage() {
               {activeTrips.length === 0 ? (
                 <p className="text-sm text-slate-500">No active trips at the moment.</p>
               ) : (
-                activeTrips.map((trip) => (
-                  <div key={trip.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <div className="font-semibold text-slate-900">{trip.trip_id}</div>
-                        <div className="text-sm text-slate-600">{trip.origin || 'Origin not set'} → {trip.destination || 'Destination not set'}</div>
-                        <div className="mt-1 text-xs text-slate-500">{trip.route || 'No route assigned'}</div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">
-                        <div className="rounded-xl bg-white px-3 py-2">
-                          <div className="text-[11px] uppercase tracking-wide text-slate-500">Driver</div>
-                          <div className="font-medium text-slate-900">{trip.driver || 'Unassigned'}</div>
-                        </div>
-                        <div className="rounded-xl bg-white px-3 py-2">
-                          <div className="text-[11px] uppercase tracking-wide text-slate-500">Vehicle</div>
-                          <div className="font-medium text-slate-900">{trip.vehicle || 'Unassigned'}</div>
-                        </div>
-                        <div className="rounded-xl bg-white px-3 py-2">
-                          <div className="text-[11px] uppercase tracking-wide text-slate-500">Status</div>
-                          <Badge className={statusTone(trip.status)}>{trip.status}</Badge>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {activeTrips.map((trip) => (
+                    <div key={trip.id} className="space-y-3">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <div className="font-semibold text-slate-900 text-sm">{trip.trip_id}</div>
+                        <div className="text-xs text-slate-600 mt-1">{trip.origin || 'Origin'} → {trip.destination || 'Destination'}</div>
+                        <div className="mt-1 flex items-center gap-2">
+                          <Badge className={statusTone(trip.status) + ' text-[10px]'}>{trip.status}</Badge>
+                          <span className="text-[10px] text-slate-500">{trip.route || ''}</span>
                         </div>
                       </div>
+                      <ClientDriverCard driverName={trip.driver} vehiclePlate={trip.vehicle} />
                     </div>
-                    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-slate-800">Client Notes</p>
-                        <p className="text-xs text-slate-500">{parseClientNotes(trip).length} saved</p>
-                      </div>
-
-                      <div className="space-y-2">
-                        {parseClientNotes(trip).length === 0 ? (
-                          <p className="text-xs text-slate-500">No client notes yet.</p>
-                        ) : (
-                          parseClientNotes(trip).slice(-3).reverse().map((note, index) => (
-                            <div key={`${trip.id}-note-${index}`} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                              <p>{note.message}</p>
-                              <p className="mt-1 text-[11px] text-slate-500">
-                                {note.author || 'Client'} {note.created_at ? `- ${new Date(note.created_at).toLocaleString()}` : ''}
-                              </p>
-                            </div>
-                          ))
-                        )}
-                      </div>
-
-                      <div className="mt-3 space-y-2">
-                        <Textarea
-                          value={noteInputs[trip.id] || ''}
-                          onChange={(event) => setNoteInputs((prev) => ({ ...prev, [trip.id]: event.target.value }))}
-                          placeholder="Add a client note for this trip"
-                          className="min-h-22.5"
-                        />
-                        {noteErrors[trip.id] ? <p className="text-xs text-red-600">{noteErrors[trip.id]}</p> : null}
-                        <div className="flex justify-end">
-                          <Button
-                            type="button"
-                            onClick={() => handleAddClientNote(trip)}
-                            disabled={savingNotes[trip.id] || !String(noteInputs[trip.id] || '').trim()}
-                          >
-                            {savingNotes[trip.id] ? 'Saving note...' : 'Send Note'}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
