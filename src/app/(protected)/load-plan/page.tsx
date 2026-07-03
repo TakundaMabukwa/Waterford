@@ -18,7 +18,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { X, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin, Building2, GripVertical, Printer, Search } from 'lucide-react'
 import { LoadconPrint, type LoadconPrintData } from '@/components/ui/loadcon-print'
 import { generateLoadconPdf, uploadLoadconPdf, updateTripLoadconUrl, triggerPdfDownload, buildLoadconHTML, generateAndStoreLoadcon } from '@/lib/generate-loadcon-pdf'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { LocationAutocomplete } from '@/components/ui/location-autocomplete'
@@ -43,7 +43,6 @@ import { VehicleDropdown } from '@/components/ui/vehicle-dropdown'
 import { VehicleTypeDropdown } from '@/components/ui/vehicle-type-dropdown'
 import { TrailerDropdown } from '@/components/ui/trailer-dropdown'
 import { StopPointDropdown } from '@/components/ui/stop-point-dropdown'
-import { getDeclaredTankCapacity } from '@/lib/vehicle-tank-capacities'
 
 
 export default function LoadPlanPage() {
@@ -114,14 +113,10 @@ export default function LoadPlanPage() {
   
   // Cost calculation state
   const [selectedVehicle, setSelectedVehicle] = useState('')
-  const [fuelPricePerLiter, setFuelPricePerLiter] = useState('21')
   const [estimatedDistance, setEstimatedDistance] = useState(0)
-  const [approximateFuelCost, setApproximateFuelCost] = useState(0)
-  const [approximatedCPK, setApproximatedCPK] = useState(0)
-  const [approximatedVehicleCost, setApproximatedVehicleCost] = useState(0)
-  const [approximatedDriverCost, setApproximatedDriverCost] = useState(0)
   const [totalVehicleCost, setTotalVehicleCost] = useState(0)
-  const [goodsInTransitPremium, setGoodsInTransitPremium] = useState('0')
+  const [costBreakdown, setCostBreakdown] = useState<{ driverCost: number; fixedAssetCost: number; fuelCost: number; rmCost: number; crossBorderCost: number; totalCost: number } | null>(null)
+  const [tripCostLoading, setTripCostLoading] = useState(false)
   const [tripType, setTripType] = useState('local')
   const [stopPoints, setStopPoints] = useState([])
   const [availableStopPoints, setAvailableStopPoints] = useState([])
@@ -136,13 +131,6 @@ export default function LoadPlanPage() {
   const [tripDays, setTripDays] = useState(1)
   const [isManuallyOrdered, setIsManuallyOrdered] = useState(false)
   const [estimatedTravelHours, setEstimatedTravelHours] = useState(0)
-  const [estimatedFuelNeededLiters, setEstimatedFuelNeededLiters] = useState(0)
-  const [estimatedFuelTopUpLiters, setEstimatedFuelTopUpLiters] = useState(0)
-  const [estimatedTankCapacityLiters, setEstimatedTankCapacityLiters] = useState(0)
-  const [currentFuelInTankLiters, setCurrentFuelInTankLiters] = useState(0)
-  const [currentFuelPercentage, setCurrentFuelPercentage] = useState(0)
-  const [activeTruckCount, setActiveTruckCount] = useState(1)
-  const [distancePerTruck, setDistancePerTruck] = useState(0)
   const lastAutoEtaDropoffRef = useRef('')
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -280,111 +268,6 @@ export default function LoadPlanPage() {
   }
   const DEFAULT_BURN_RATE_LPH = 18
   const DEFAULT_BURN_RATE_LPKM = 0.38
-
-  // Rate Card System - Complete Costing Model from Excel
-  const RATE_CARD_SYSTEM = {
-    'TAUTLINER': {
-      // FIXED COSTS - TRUCK
-      hp_depr: 22000, tracking: 1800, licence: 1295.87, insurance: 12265,
-      // FIXED COSTS - TRAILER
-      trailer_hp_depr: 12000, trailer_licence: 1695, trailer_insurance: 1270,
-      // FIXED COSTS - OVERHEADS
-      admin: 28000, driver_basic: 22320.17,
-      // VARIABLE COSTS
-      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 1.15,
-      overtime_allow: 1.70,
-      // RATE CARD
-      ppk: 3.00, profit_margin: 0.111,
-    },
-    'TAUT X-BRDER - BOTSWANA': {
-      hp_depr: 10000, tracking: 1800, licence: 1575.44, insurance: 12265,
-      trailer_hp_depr: 12000, trailer_licence: 1695, trailer_insurance: 1270,
-      admin: 28000, driver_basic: 22320.17, xbrdr: 650,
-      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.75,
-      overtime_allow: 1.70,
-      ppk: 5.00, profit_margin: 0.162,
-    },
-    'TAUT X-BRDER - NAMIBIA': {
-      hp_depr: 10000, tracking: 1800, licence: 1575.44, insurance: 12265,
-      trailer_hp_depr: 12000, trailer_licence: 1695, trailer_insurance: 1270,
-      admin: 28000, driver_basic: 22320.17, xbrdr: 1500,
-      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 1.48,
-      overtime_allow: 1.70,
-      ppk: 5.00, profit_margin: 0.184,
-    },
-    'CITRUS LOAD (+1 DAY STANDING FPT)': {
-      hp_depr: 22000, tracking: 1800, licence: 1295.87, insurance: 12265,
-      trailer_hp_depr: 12000, trailer_licence: 1695, trailer_insurance: 1270,
-      admin: 28000, driver_basic: 22320.17,
-      rm_per_km: 1.65, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 1.52,
-      overtime_allow: 1.70,
-      ppk: 5.00, profit_margin: 0.062,
-    },
-    '14M/15M COMBO (NEW)': {
-      hp_depr: 22000, tracking: 1800, licence: 1295.87, insurance: 12265,
-      trailer_hp_depr: 8000, trailer_licence: 1406, trailer_insurance: 650,
-      admin: 22000, driver_basic: 22320.17,
-      rm_per_km: 0.90, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.82,
-      overtime_allow: 1.30,
-      ppk: 5.00, profit_margin: 0.144,
-    },
-    '14M/15M REEFER': {
-      hp_depr: 22000, tracking: 1800, licence: 1295.87, insurance: 12265,
-      trailer_hp_depr: 27000, trailer_licence: 1406, trailer_insurance: 1533,
-      admin: 22000, driver_basic: 22320.17,
-      rm_per_km: 0.90, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.82,
-      overtime_allow: 1.30,
-      ppk: 5.00, profit_margin: 0.126,
-    },
-    '9 METER (NEW)': {
-      hp_depr: 26000, tracking: 1800, licence: 1025, insurance: 8985,
-      trailer_hp_depr: 8000, trailer_licence: 600, trailer_insurance: 950,
-      admin: 15954, driver_basic: 22320.17,
-      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.23,
-      overtime_allow: 2.21,
-      ppk: 5.00, profit_margin: 0.177,
-    },
-    '8T JHB (NEW - EPS)': {
-      hp_depr: 22162, tracking: 1358, licence: 873.22, insurance: 8198,
-      trailer_hp_depr: 0, trailer_licence: 0, trailer_insurance: 0,
-      admin: 13620, driver_basic: 22320.17,
-      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.15,
-      overtime_allow: 1.71,
-      ppk: 3.00, profit_margin: 0.170,
-    },
-    '8T JHB (NEW) - X-BRDER - MOZ': {
-      hp_depr: 22162, tracking: 1358, licence: 873.22, insurance: 8198,
-      trailer_hp_depr: 0, trailer_licence: 0, trailer_insurance: 0,
-      admin: 13620, driver_basic: 22320.17, xbrdr: 1500,
-      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 1.37,
-      overtime_allow: 1.71,
-      ppk: 5.29, profit_margin: 0.253,
-    },
-    '8T JHB (OLD)': {
-      hp_depr: 10000, tracking: 1358, licence: 873.22, insurance: 3686,
-      trailer_hp_depr: 0, trailer_licence: 0, trailer_insurance: 0,
-      admin: 13620, driver_basic: 22320.17,
-      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.15,
-      overtime_allow: 1.71,
-      ppk: 4.00, profit_margin: 0.214,
-    },
-    '14 TON CURTAIN': {
-      hp_depr: 36500, tracking: 1150, licence: 1234.16, insurance: 10941,
-      trailer_hp_depr: 0, trailer_licence: 0, trailer_insurance: 0,
-      admin: 18288, driver_basic: 22320.17,
-      rm_per_km: 0.70, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.60,
-      overtime_allow: 1.50,
-      ppk: 5.00, profit_margin: 0.176,
-    },
-    '1TON BAKKIE': {
-      hp_depr: 2500, tracking: 1358, licence: 873.22, insurance: 3686,
-      trailer_hp_depr: 0, trailer_licence: 0, trailer_insurance: 0,
-      admin: 10000, driver_basic: 22320.17,
-      rm_per_km: 1.00, breakdowns_per_km: 0.06, diesel_per_litre: 21, tolls_per_km: 0.15,
-      overtime_allow: 1.71,
-      ppk: 1.50, profit_margin: 0.169,
-    },
-  }
 
   const toNumber = (value) => {
     if (value === null || value === undefined || value === '') return null
@@ -1165,314 +1048,61 @@ export default function LoadPlanPage() {
       lastAutoEtaDropoffRef.current = autoDropoffValue
       setEtaDropoff(autoDropoffValue)
     }
-
-    const tripLengthDays = Math.max(
-      1,
-      Number.parseFloat((routeDurationSeconds / 86400).toFixed(2))
-    )
-    setTripDays(tripLengthDays)
   }, [etaPickup, etaDropoff, estimatedTotalTripHours, optimizedRoute])
 
-  // Rate Card Calculation Function - with hour-based fuel usage + live probe calibration
-  const calculateRateCardCost = useCallback((vehicleType, kms, days, fuelInputs = {}) => {
-    if (!vehicleType || !RATE_CARD_SYSTEM[vehicleType]) {
-      return {
-        fuel_cost: 0, base_cost: 0, transport_cost: 0, profit_amount: 0, total_transport: 0,
-        total_fixed: 0, total_variable: 0, fuel_needed_liters: 0, fuel_top_up_liters: 0,
-        tank_capacity_liters: 0, travel_hours: 0, liters_per_hour: 0, current_fuel_liters: 0, current_fuel_percentage: 0
-      }
-    }
-
-    const rc = RATE_CARD_SYSTEM[vehicleType]
-    const {
-      travelHours = 0,
-      currentFuelVolumeLiters = null,
-      currentFuelPercentageValue = null,
-      fallbackFuelPrice = null,
-      truckAssignments = [],
-      trailerAssignments = []
-    } = fuelInputs
-    
-    // FIXED COSTS (prorated by days)
-    const fixed_truck = (rc.hp_depr + rc.tracking + rc.licence + rc.insurance) / 30 * days
-    const validTrailerAssignments = Array.isArray(trailerAssignments)
-      ? trailerAssignments.filter((assignment) => assignment?.id || assignment?.name)
-      : []
-    const dedupedTrailerAssignments = (() => {
-      const seen = new Set<string>()
-      const list: Array<{ id?: string; name?: string }> = []
-      validTrailerAssignments.forEach((assignment) => {
-        const trailerId = assignment?.id ? String(assignment.id) : ''
-        const trailerName = assignment?.name ? String(assignment.name) : ''
-        const key = `${trailerId}|${normalizePlate(trailerName)}`
-        if (!seen.has(key)) {
-          seen.add(key)
-          list.push(assignment)
-        }
-      })
-      return list
-    })()
-    const trailerCount = dedupedTrailerAssignments.length
-    const trailerFixedUnit = (rc.trailer_hp_depr + rc.trailer_licence + rc.trailer_insurance) / 30 * days
-    const fixed_trailer = trailerFixedUnit * trailerCount
-    const fixed_overheads = (rc.admin + rc.driver_basic) / 30 * days
-    const fixed_xbrdr = (rc.xbrdr || 0)
-    const total_fixed = fixed_truck + fixed_trailer + fixed_overheads + fixed_xbrdr
-    
-    // VARIABLE COSTS (distance-based)
-    const rm_cost = kms * rc.rm_per_km
-    const breakdowns_cost = kms * rc.breakdowns_per_km
-    const litersPerHour = FUEL_BURN_RATE_BY_TYPE[vehicleType] || DEFAULT_BURN_RATE_LPH
-    const routeHours = travelHours > 0 ? travelHours : (kms > 0 ? kms / 55 : 0)
-    const validTruckAssignments = Array.isArray(truckAssignments)
-      ? truckAssignments.filter((assignment) => assignment?.vehicle?.id || assignment?.vehicle?.name)
-      : []
-
-    const dedupedTruckAssignments = (() => {
-      const seen = new Set<string>()
-      const list: any[] = []
-      validTruckAssignments.forEach((assignment) => {
-        const vehicleId = assignment?.vehicle?.id ? String(assignment.vehicle.id) : ''
-        const vehicleName = assignment?.vehicle?.name ? String(assignment.vehicle.name) : ''
-        const key = `${vehicleId}|${normalizePlate(vehicleName)}`
-        if (!seen.has(key)) {
-          seen.add(key)
-          list.push(assignment)
-        }
-      })
-      return list
-    })()
-
-    const truckCount = Math.max(1, dedupedTruckAssignments.length || 1)
-    const segmentKms = kms > 0 ? kms / truckCount : 0
-    const segmentHours = routeHours > 0 ? routeHours / truckCount : 0
-
-    const getAssignmentTelemetry = (assignment) => {
-      const assignmentVehicleId = assignment?.vehicle?.id
-      const assignmentVehicleName = assignment?.vehicle?.name
-      const assignmentVehicleRecord = assignmentVehicleId
-        ? vehicles.find((vehicle) => String(vehicle.id) === String(assignmentVehicleId))
-        : null
-      const assignmentPlate = normalizePlate(
-        assignmentVehicleName || assignmentVehicleRecord?.registration_number
-      )
-      if (!assignmentPlate) return null
-      const trackingList = Array.isArray(vehicleTrackingData) ? vehicleTrackingData : []
-      return trackingList.find((vehicle) =>
-        normalizePlate(vehicle?.registration_number || vehicle?.plate || vehicle?.Plate) === assignmentPlate
-      ) || null
-    }
-
-    const getAssignmentVehicleRecord = (assignment) => {
-      const assignmentVehicleId = assignment?.vehicle?.id
-      const assignmentVehicleName = assignment?.vehicle?.name
-      if (assignmentVehicleId) {
-        return vehicles.find((vehicle) => String(vehicle.id) === String(assignmentVehicleId)) || null
-      }
-      const assignmentPlate = normalizePlate(assignmentVehicleName)
-      if (!assignmentPlate) return null
-      return vehicles.find((vehicle) =>
-        normalizePlate(vehicle?.registration_number) === assignmentPlate
-      ) || null
-    }
-
-    let fuelNeededLiters = 0
-    let fuelTopUpLiters = 0
-    let tankCapacityLiters = 0
-    let currentFuelLitersTotal = 0
-    let currentFuelPercentageTotal = 0
-    let fuelPercentageSamples = 0
-
-    const getPlannedFuelNeeded = () => {
-      const byHours = segmentHours > 0 ? segmentHours * litersPerHour : 0
-      const byDistance = segmentKms > 0 ? segmentKms * DEFAULT_BURN_RATE_LPKM : 0
-      return Math.max(byHours, byDistance)
-    }
-
-    if (dedupedTruckAssignments.length > 0) {
-      dedupedTruckAssignments.forEach((assignment) => {
-        const telemetry = getAssignmentTelemetry(assignment)
-        const assignmentRecord = getAssignmentVehicleRecord(assignment)
-        const assignmentPlate =
-          assignmentRecord?.registration_number ||
-          assignment?.vehicle?.name ||
-          telemetry?.registration_number ||
-          telemetry?.plate ||
-          telemetry?.Plate
-        const declaredTankCapacity =
-          toNumber(assignmentRecord?.tank_capacity) ??
-          getDeclaredTankCapacity(assignmentPlate)
-        const rawFuelVolume = toNumber(telemetry?.fuel_probe_1_volume_in_tank)
-        const rawFuelPercentage = toNumber(telemetry?.fuel_probe_1_level_percentage)
-        const hasUsableFuelProbe =
-          (rawFuelVolume !== null && rawFuelVolume > 0) ||
-          (rawFuelPercentage !== null && rawFuelPercentage > 0)
-        const truckFuelVolume = hasUsableFuelProbe ? rawFuelVolume : null
-        const truckFuelPercentage = hasUsableFuelProbe ? rawFuelPercentage : null
-        const truckFuelNeeded = getPlannedFuelNeeded()
-
-        fuelNeededLiters += truckFuelNeeded
-        fuelTopUpLiters += truckFuelVolume !== null
-          ? Math.max(truckFuelNeeded - truckFuelVolume, 0)
-          : truckFuelNeeded
-
-        if (truckFuelVolume !== null) currentFuelLitersTotal += truckFuelVolume
-        if (truckFuelPercentage !== null && truckFuelPercentage > 0) {
-          currentFuelPercentageTotal += truckFuelPercentage
-          fuelPercentageSamples += 1
-        }
-        if (declaredTankCapacity !== null && declaredTankCapacity > 0) {
-          tankCapacityLiters += declaredTankCapacity
-        } else if (truckFuelVolume !== null && truckFuelPercentage !== null && truckFuelPercentage > 0) {
-          tankCapacityLiters += truckFuelVolume / (truckFuelPercentage / 100)
-        }
-      })
-    } else {
-      const byHours = routeHours > 0 ? routeHours * litersPerHour : 0
-      const byDistance = kms > 0 ? kms * DEFAULT_BURN_RATE_LPKM : 0
-      fuelNeededLiters = Math.max(byHours, byDistance)
-      fuelTopUpLiters = currentFuelVolumeLiters !== null
-        ? Math.max(fuelNeededLiters - currentFuelVolumeLiters, 0)
-        : fuelNeededLiters
-      const selectedVehicleRecord = selectedVehicleId
-        ? vehicles.find((vehicle) => String(vehicle.id) === String(selectedVehicleId))
-        : null
-      const declaredTankCapacity =
-        toNumber(selectedVehicleRecord?.tank_capacity) ??
-        getDeclaredTankCapacity(
-          selectedVehicleRecord?.registration_number,
-          selectedVehicleTelemetry?.registration_number,
-          selectedVehicleTelemetry?.plate,
-          selectedVehicleTelemetry?.Plate
-        )
-      tankCapacityLiters =
-        declaredTankCapacity !== null && declaredTankCapacity > 0
-          ? declaredTankCapacity
-          : (
-              currentFuelVolumeLiters !== null &&
-              currentFuelPercentageValue !== null &&
-              currentFuelPercentageValue > 0
-                ? currentFuelVolumeLiters / (currentFuelPercentageValue / 100)
-                : 0
-            )
-      currentFuelLitersTotal = currentFuelVolumeLiters || 0
-      currentFuelPercentageTotal = currentFuelPercentageValue || 0
-      fuelPercentageSamples = currentFuelPercentageValue ? 1 : 0
-    }
-
-    const effectiveFuelPrice =
-      fallbackFuelPrice !== null && fallbackFuelPrice > 0
-        ? fallbackFuelPrice
-        : (parseFloat(fuelPricePerLiter) || rc.diesel_per_litre)
-
-    // Cost should represent trip consumption, not only immediate refill needed.
-    const diesel_cost = fuelNeededLiters * effectiveFuelPrice
-    const tolls_cost = kms * rc.tolls_per_km
-    const overtime_cost = kms * rc.overtime_allow
-    const total_variable = rm_cost + breakdowns_cost + diesel_cost + tolls_cost + overtime_cost
-    
-    // TOTAL COST
-    const total_cost = total_fixed + total_variable
-    
-    // PROFIT
-    const profit_amount = total_cost * rc.profit_margin
-    
-    // REVENUE
-    const total_transport = total_cost + profit_amount
-
-    return {
-      fuel_cost: diesel_cost,
-      base_cost: total_fixed,
-      transport_cost: total_cost,
-      profit_amount,
-      total_transport,
-      total_fixed,
-      total_variable,
-      fuel_needed_liters: fuelNeededLiters,
-      fuel_top_up_liters: fuelTopUpLiters,
-      tank_capacity_liters: tankCapacityLiters,
-      travel_hours: routeHours,
-      liters_per_hour: litersPerHour,
-      current_fuel_liters: currentFuelLitersTotal,
-      current_fuel_percentage: fuelPercentageSamples > 0 ? (currentFuelPercentageTotal / fuelPercentageSamples) : 0,
-      truck_count: truckCount,
-      trailer_count: trailerCount,
-      distance_per_truck: segmentKms
-    }
-  }, [RATE_CARD_SYSTEM, fuelPricePerLiter, selectedVehicleTelemetry, vehicleTrackingData, vehicles])
-
-  // Calculate costs when relevant values change
+  // Auto-calculate trip days from route distance
   useEffect(() => {
-    if (selectedVehicleType && estimatedDistance > 0) {
-      const currentAssignment = buildCurrentAssignment()
-      const futureAssignments = buildHandoverAssignments()
-      const truckAssignments = [currentAssignment, ...futureAssignments]
-        .filter((assignment) => assignment?.vehicle?.id || assignment?.vehicle?.name)
-      const trailerAssignments = [
-        {
-          id: selectedTrailerId,
-          name: getVehicleNameById(selectedTrailerId)
-        },
-        {
-          id: selectedTrailer2Id,
-          name: getVehicleNameById(selectedTrailer2Id)
-        },
-        ...futureAssignments.map((assignment) => assignment?.trailer || null)
-      ].filter((assignment) => assignment?.id || assignment?.name)
+    if (estimatedDistance <= 0) return
 
-      const selectedFuelVolume = toNumber(selectedVehicleTelemetry?.fuel_probe_1_volume_in_tank)
-      const selectedFuelPercentage = toNumber(selectedVehicleTelemetry?.fuel_probe_1_level_percentage)
-      const manualFuelPrice = toNumber(fuelPricePerLiter)
+    const AVG_SPEED_KMH = 55
+    const tripHours = estimatedDistance / AVG_SPEED_KMH
+    const tripLengthDays = Math.max(0.5, parseFloat((tripHours / 24).toFixed(2)))
+    setTripDays(tripLengthDays)
+  }, [estimatedDistance, optimizedRoute])
 
-      const costBreakdown = calculateRateCardCost(selectedVehicleType, estimatedDistance, tripDays, {
-        travelHours: estimatedTotalTripHours,
-        currentFuelVolumeLiters: selectedFuelVolume,
-        currentFuelPercentageValue: selectedFuelPercentage,
-        fallbackFuelPrice: manualFuelPrice,
-        truckAssignments,
-        trailerAssignments
-      })
-      
-      // Display breakdown components
-      setApproximateFuelCost(costBreakdown.fuel_cost)
-      setApproximatedVehicleCost(costBreakdown.total_fixed)
-      setApproximatedDriverCost(costBreakdown.total_variable - costBreakdown.fuel_cost)
-      setEstimatedTravelHours(costBreakdown.travel_hours)
-      setEstimatedFuelNeededLiters(costBreakdown.fuel_needed_liters)
-      setEstimatedFuelTopUpLiters(costBreakdown.fuel_top_up_liters)
-      setEstimatedTankCapacityLiters(costBreakdown.tank_capacity_liters)
-      setCurrentFuelInTankLiters(costBreakdown.current_fuel_liters)
-      setCurrentFuelPercentage(costBreakdown.current_fuel_percentage)
-      setActiveTruckCount(costBreakdown.truck_count || 1)
-      setDistancePerTruck(costBreakdown.distance_per_truck || estimatedDistance)
-      
-      // Total = Rate Card Total + Goods in Transit Premium
-      const total = costBreakdown.total_transport + (parseFloat(goodsInTransitPremium) || 0)
-      setTotalVehicleCost(total)
-      
-      // CPK = total cost per kilometer
-      const cpk = estimatedDistance > 0 ? costBreakdown.total_transport / estimatedDistance : 0
-      setApproximatedCPK(cpk)
-    } else {
-      // Reset values when no vehicle type selected
-      setApproximateFuelCost(0)
-      setApproximatedVehicleCost(0)
-      setApproximatedDriverCost(0)
+  // Per-vehicle cost calculation via API
+  useEffect(() => {
+    if (!selectedVehicleId || estimatedDistance <= 0) {
+      setCostBreakdown(null)
       setTotalVehicleCost(0)
-      setApproximatedCPK(0)
-      setEstimatedTravelHours(0)
-      setEstimatedFuelNeededLiters(0)
-      setEstimatedFuelTopUpLiters(0)
-      setEstimatedTankCapacityLiters(0)
-      setCurrentFuelInTankLiters(0)
-      setCurrentFuelPercentage(0)
-      setActiveTruckCount(1)
-      setDistancePerTruck(0)
+      return
     }
-  }, [selectedVehicleType, estimatedDistance, tripDays, goodsInTransitPremium, fuelPricePerLiter, calculateRateCardCost, selectedVehicleTelemetry, estimatedTotalTripHours, selectedVehicleId, selectedTrailerId, selectedTrailer2Id, driverAssignments, handoverAssignments, vehicles])
 
-  // Note: Vehicle and driver costs are now handled by the rate card system
-  // Legacy cost calculations removed to prevent conflicts with rate card system
+    let cancelled = false
+
+    const fetchCost = async () => {
+      setTripCostLoading(true)
+      try {
+        console.log('[CostCalc] Fetching cost:', { vehicleId: selectedVehicleId, distanceKm: estimatedDistance, tripDays, fuelPrice: 21 })
+        const res = await fetch('/api/calculate-cost', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vehicleId: selectedVehicleId,
+            distanceKm: estimatedDistance,
+            tripDays: tripDays || 1,
+            fuelPrice: 21,
+          }),
+        })
+        if (!res.ok) {
+          console.error('[CostCalc] API error:', res.status)
+          return
+        }
+        const data = await res.json()
+        console.log('[CostCalc] Result:', data)
+        if (cancelled) return
+        setCostBreakdown(data)
+        setTotalVehicleCost(data.totalCost || 0)
+      } catch (err) {
+        console.error('Cost calculation error:', err)
+      } finally {
+        if (!cancelled) setTripCostLoading(false)
+      }
+    }
+
+    fetchCost()
+    return () => { cancelled = true }
+  }, [selectedVehicleId, estimatedDistance, tripDays])
 
 
 
@@ -2189,14 +1819,11 @@ export default function LoadPlanPage() {
           return null
         }).filter(Boolean),
         selected_vehicle_type: selectedVehicleType,
-        approximate_fuel_cost: approximateFuelCost,
-        approximated_cpk: approximatedCPK,
-        approximated_vehicle_cost: approximatedVehicleCost,
-        approximated_driver_cost: approximatedDriverCost,
+        approximate_fuel_cost: costBreakdown?.fuelCost || 0,
+        approximated_vehicle_cost: costBreakdown?.fixedAssetCost || 0,
+        approximated_driver_cost: costBreakdown?.driverCost || 0,
         total_vehicle_cost: totalVehicleCost,
-        goods_in_transit_premium: parseFloat(goodsInTransitPremium) || null,
         estimated_distance: estimatedDistance,
-        fuel_price_per_liter: parseFloat(fuelPricePerLiter) || null
       }
       
       console.log('Inserting trip data:', tripData)
@@ -3173,215 +2800,106 @@ export default function LoadPlanPage() {
                     <div className="p-2 bg-slate-600 rounded-lg">
                       <TrendingUp className="h-5 w-5 text-white" />
                     </div>
-                    <h3 className="text-xl font-semibold text-slate-800">Trip Cost Estimation</h3>
+                    <h3 className="text-xl font-semibold text-slate-800">Trip Cost Estimate</h3>
                   </div>
                   
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                    {/* Left Half - Input Fields and Stats */}
-                    <div className="h-full flex flex-col justify-between space-y-6">
-                      <div className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="fuelPrice" className="text-sm font-medium text-slate-700">Fuel Price per Liter</Label>
-                            <Input 
-                              value={fuelPricePerLiter} 
-                              onChange={(e) => setFuelPricePerLiter(e.target.value)} 
-                              placeholder="R 20.50" 
-                              type="number"
-                              step="0.01"
-                              className="border-slate-300 focus:border-slate-500"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="rate" className="text-sm font-medium text-slate-700">Rate</Label>
-                            <Input 
-                              value={rate} 
-                              onChange={(e) => setRate(e.target.value)} 
-                              placeholder="R 0.00" 
-                              type="number"
-                              step="0.01"
-                              className="border-slate-300 focus:border-slate-500"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="tripDays" className="text-sm font-medium text-slate-700">Trip Days</Label>
-                            <Input 
-                              value={tripDays} 
-                              onChange={(e) => setTripDays(parseFloat(e.target.value) || 1)} 
-                              placeholder="1" 
-                              type="number"
-                              step="0.5"
-                              min="0.5"
-                              className="border-slate-300 focus:border-slate-500"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="goodsInTransit" className="text-sm font-medium text-slate-700">Goods In Transit Premium</Label>
-                            <Input 
-                              value={goodsInTransitPremium} 
-                              onChange={(e) => setGoodsInTransitPremium(e.target.value)} 
-                              placeholder="R 0.00" 
-                              type="number"
-                              step="0.01"
-                              className="border-slate-300 focus:border-slate-500"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Cost Display Cards */}
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
-                            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Distance</p>
-                            <p className="text-2xl font-bold text-slate-800 mt-2">{estimatedDistance}</p>
-                            <p className="text-xs text-slate-600">kilometers</p>
-                          </div>
-                          <div className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
-                            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Trucks Used</p>
-                            <p className="text-2xl font-bold text-slate-800 mt-2">{activeTruckCount}</p>
-                            <p className="text-xs text-slate-600">{distancePerTruck.toFixed(1)} km per truck</p>
-                          </div>
-                          <div className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
-                            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Travel Time</p>
-                            <p className="text-2xl font-bold text-slate-800 mt-2">{estimatedTravelHours.toFixed(1)}h</p>
-                            <p className="text-xs text-slate-600">estimated</p>
-                          </div>
-                          <div className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
-                            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">CPK</p>
-                            <p className="text-2xl font-bold text-slate-800 mt-2">R{approximatedCPK.toFixed(2)}</p>
-                            <p className="text-xs text-slate-600">per km</p>
-                          </div>
-                          <div className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
-                            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Fuel Top-up</p>
-                            <p className="text-2xl font-bold text-slate-800 mt-2">{estimatedFuelTopUpLiters.toFixed(1)}L</p>
-                            <p className="text-xs text-slate-600">
-                              in tank {currentFuelInTankLiters.toFixed(1)}L ({currentFuelPercentage.toFixed(0)}%)
-                            </p>
-                          </div>
-                        </div>
-                        {estimatedTankCapacityLiters > 0 && (
-                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                            <p className="text-sm text-amber-800">
-                              Estimated tank capacity: <span className="font-semibold">{estimatedTankCapacityLiters.toFixed(1)}L</span>
-                              {' '} | Planned fuel use: <span className="font-semibold">{estimatedFuelNeededLiters.toFixed(1)}L</span>
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Total Cost - Bottom Aligned */}
-                      <div className="p-6 bg-gradient-to-r from-slate-600 to-slate-700 rounded-xl shadow-lg">
-                        <p className="text-sm font-medium text-slate-200 uppercase tracking-wide">Total Estimated Cost</p>
-                        <p className="text-3xl font-bold text-white mt-2">R{totalVehicleCost.toLocaleString()}</p>
-                        <p className="text-sm text-slate-300 mt-1">All expenses included</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className="space-y-2">
+                      <Label htmlFor="rate" className="text-sm font-medium text-slate-700">Rate (R) *</Label>
+                      <Input 
+                        value={rate} 
+                        onChange={(e) => setRate(e.target.value)} 
+                        placeholder="e.g. 4000" 
+                        type="number"
+                        step="0.01"
+                        className="border-slate-300 focus:border-slate-500"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="tripDays" className="text-sm font-medium text-slate-700">Trip Days</Label>
+                      <Input 
+                        value={tripDays} 
+                        onChange={(e) => setTripDays(parseFloat(e.target.value) || 1)} 
+                        placeholder="0.5 days" 
+                        type="number"
+                        step="0.5"
+                        min="0.5"
+                        className="border-slate-300 focus:border-slate-500"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-slate-700">Distance</Label>
+                      <div className="h-10 flex items-center rounded-md border border-slate-200 bg-slate-50 px-3">
+                        <span className="text-sm font-semibold text-slate-800">{estimatedDistance} km</span>
                       </div>
                     </div>
+                  </div>
 
-                    {/* Right Half - Stylish Bar Chart */}
-                    <div className="h-full flex flex-col">
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg">
-                          <TrendingUp className="h-4 w-4 text-white" />
-                        </div>
-                        <h4 className="text-lg font-semibold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">Cost Breakdown</h4>
+                  <div className="rounded-lg border border-slate-200 bg-white">
+                    <div className="border-b border-slate-200 px-4 py-3">
+                      <h4 className="text-sm font-bold text-slate-800">COST B/D</h4>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      <div className="flex items-center justify-between px-4 py-2.5">
+                        <span className="text-sm text-slate-700">DRIVER</span>
+                        <span className="text-sm font-semibold text-slate-900">
+                          {costBreakdown ? `R${costBreakdown.driverCost.toLocaleString('en-ZA', { minimumFractionDigits: 2 })} (${tripDays} DAYS)` : '—'}
+                        </span>
                       </div>
-                      <div className="flex-1 w-full p-4 bg-gradient-to-br from-white to-slate-50 rounded-xl border border-slate-200 shadow-lg">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart
-                            data={[
-                              { name: 'Fuel', value: approximateFuelCost, fill: 'url(#fuelGradient)' },
-                              { name: 'Vehicle', value: approximatedVehicleCost, fill: 'url(#vehicleGradient)' },
-                              { name: 'Driver', value: approximatedDriverCost, fill: 'url(#driverGradient)' },
-                              ...(parseFloat(goodsInTransitPremium) > 0 ? [{ name: 'Premium', value: parseFloat(goodsInTransitPremium), fill: 'url(#premiumGradient)' }] : [])
-                            ]}
-                            margin={{ top: 20, right: 30, left: 40, bottom: 20 }}
-                          >
-                            <defs>
-                              <linearGradient id="fuelGradient" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.9}/>
-                                <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.7}/>
-                              </linearGradient>
-                              <linearGradient id="vehicleGradient" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#34d399" stopOpacity={0.9}/>
-                                <stop offset="100%" stopColor="#10b981" stopOpacity={0.7}/>
-                              </linearGradient>
-                              <linearGradient id="driverGradient" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#fbbf24" stopOpacity={0.9}/>
-                                <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.7}/>
-                              </linearGradient>
-                              <linearGradient id="premiumGradient" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.9}/>
-                                <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.7}/>
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid 
-                              strokeDasharray="2 4" 
-                              stroke="#e2e8f0" 
-                              strokeOpacity={0.6}
-                              vertical={false}
-                            />
-                            <XAxis 
-                              dataKey="name" 
-                              tick={{ fontSize: 13, fill: '#475569', fontWeight: 500 }}
-                              axisLine={{ stroke: '#cbd5e1', strokeWidth: 2 }}
-                              tickLine={{ stroke: '#cbd5e1' }}
-                            />
-                            <YAxis 
-                              tick={{ fontSize: 12, fill: '#64748b', fontWeight: 500 }}
-                              axisLine={{ stroke: '#cbd5e1', strokeWidth: 2 }}
-                              tickLine={{ stroke: '#cbd5e1' }}
-                              tickFormatter={(value) => `R${value.toLocaleString()}`}
-                            />
-                            <Tooltip 
-                              formatter={(value, name) => [
-                                `R${value.toLocaleString()}`, 
-                                `${name} Cost`
-                              ]}
-                              labelStyle={{ 
-                                color: '#1e293b', 
-                                fontWeight: 600,
-                                fontSize: '14px'
-                              }}
-                              contentStyle={{ 
-                                backgroundColor: 'rgba(255, 255, 255, 0.95)', 
-                                border: 'none',
-                                borderRadius: '12px',
-                                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-                                backdropFilter: 'blur(10px)'
-                              }}
-                              cursor={{ fill: 'rgba(59, 130, 246, 0.05)' }}
-                            />
-                            <Bar 
-                              dataKey="value" 
-                              radius={[8, 8, 0, 0]}
-                              strokeWidth={2}
-                              stroke="rgba(255, 255, 255, 0.3)"
-                            />
-                          </BarChart>
-                        </ResponsiveContainer>
+                      <div className="flex items-center justify-between px-4 py-2.5">
+                        <span className="text-sm text-slate-700">FIXED - ASSET</span>
+                        <span className="text-sm font-semibold text-slate-900">
+                          {costBreakdown ? `R${costBreakdown.fixedAssetCost.toLocaleString('en-ZA', { minimumFractionDigits: 2 })} (${tripDays} DAYS)` : '—'}
+                        </span>
                       </div>
-                      
-                      {/* Legend */}
-                      <div className="flex flex-wrap gap-3 justify-center">
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-full border border-blue-200">
-                          <div className="w-3 h-3 rounded-full bg-gradient-to-b from-blue-400 to-blue-600"></div>
-                          <span className="text-xs font-medium text-blue-700">Fuel</span>
-                        </div>
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-full border border-green-200">
-                          <div className="w-3 h-3 rounded-full bg-gradient-to-b from-green-400 to-green-600"></div>
-                          <span className="text-xs font-medium text-green-700">Vehicle</span>
-                        </div>
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-50 rounded-full border border-yellow-200">
-                          <div className="w-3 h-3 rounded-full bg-gradient-to-b from-yellow-400 to-yellow-600"></div>
-                          <span className="text-xs font-medium text-yellow-700">Driver</span>
-                        </div>
-                        {parseFloat(goodsInTransitPremium) > 0 && (
-                          <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 rounded-full border border-purple-200">
-                            <div className="w-3 h-3 rounded-full bg-gradient-to-b from-purple-400 to-purple-600"></div>
-                            <span className="text-xs font-medium text-purple-700">Premium</span>
-                          </div>
-                        )}
+                      <div className="flex items-center justify-between px-4 py-2.5">
+                        <span className="text-sm text-slate-700">FUEL</span>
+                        <span className="text-sm font-semibold text-slate-900">
+                          {costBreakdown ? `R${costBreakdown.fuelCost.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : '—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between px-4 py-2.5">
+                        <span className="text-sm text-slate-700">R&M</span>
+                        <span className="text-sm font-semibold text-slate-900">
+                          {costBreakdown ? `R${costBreakdown.rmCost.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : '—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between px-4 py-2.5">
+                        <span className="text-sm text-slate-700">CROSS BORDER</span>
+                        <span className="text-sm font-semibold text-slate-900">
+                          {costBreakdown ? `R${costBreakdown.crossBorderCost.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : '—'}
+                        </span>
                       </div>
                     </div>
+                    <div className="border-t border-slate-300 px-4 py-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-slate-900">TOTAL COST</span>
+                        <span className="text-sm font-bold text-slate-900">
+                          {costBreakdown ? `R${costBreakdown.totalCost.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : '—'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="border-t border-slate-200 px-4 py-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-slate-900">REVENUE</span>
+                        <span className="text-sm font-bold text-slate-900">
+                          {rate && parseFloat(rate) > 0 ? `R${parseFloat(rate).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : '—'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="border-t border-slate-200 px-4 py-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-slate-900">PROFIT</span>
+                        <span className={`text-sm font-bold ${costBreakdown && rate && parseFloat(rate) > 0 && (parseFloat(rate) - costBreakdown.totalCost) >= 0 ? 'text-emerald-700' : 'text-slate-900'}`}>
+                          {costBreakdown && rate && parseFloat(rate) > 0
+                            ? `R${(parseFloat(rate) - costBreakdown.totalCost).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`
+                            : '—'}
+                        </span>
+                      </div>
+                    </div>
+                    {tripCostLoading && (
+                      <div className="px-4 py-2 text-xs text-slate-500">Calculating...</div>
+                    )}
                   </div>
                 </div>
 

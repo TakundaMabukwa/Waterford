@@ -7,8 +7,7 @@ const nextConfig = {
     ignoreDuringBuilds: true
   },
   experimental: {
-    workerThreads: false,
-    cpus: 1
+    workerThreads: false
   },
   compress: false,
   productionBrowserSourceMaps: false,
