@@ -15,6 +15,7 @@ export default function FLVPlayer({ streamUrl, channel, vehicleName, onStop, onS
   const playerRef = useRef<any>(null);
   const reconnectRef = useRef(0);
   const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dataTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const destroyedRef = useRef(false);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState(false);
@@ -32,8 +33,29 @@ export default function FLVPlayer({ streamUrl, channel, vehicleName, onStop, onS
     onStatusChange?.(channel, 'loading');
     const maxReconnects = 3;
 
+    function clearDataTimeout() {
+      if (dataTimeoutRef.current) {
+        clearTimeout(dataTimeoutRef.current);
+        dataTimeoutRef.current = null;
+      }
+    }
+
+    function startDataTimeout() {
+      clearDataTimeout();
+      dataTimeoutRef.current = setTimeout(() => {
+        if (destroyed) return;
+        reconnectRef.current++;
+        if (reconnectRef.current >= maxReconnects) {
+          goOffline();
+        } else {
+          connect();
+        }
+      }, 8000);
+    }
+
     const onVideoPlaying = () => {
       if (destroyed) return;
+      clearDataTimeout();
       setVideoPlaying(true);
       setStatus('live');
       setError(false);
@@ -43,6 +65,7 @@ export default function FLVPlayer({ streamUrl, channel, vehicleName, onStop, onS
     const onVideoTimeUpdate = () => {
       if (destroyed) return;
       if (videoRef.current && videoRef.current.currentTime > 0 && !videoPlaying) {
+        clearDataTimeout();
         setVideoPlaying(true);
         setStatus('live');
         setError(false);
@@ -75,6 +98,7 @@ export default function FLVPlayer({ streamUrl, channel, vehicleName, onStop, onS
 
       function goOffline() {
         if (destroyed) return;
+        clearDataTimeout();
         setError(true);
         setStatus('offline');
         onStatusChange?.(channel, 'offline');
@@ -84,7 +108,10 @@ export default function FLVPlayer({ streamUrl, channel, vehicleName, onStop, onS
       function connect() {
         if (destroyed || !videoRef.current) return;
 
+        clearDataTimeout();
         destroyPlayer();
+        setStatus('loading');
+        onStatusChange?.(channel, 'loading');
 
         const proxyUrl = `/api/video-server/stream/stream/proxy?url=${encodeURIComponent(streamUrl)}`;
 
@@ -122,6 +149,7 @@ export default function FLVPlayer({ streamUrl, channel, vehicleName, onStop, onS
           });
 
           player.load();
+          startDataTimeout();
           player.play().catch(() => {
             if (!destroyed) {
               reconnectRef.current++;
@@ -162,6 +190,7 @@ export default function FLVPlayer({ streamUrl, channel, vehicleName, onStop, onS
     return () => {
       destroyed = true;
       destroyedRef.current = true;
+      clearDataTimeout();
       if (videoEl) {
         videoEl.removeEventListener('playing', onVideoPlaying);
         videoEl.removeEventListener('timeupdate', onVideoTimeUpdate);
