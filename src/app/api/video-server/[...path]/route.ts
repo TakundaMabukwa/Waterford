@@ -104,6 +104,19 @@ export async function GET(
       });
     }
 
+    // For FLV/streaming endpoints, pipe the response body directly
+    if (path.startsWith("stream/stream/proxy")) {
+      const passHeaders = new Headers();
+      ["content-type", "content-length", "cache-control", "transfer-encoding"].forEach((key) => {
+        const value = response.headers.get(key);
+        if (value) passHeaders.set(key, value);
+      });
+      return new Response(response.body, {
+        status: response.status,
+        headers: passHeaders,
+      });
+    }
+
     const body = await response.arrayBuffer();
     const passHeaders = new Headers();
     const passThroughKeys = [
@@ -148,7 +161,7 @@ export async function POST(
   const path = pathArray.join("/");
   const target = resolveVideoServerProxyBase(pathArray);
   const url = `${target.baseUrl}/api/${path}`;
-  const body = await request.json();
+  const body = await request.json().catch(() => ({}));
 
   try {
     const response = await fetch(url, {
@@ -159,9 +172,18 @@ export async function POST(
       body: JSON.stringify(body),
     });
 
-    const data = await response.json();
-    const normalizedData = normalizeProxiedMediaUrls(data, target.baseUrl);
-    return Response.json(normalizedData, { status: response.status });
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      const normalizedData = normalizeProxiedMediaUrls(data, target.baseUrl);
+      return Response.json(normalizedData, { status: response.status });
+    }
+
+    const arrayBuf = await response.arrayBuffer();
+    return new Response(arrayBuf, {
+      status: response.status,
+      headers: { "content-type": contentType || "application/octet-stream" },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return Response.json(

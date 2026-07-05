@@ -15,6 +15,10 @@ export function getListenerBaseUrl() {
   );
 }
 
+export function getStreamingServerBaseUrl() {
+  return normalizeBaseUrl(process.env.NEXT_PUBLIC_VIDEO_SERVER, "http://localhost:3002");
+}
+
 export function getAlertHubBaseUrl() {
   return normalizeBaseUrl(
     process.env.ALERT_HUB_BASE_URL ||
@@ -34,6 +38,16 @@ export function getVideoHubBaseUrl() {
 export function resolveVideoServerProxyBase(pathArray: string[]) {
   const [first = "", second = "", third = "", fourth = ""] = pathArray;
   const joined = pathArray.join("/").toLowerCase();
+
+  // Streaming server paths (online devices, stream debug, FLV proxy)
+  const isStreamingServerPath =
+    first === "eps" ||
+    joined.startsWith("eps/") ||
+    (first === "stream" && (second === "debug" || second === "stream"));
+
+  if (isStreamingServerPath) {
+    return { name: "streamingServer", baseUrl: getStreamingServerBaseUrl() };
+  }
 
   const isAlertMediaPath =
     first === "alerts" &&

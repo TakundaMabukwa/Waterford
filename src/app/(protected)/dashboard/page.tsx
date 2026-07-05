@@ -78,6 +78,7 @@ import GoogleLiveMapView from "@/components/map/google-live-map-view";
 import { VehicleDashboardModal } from "@/components/ui/vehicle-dashboard-modal";
 import { mapFuelStopToOverlay } from "@/lib/fuel-stop-map";
 import LiveStreamTab from "@/components/dashboard/live-stream-tab";
+import VehicleCameraModal from "@/components/dashboard/vehicle-camera-modal";
 import { geocodeAddress, getDirectionsByCoords } from "@/lib/mapbox-directions";
 
 const normalizePlate = (value: string | undefined | null) =>
@@ -334,7 +335,7 @@ const parseClientNotes = (trip: any): Array<{ message: string; created_at: strin
 }
 
 // Driver Card Component with fetched driver info
-const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, isVisible = true, fuelData = null }: any) {
+const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, onlineDevices, isVisible = true, fuelData = null }: any) {
   const router = useRouter()
   const [driverInfo, setDriverInfo] = useState<any>(null)
   const [vehicleInfo, setVehicleInfo] = useState<any>(null)
@@ -550,9 +551,27 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
           <span className="text-xs font-medium text-slate-700 uppercase">Vehicle</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-900 truncate">
-            {vehicleLocation?.plate || vehicleInfo?.registration_number || assignment?.vehicle?.name || 'Not assigned'}
-          </span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-xs font-medium text-slate-900 truncate">
+              {vehicleLocation?.plate || vehicleInfo?.registration_number || assignment?.vehicle?.name || 'Not assigned'}
+            </span>
+            {(() => {
+              const reg = (vehicleInfo?.registration_number || assignment?.vehicle?.name || '').toUpperCase().trim();
+              const deviceInfo = onlineDevices?.get?.(reg);
+              if (!deviceInfo) return null;
+              return deviceInfo.online ? (
+                <span className="flex items-center gap-1 text-[10px] text-emerald-600 font-medium shrink-0">
+                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                  Online
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[10px] text-red-500 font-medium shrink-0">
+                  <span className="w-1.5 h-1.5 bg-red-400 rounded-full" />
+                  Offline
+                </span>
+              );
+            })()}
+          </div>
           <span className="text-xs text-slate-500">{vehicleLocation ? `${vehicleLocation.speed} km/h` : ''}</span>
         </div>
         {vehicleLocation && (
@@ -904,6 +923,38 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
         Dashboard
       </Button>
 
+      {(() => {
+        const reg = (vehicleInfo?.registration_number || assignment?.vehicle?.name || '').toUpperCase().trim();
+        const deviceInfo = onlineDevices?.get?.(reg);
+        const isOnline = deviceInfo?.online === true;
+        const hasDevice = !!deviceInfo?.deviceId;
+
+        return (
+          <Button
+            size="sm"
+            variant="default"
+            disabled={!hasDevice || !isOnline}
+            className={`h-10 text-sm font-semibold w-full mt-2 border-0 ${
+              isOnline
+                ? "bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white shadow-lg hover:shadow-xl transition-all duration-200"
+                : "bg-slate-200 text-slate-500 cursor-not-allowed"
+            }`}
+            onClick={() => {
+              if (!isOnline || !hasDevice) return;
+              setCurrentTripForVideo({
+                deviceId: deviceInfo.deviceId,
+                registration: vehicleInfo?.registration_number || assignment?.vehicle?.name || '',
+                vehicleName: `${vehicleInfo?.registration_number || assignment?.vehicle?.name || 'Vehicle'}`,
+              });
+              setVideoModalOpen(true);
+            }}
+          >
+            <Video className="w-4 h-4 mr-2" />
+            {isOnline ? "View Cameras" : "Offline"}
+          </Button>
+        );
+      })()}
+
       <VehicleDashboardModal
         open={dashboardOpen}
         onOpenChange={setDashboardOpen}
@@ -926,7 +977,7 @@ function LiveElapsed({ timestamp }: { timestamp: string }) {
 }
 
 // Enhanced routing components with proper waypoints
-const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, refreshTrigger, setRefreshTrigger, setPickupTimeOpen, setDropoffTimeOpen, setCurrentTripForTime, setTimeType, setSelectedTime, currentUnauthorizedTrip, setCurrentUnauthorizedTrip, setUnauthorizedStopModalOpen, loadingPhotos, setLoadingPhotos, setCurrentTripPhotos, setPhotosModalOpen, setCurrentTripAlerts, setAlertsModalOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, isVisible = true, fuelMap = null }: any) {
+const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, refreshTrigger, setRefreshTrigger, setPickupTimeOpen, setDropoffTimeOpen, setCurrentTripForTime, setTimeType, setSelectedTime, currentUnauthorizedTrip, setCurrentUnauthorizedTrip, setUnauthorizedStopModalOpen, loadingPhotos, setLoadingPhotos, setCurrentTripPhotos, setPhotosModalOpen, setCurrentTripAlerts, setAlertsModalOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, onlineDevices, isVisible = true, fuelMap = null }: any) {
   const [trips, setTrips] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [dropoffEtaByTrip, setDropoffEtaByTrip] = useState<Record<string, TripEtaState>>({})
@@ -1365,6 +1416,9 @@ const STATUS_OPTIONS = [
               setEditTripOpen={setEditTripOpen}
               setCurrentTripForApproval={setCurrentTripForApproval}
               setApprovalModalOpen={setApprovalModalOpen}
+              setVideoModalOpen={setVideoModalOpen}
+              setCurrentTripForVideo={setCurrentTripForVideo}
+              onlineDevices={onlineDevices}
             />
             {/* Trip Card - 70% */}
             <div className={cn(
@@ -2223,6 +2277,7 @@ export default function Dashboard() {
   const [currentTripForApproval, setCurrentTripForApproval] = useState<any>(null);
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [currentTripForVideo, setCurrentTripForVideo] = useState<any>(null);
+  const [onlineDevices, setOnlineDevices] = useState<Map<string, { deviceId: string; online: boolean }>>(new Map());
   const [fuelMap, setFuelMap] = useState<Map<string, any>>(new Map());
   useEffect(() => {
     const getCookie = (name: string) => {
@@ -2233,6 +2288,42 @@ export default function Dashboard() {
     };
     const role = decodeURIComponent(getCookie("role") || "");
     setUserRole(role);
+  }, []);
+
+  // Fetch online devices from streaming server
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchOnlineDevices() {
+      try {
+        const res = await fetch("/api/video-server/eps/stream/online", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+          cache: "no-store",
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (data.success && data.data?.devices) {
+          const map = new Map<string, { deviceId: string; online: boolean }>();
+          for (const d of data.data.devices) {
+            if (!d.deviceId) continue;
+            const plate = (d.plateName || "").trim();
+            const parts = plate.split(" - ");
+            const fleetNum = (parts[0] || "").trim().toUpperCase();
+            const regNum = (parts[1] || "").trim().toUpperCase();
+            const info = { deviceId: d.deviceId, online: d.online === true };
+            if (fleetNum) map.set(fleetNum, info);
+            if (regNum) map.set(regNum, info);
+          }
+          if (!cancelled) setOnlineDevices(map);
+        }
+      } catch {
+        // silently fail — online status is non-critical
+      }
+    }
+    fetchOnlineDevices();
+    return () => { cancelled = true; };
   }, []);
 
   // Fetch trips for alerts
@@ -2548,6 +2639,9 @@ export default function Dashboard() {
               setCurrentTripForApproval={setCurrentTripForApproval}
               setApprovalModalOpen={setApprovalModalOpen}
               fuelMap={fuelMap}
+              setVideoModalOpen={setVideoModalOpen}
+              setCurrentTripForVideo={setCurrentTripForVideo}
+              onlineDevices={onlineDevices}
             />
           </div>
         )}
@@ -3885,6 +3979,14 @@ export default function Dashboard() {
             alert('Failed to decline trip');
           }
         }}
+      />
+
+      <VehicleCameraModal
+        open={videoModalOpen}
+        onOpenChange={setVideoModalOpen}
+        deviceId={currentTripForVideo?.deviceId || null}
+        registration={currentTripForVideo?.registration || ''}
+        vehicleName={currentTripForVideo?.vehicleName || ''}
       />
     </>
   );
