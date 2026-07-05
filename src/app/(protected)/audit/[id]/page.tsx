@@ -48,6 +48,7 @@ const mergeAuditWithTrip = (auditRecord: any, tripData: any) => {
     planned_rate: tripData.rate || auditRecord.rate || 0,
     actual_rate: auditRecord.actual_rate ?? 0,
     invoice_rate: auditRecord.invoice_rate ?? auditRecord.rate ?? tripData.rate ?? 0,
+    invoice_amount: auditRecord.invoice_amount ?? null,
     actual_currency: normalizeCurrency(auditRecord.actual_currency ?? 'ZAR'),
     invoice_currency: normalizeCurrency(auditRecord.invoice_currency ?? auditRecord.actual_currency ?? 'ZAR'),
     origin: auditRecord.origin || tripData.origin,

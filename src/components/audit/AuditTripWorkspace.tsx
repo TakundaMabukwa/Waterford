@@ -24,7 +24,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import TripRouteMap from '@/components/audit/TripRouteMap'
 import GenerateInvoiceModal from '@/components/audit/GenerateInvoiceModal'
 import {
-  AFRICAN_CURRENCY_OPTIONS,
   AuditFinanceEntry,
   AuditHandoverLog,
   AuditCurrencyCode,
@@ -253,7 +252,8 @@ export default function AuditTripWorkspace({
   }, [initialFinanceEntries])
 
   useEffect(() => {
-    const nextInvoiceRate = toNumber(record?.invoice_rate ?? record?.rate ?? 0)
+    const storedAmount = record?.invoice_amount
+    const nextInvoiceRate = storedAmount ? toNumber(storedAmount) : toNumber(record?.invoice_rate ?? record?.rate ?? 0)
     setActualRate(toNumber(record?.actual_rate ?? 0))
     setAmountToSplit(nextInvoiceRate)
     setActualCurrency(normalizeCurrency(record?.actual_currency ?? 'ZAR'))
@@ -619,337 +619,27 @@ export default function AuditTripWorkspace({
 
         {activeTab === 'summary' && (
           <div className="space-y-4">
-            <div className="grid grid-cols-12 gap-4">
-              <div className="col-span-12 space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-8">
-                <div className="flex items-start justify-between gap-6">
-                  <div>
-                    <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Profitability Index</p>
-                    <div className="flex items-baseline gap-3">
-                      <span className="text-3xl font-black tracking-tighter text-[#001e42]">{currency(net)}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${net >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                        {net >= 0 ? 'Positive Margin' : 'Negative Margin'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Operating Ratio</p>
-                    <p className="text-xl font-bold text-slate-900">{operatingRatio.toFixed(2)}</p>
-                  </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="text-lg font-black tracking-tight text-[#001e42]">Planned Cost Breakdown</h3>
+              <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Driver</div>
+                  <div className="mt-2 text-xl font-black text-slate-900">{currency(plannedDriverCost)}</div>
                 </div>
-
-                <div className="grid grid-cols-3 gap-4 border-t border-slate-100 pt-4 md:grid-cols-3">
-                  <div>
-                    <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">Planned Rate</p>
-                    <p className="text-lg font-bold text-slate-900">{currency(plannedRate)}</p>
-                  </div>
-                  <div>
-                    <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">Invoice Rate</p>
-                    <p className="text-lg font-bold text-slate-900">{currency(invoiceRate, invoiceCurrency)}</p>
-                  </div>
-                  <div>
-                    <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">My Rate</p>
-                    <p className={`text-lg font-bold ${myRate != null && myRate >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      {myRate == null ? 'Currency mismatch' : currency(myRate, invoiceCurrency)}
-                    </p>
-                  </div>
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fixed Asset</div>
+                  <div className="mt-2 text-xl font-black text-slate-900">{currency(plannedVehicleCost)}</div>
                 </div>
-              </div>
-
-              <div className="col-span-12 flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50 p-5 lg:col-span-4">
-                <div>
-                  <h3 className="mb-3 text-lg font-extrabold tracking-tight text-[#001e42]">Order Snapshot</h3>
-                  <ul className="space-y-3">
-                    <li className="flex items-center justify-between border-b border-slate-200 pb-2 text-sm">
-                      <span className="text-slate-500">Origin</span>
-                      <span className="font-bold text-slate-900">{record?.origin || 'N/A'}</span>
-                    </li>
-                    <li className="flex items-center justify-between border-b border-slate-200 pb-2 text-sm">
-                      <span className="text-slate-500">Destination</span>
-                      <span className="font-bold text-slate-900">{record?.destination || 'N/A'}</span>
-                    </li>
-                    <li className="flex items-center justify-between border-b border-slate-200 pb-2 text-sm">
-                      <span className="text-slate-500">Distance</span>
-                      <span className="font-bold text-slate-900">{numberFmt(record?.actual_distance || record?.planned_distance, ' km')}</span>
-                    </li>
-                    <li className="flex items-center justify-between border-b border-slate-200 pb-2 text-sm">
-                      <span className="text-slate-500">Cargo</span>
-                      <span className="font-bold text-slate-900">{record?.cargo || 'N/A'}</span>
-                    </li>
-                  </ul>
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fuel</div>
+                  <div className="mt-2 text-xl font-black text-slate-900">{currency(plannedFuelCost)}</div>
                 </div>
-                <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
-                      <User className="h-5 w-5 text-[#001e42]" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Primary Dispatcher</p>
-                      <p className="text-sm font-bold text-[#001e42]">{record?.dispatcher_name || 'Not Assigned'}</p>
-                    </div>
-                  </div>
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Total Cost</div>
+                  <div className="mt-2 text-xl font-black text-[#001e42]">{currency(plannedTotalCost)}</div>
                 </div>
               </div>
             </div>
-
-            <section className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-black tracking-tight text-[#001e42]">Cost And Fuel Breakdown</h3>
-                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Planned vs Actual</div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fuel Cost</div>
-                  <div className="mt-3 text-sm text-slate-500">Planned</div>
-                  <div className="text-xl font-black text-slate-900">{currency(plannedFuelCost)}</div>
-                  <div className="mt-3 text-sm text-slate-500">Actual</div>
-                  <div className="text-xl font-black text-rose-700">{currency(fuelCostTotal)}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Vehicle Cost</div>
-                  <div className="mt-3 text-sm text-slate-500">Planned</div>
-                  <div className="text-xl font-black text-slate-900">{currency(plannedVehicleCost)}</div>
-                  <div className="mt-3 text-sm text-slate-500">Actual</div>
-                  <div className="text-xl font-black text-sky-700">{currency(actualCostSummary.actualVehicleCost)}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Driver Cost</div>
-                  <div className="mt-3 text-sm text-slate-500">Planned</div>
-                  <div className="text-xl font-black text-slate-900">{currency(plannedDriverCost)}</div>
-                  <div className="mt-3 text-sm text-slate-500">Actual</div>
-                  <div className="text-xl font-black text-emerald-700">{currency(actualCostSummary.actualDriverCost)}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Trip Total</div>
-                  <div className="mt-3 text-sm text-slate-500">Planned</div>
-                  <div className="text-xl font-black text-slate-900">{currency(plannedTotalCost)}</div>
-                  <div className="mt-3 text-sm text-slate-500">Actual</div>
-                  <div className="text-xl font-black text-[#001e42]">{currency(actualTotalCost)}</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.25fr_0.75fr]">
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <h3 className="text-lg font-black tracking-tight text-[#001e42]">Funds Overview</h3>
-                      <p className="mt-1 text-sm text-slate-600">
-                        Saved split and finance values roll up here automatically when you return.
-                      </p>
-                    </div>
-                    <div className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      {fundsBreakdown.length} categories
-                    </div>
-                  </div>
-
-                  <div className="mt-5 space-y-4">
-                    {fundsBreakdown.length ? (
-                      fundsBreakdown.map((item) => (
-                        <div key={item.key} className="space-y-2">
-                          <div className="flex items-center justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="text-sm font-bold text-[#001e42]">{item.label}</div>
-                              <div className="text-xs text-slate-500">
-                                {actualTotalCost > 0 ? `${((Math.abs(item.amount) / actualTotalCost) * 100).toFixed(1)}% of actual cost` : 'Saved allocation'}
-                              </div>
-                            </div>
-                            <div className="text-sm font-black tabular-nums text-slate-900">
-                              {currency(item.amount)}
-                            </div>
-                          </div>
-                          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                            <div
-                              className={`h-full rounded-full ${item.tone}`}
-                              style={{ width: `${item.widthPercent}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-                        Save the split or finance lines and the funds chart will auto-fill here.
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                  <h3 className="text-lg font-black tracking-tight text-[#001e42]">Saved Snapshot</h3>
-                  <div className="mt-5 space-y-4">
-                    <div className="rounded-lg border border-slate-200 bg-white p-4">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Allocated Split</div>
-                      <div className="mt-2 text-2xl font-black text-[#001e42]">{currency(allocatedTotal, actualCurrency)}</div>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-white p-4">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Unallocated Funds</div>
-                      <div className={`mt-2 text-2xl font-black ${unallocated >= 0 ? 'text-amber-600' : 'text-emerald-700'}`}>
-                        {currency(Math.abs(unallocated), actualCurrency)}
-                      </div>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-white p-4">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Finance Categories</div>
-                      <div className="mt-2 text-2xl font-black text-[#001e42]">{effectiveFinanceEntries.length}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Planned Fuel</div>
-                  <div className="mt-3 text-2xl font-black text-slate-900">{currency(plannedFuelCost)}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual Fuel Used</div>
-                  <div className="mt-3 text-2xl font-black text-rose-700">{numberFmt(fuelUsedLiters, ' L')}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fuel Filled</div>
-                  <div className="mt-3 text-2xl font-black text-emerald-700">{numberFmt(fuelFilledLiters, ' L')}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Burn Rate</div>
-                  <div className="mt-3 text-2xl font-black text-[#001e42]">{numberFmt(fuelLitersPerHour, ' L/h')}</div>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fuel Per KM</div>
-                  <div className="mt-3 text-2xl font-black text-[#001e42]">{numberFmt(fuelLitersPerKm, ' L/km')}</div>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto border border-slate-200 bg-white shadow-sm">
-                <table className="w-full border-collapse text-left">
-                  <thead>
-                    <tr className="bg-slate-50 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
-                      <th className="px-6 py-4">Fuel Metric</th>
-                      <th className="px-6 py-4">Planned</th>
-                      <th className="px-6 py-4">Actual</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-sm">
-                    <tr className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium">Fuel Cost</td>
-                      <td className="px-6 py-4">{currency(plannedFuelCost)}</td>
-                      <td className="px-6 py-4">{currency(fuelCostTotal)}</td>
-                    </tr>
-                    <tr className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium">Fuel Used</td>
-                      <td className="px-6 py-4">N/A</td>
-                      <td className="px-6 py-4">{numberFmt(fuelUsedLiters, ' L')}</td>
-                    </tr>
-                    <tr className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium">Fuel Filled</td>
-                      <td className="px-6 py-4">N/A</td>
-                      <td className="px-6 py-4">{numberFmt(fuelFilledLiters, ' L')}</td>
-                    </tr>
-                    <tr className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium">Operating Hours</td>
-                      <td className="px-6 py-4">{minutesToText(record?.planned_duration_minutes)}</td>
-                      <td className="px-6 py-4">{numberFmt(fuelOperatingHours, ' h')}</td>
-                    </tr>
-                    <tr className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium">Fuel Burn Rate</td>
-                      <td className="px-6 py-4">N/A</td>
-                      <td className="px-6 py-4">{numberFmt(fuelLitersPerHour, ' L/h')}</td>
-                    </tr>
-                    <tr className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium">Fuel Per KM</td>
-                      <td className="px-6 py-4">N/A</td>
-                      <td className="px-6 py-4">{numberFmt(fuelLitersPerKm, ' L/km')}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="mb-4 flex items-center justify-between">
-                  <h4 className="text-lg font-black text-[#001e42]">Per Vehicle Fuel Breakdown</h4>
-                  <div className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                    {record?.fuel_window_start_at ? `${fmtDateTime(record.fuel_window_start_at)} to ${fmtDateTime(record.fuel_window_end_at)}` : 'No trip fuel window yet'}
-                  </div>
-                </div>
-
-                {fuelBreakdown.length ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-left">
-                      <thead>
-                        <tr className="bg-slate-50 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
-                          <th className="px-4 py-3">Vehicle</th>
-                          <th className="px-4 py-3 text-right">Used</th>
-                          <th className="px-4 py-3 text-right">Filled</th>
-                          <th className="px-4 py-3 text-right">Hours</th>
-                          <th className="px-4 py-3 text-right">L/H</th>
-                          <th className="px-4 py-3 text-right">L/KM</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 text-sm">
-                        {fuelBreakdown.map((entry: any, index: number) => (
-                          <tr key={`${entry?.plate || 'vehicle'}-${index}`}>
-                            <td className="px-4 py-3 font-medium text-slate-900">{entry?.plate || 'N/A'}</td>
-                            <td className="px-4 py-3 text-right">{numberFmt(entry?.fuel_used_liters, ' L')}</td>
-                            <td className="px-4 py-3 text-right">{numberFmt(entry?.fuel_filled_liters, ' L')}</td>
-                            <td className="px-4 py-3 text-right">{numberFmt(entry?.operating_hours, ' h')}</td>
-                            <td className="px-4 py-3 text-right">{numberFmt(entry?.liters_per_hour, ' L/h')}</td>
-                            <td className="px-4 py-3 text-right">{numberFmt(entry?.liters_per_km, ' L/km')}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
-                    No actual trip fuel sessions have been linked into this trip window yet.
-                  </div>
-                )}
-              </div>
-
-              <div className="overflow-x-auto border border-slate-200 bg-white shadow-sm">
-                <table className="w-full border-collapse text-left">
-                  <thead>
-                    <tr className="bg-slate-50 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
-                      <th className="px-6 py-4">Metric</th>
-                      <th className="px-6 py-4">Planned</th>
-                      <th className="px-6 py-4">Actual</th>
-                      <th className="px-6 py-4">Variance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-sm">
-                    <tr className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium">Start Time</td>
-                      <td className="px-6 py-4">{fmtDateTime(record?.planned_start_time)}</td>
-                      <td className="px-6 py-4">{fmtDateTime(record?.actual_start_time)}</td>
-                      <td className="px-6 py-4">
-                        <Badge variant="secondary" className="bg-slate-100 text-slate-700">{getVarianceLabel(record?.start_time_variance_minutes, 'time')}</Badge>
-                      </td>
-                    </tr>
-                    <tr className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium">Finish Time</td>
-                      <td className="px-6 py-4">{fmtDateTime(record?.planned_finish_time)}</td>
-                      <td className="px-6 py-4">{fmtDateTime(record?.actual_finish_time)}</td>
-                      <td className="px-6 py-4">
-                        <Badge variant="secondary" className="bg-slate-100 text-slate-700">{getVarianceLabel(record?.finish_time_variance_minutes, 'time')}</Badge>
-                      </td>
-                    </tr>
-                    <tr className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium">Distance</td>
-                      <td className="px-6 py-4">{numberFmt(record?.planned_distance, ' km')}</td>
-                      <td className="px-6 py-4">{numberFmt(record?.actual_distance || record?.distance, ' km')}</td>
-                      <td className="px-6 py-4">
-                        <Badge variant="secondary" className="bg-slate-100 text-slate-700">{getVarianceLabel(record?.distance_variance, 'distance')}</Badge>
-                      </td>
-                    </tr>
-                    <tr className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium">Duration</td>
-                      <td className="px-6 py-4">{minutesToText(record?.planned_duration_minutes)}</td>
-                      <td className="px-6 py-4">{minutesToText(record?.actual_duration_minutes)}</td>
-                      <td className="px-6 py-4">
-                        <Badge variant="secondary" className="bg-slate-100 text-slate-700">{getVarianceLabel(record?.duration_variance_minutes, 'time')}</Badge>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </section>
           </div>
         )}
 
@@ -972,14 +662,15 @@ export default function AuditTripWorkspace({
                       setInvoiceRate(next)
                       setAmountToSplit(next)
                     }}
+                    disabled={!!record?.is_invoiced}
                     className="h-11 text-base font-bold sm:text-lg"
                   />
-                  <Select value={invoiceCurrency} onValueChange={(value: AuditCurrencyCode) => setInvoiceCurrency(value)}>
+                  <Select value={invoiceCurrency} onValueChange={(value: AuditCurrencyCode) => setInvoiceCurrency(value)} disabled={!!record?.is_invoiced}>
                     <SelectTrigger className="h-11 font-semibold">
                       <SelectValue placeholder="Currency" />
                     </SelectTrigger>
                     <SelectContent className="max-h-72">
-                      {AFRICAN_CURRENCY_OPTIONS.map((option) => (
+                      {([ { code: 'ZAR' as const, label: 'ZAR - South African Rand' }, { code: 'USD' as const, label: 'USD - US Dollar' } ]).map((option) => (
                         <SelectItem key={option.code} value={option.code}>
                           {option.label}
                         </SelectItem>
@@ -1019,7 +710,7 @@ export default function AuditTripWorkspace({
                   <Button
                     onClick={() => setShowInvoiceModal(true)}
                     className="h-full w-full bg-[#001e42] text-white hover:bg-[#0b2955]"
-                    disabled={!invoiceRate}
+                    disabled={!invoiceRate || !!record?.is_invoiced}
                   >
                     <FileText className="mr-2 h-4 w-4" />
                     Generate Invoice
@@ -1045,6 +736,28 @@ export default function AuditTripWorkspace({
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual Cost</div>
                 <div className="mt-2 text-2xl font-black text-slate-900">
                   {currency(actualTotalCost, invoiceCurrency)}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="text-lg font-black tracking-tight text-[#001e42]">Planned Cost Breakdown</h3>
+              <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Driver</div>
+                  <div className="mt-2 text-xl font-black text-slate-900">{currency(plannedDriverCost)}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fixed Asset</div>
+                  <div className="mt-2 text-xl font-black text-slate-900">{currency(plannedVehicleCost)}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fuel</div>
+                  <div className="mt-2 text-xl font-black text-slate-900">{currency(plannedFuelCost)}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Total Cost</div>
+                  <div className="mt-2 text-xl font-black text-[#001e42]">{currency(plannedTotalCost)}</div>
                 </div>
               </div>
             </div>
@@ -1534,6 +1247,11 @@ export default function AuditTripWorkspace({
       <footer className="border-t border-slate-200 bg-white px-5 py-3">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-5">
+            <div>
+              <div className="text-xs font-black uppercase tracking-widest text-slate-500">Planned Cost</div>
+              <div className="text-lg font-black text-[#001e42]">{currency(plannedTotalCost)}</div>
+            </div>
+            <div className="hidden h-8 w-px bg-slate-200 sm:block" />
             <div>
               <div className="text-xs font-black uppercase tracking-widest text-slate-500">Amount To Split</div>
               <div className="text-lg font-black text-[#001e42]">{currency(amountToSplit, invoiceCurrency)}</div>

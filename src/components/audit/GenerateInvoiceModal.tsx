@@ -165,7 +165,12 @@ export default function GenerateInvoiceModal({
       await fetch(`/api/audit/${record.id}/mark-invoiced`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceUrl: invoiceUrl || null }),
+        body: JSON.stringify({
+          invoiceUrl: invoiceUrl || null,
+          invoiceRate: invoiceRate,
+          invoiceAmount: totalZar,
+          invoiceCurrency: invoiceCurrency,
+        }),
       })
     } catch (err) {
       console.error('Failed to mark audit invoiced:', err)

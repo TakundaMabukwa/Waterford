@@ -10,7 +10,12 @@ export async function POST(
     const supabase = await createClient();
     const body = await req.json().catch(() => ({}));
 
-    const updateData: Record<string, any> = { is_invoiced: true };
+    const updateData: Record<string, any> = {
+      is_invoiced: true,
+      invoice_rate: body.invoiceRate ?? null,
+      invoice_amount: body.invoiceAmount ?? null,
+      invoice_currency: body.invoiceCurrency ?? null,
+    };
     if (body.invoiceUrl) {
       updateData.invoice_url = body.invoiceUrl;
     }
