@@ -165,46 +165,19 @@ export default function SettingsPage() {
 
     const fetchUsers = async () => {
         try {
-            // Get users from users table
-            const { data: usersData, error } = await supabase
-                .from('users')
-                .select('*')
+            const response = await fetch('/api/admin/users')
+            const result = await response.json()
             
-            if (error) {
-                console.error('Error fetching users:', error);
-                setUsers([]);
-                return;
+            if (!response.ok || result.error) {
+                console.error('Error fetching users:', result.error || response.statusText)
+                setUsers([])
+                return
             }
 
-            // Get auth data using service role
-            const serviceSupabase = createServerClient(
-                process.env.NEXT_PUBLIC_SUPABASE_URL!,
-                process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!,
-                {
-                    auth: {
-                        autoRefreshToken: false,
-                        persistSession: false
-                    }
-                }
-            );
-            const usersWithAuth = await Promise.all(
-                (usersData || []).map(async (user) => {
-                    try {
-                        const { data: authUser } = await serviceSupabase.auth.admin.getUserById(user.id);
-                        return {
-                            ...user,
-                            last_sign_in_at: authUser.user?.last_sign_in_at
-                        };
-                    } catch {
-                        return { ...user, last_sign_in_at: null };
-                    }
-                })
-            );
-            
-            setUsers(usersWithAuth);
+            setUsers(result.data || [])
         } catch (err) {
-            console.error('Error in fetchUsers:', err);
-            setUsers([]);
+            console.error('Error in fetchUsers:', err)
+            setUsers([])
         }
     }
 
@@ -1208,7 +1181,7 @@ export default function SettingsPage() {
                 <Dialog open={isPermissionOpen} onOpenChange={setIsPermissionOpen}>
                     <DialogContent className="max-w-none! w-[70vw] max-h-[90vh] overflow-y-auto sm:max-w-none!">
                         <DialogHeader>
-                            <DialogTitle>View User Permissions</DialogTitle>
+                            <DialogTitle>Edit User Permissions</DialogTitle>
                             <DialogDescription>
                                 Current permissions for {editingUser?.email}
                             </DialogDescription>
@@ -1219,18 +1192,45 @@ export default function SettingsPage() {
                             </div>
                             <PageActionSelector
                                 initialPermissions={userPermissions}
-                                readOnly={true}
-                                onChange={() => {}}
+                                onChange={setUserPermissions}
                             />
-                            <div className="flex justify-end pt-4">
+                            <div className="flex justify-end gap-3 pt-4">
                                 <Button 
+                                    variant="outline"
                                     onClick={() => {
                                         setIsPermissionOpen(false);
                                         setEditingUser(null);
                                         setUserPermissions([]);
                                     }}
                                 >
-                                    Close
+                                    Cancel
+                                </Button>
+                                <Button 
+                                    onClick={async () => {
+                                        if (!editingUser?.id) return;
+                                        try {
+                                            const { error } = await supabase
+                                                .from('users')
+                                                .update({ permissions: userPermissions })
+                                                .eq('id', editingUser.id);
+                                            if (error) throw error;
+                                            setUsers(prev => prev.map(u => 
+                                                u.id === editingUser.id 
+                                                    ? { ...u, permissions: userPermissions }
+                                                    : u
+                                            ));
+                                            setIsPermissionOpen(false);
+                                            setEditingUser(null);
+                                            setUserPermissions([]);
+                                            setResultDialog({ type: 'success', title: 'Permissions Updated', message: `Permissions for ${editingUser.email} have been updated.` });
+                                            setIsResultDialogOpen(true);
+                                        } catch (err: any) {
+                                            setResultDialog({ type: 'error', title: 'Update Failed', message: err.message || 'Failed to update permissions.' });
+                                            setIsResultDialogOpen(true);
+                                        }
+                                    }}
+                                >
+                                    Save Permissions
                                 </Button>
                             </div>
                         </div>

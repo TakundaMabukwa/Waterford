@@ -161,19 +161,17 @@ export default function VehicleDetailsPage() {
     if (!vehicle) return;
     setDeleting(true);
 
-    const { error } = await supabase
-      .from("vehiclesc")
-      .delete()
-      .eq("id", vehicle.id);
+    try {
+      const response = await fetch(`/api/vehicles/${vehicle.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Failed to delete");
 
-    setDeleting(false);
-
-    if (error) {
+      toast.success("Vehicle deleted successfully");
+      router.push("/vehicles");
+    } catch (error) {
       console.error("Error deleting vehicle:", error);
       toast.error("Failed to delete vehicle");
-    } else {
-      toast.success("Vehicle archived successfully");
-      router.push("/vehicles");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -275,10 +273,8 @@ export default function VehicleDetailsPage() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This action will <strong>archive</strong> the vehicle. It
-                    won't appear in lists anymore but will remain in the
-                    database for record keeping. You can restore it later if
-                    needed.
+                    This action will <strong>permanently delete</strong> the vehicle.
+                    This cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

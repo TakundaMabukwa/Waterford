@@ -30,6 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import { FuelStopForm } from "@/components/ui/fuel-stop-modal";
 import { ClientFormDialog } from "@/components/ui/client-form-dialog";
 import { useGoogleMaps } from "@/hooks/use-google-maps";
@@ -204,7 +205,7 @@ export default function ClientsPage() {
     );
   }, [stops, search]);
 
-  const activeClients = filteredClients.filter((client) => client.status !== "Inactive").length;
+  const activeClients = filteredClients.filter((client) => client.status !== "Inactive" && !client.dormant_flag).length;
   const dormantClients = filteredClients.filter((client) => Boolean(client.dormant_flag)).length;
   const stopStations = filteredStops.filter((stop) => (stop.type || "").toLowerCase().includes("fuel")).length;
   const stopWithPrice = filteredStops.filter((stop) => Number(stop.fuel_price_per_liter || 0) > 0).length;
@@ -228,6 +229,24 @@ export default function ClientsPage() {
   const closeStopForm = () => {
     setEditingStop(null);
     setIsStopSheetOpen(false);
+  };
+
+  const toggleDormant = async (client: ClientRecord) => {
+    const newValue = !client.dormant_flag;
+    try {
+      const response = await fetch("/api/eps-client-list", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: client.id, dormant_flag: newValue }),
+      });
+      if (!response.ok) throw new Error("Failed to update");
+      setClients((prev) =>
+        prev.map((c) => (c.id === client.id ? { ...c, dormant_flag: newValue } : c))
+      );
+      toast.success();
+    } catch {
+      toast.error("Failed to update dormant status");
+    }
   };
 
   const currentTitle = activeTab === "clients" ? "Clients" : "Stops";
@@ -282,19 +301,25 @@ export default function ClientsPage() {
             <CardHeader><CardTitle>Client List</CardTitle></CardHeader>
             <CardContent>
               <div className="w-full overflow-x-auto rounded-lg border border-slate-200">
-                <Table className="min-w-[810px] w-full">
-                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-[200px] text-xs">Name</TableHead><TableHead className="w-[140px] text-xs">Contact</TableHead><TableHead className="w-[190px] text-xs">Phone / Email</TableHead><TableHead className="text-xs">Address</TableHead><TableHead className="w-[130px] text-right text-xs">Actions</TableHead></TableRow></TableHeader>
+                <Table className="min-w-[900px] w-full">
+                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-[200px] text-xs">Name</TableHead><TableHead className="w-[140px] text-xs">Contact</TableHead><TableHead className="w-[190px] text-xs">Phone / Email</TableHead><TableHead className="text-xs">Address</TableHead><TableHead className="w-[90px] text-center text-xs">Dormant</TableHead><TableHead className="w-[130px] text-right text-xs">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {isLoadingClients ? (
-                      <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-slate-500">Loading clients...</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={6} className="py-6 text-center text-sm text-slate-500">Loading clients...</TableCell></TableRow>
                     ) : filteredClients.length === 0 ? (
-                      <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-slate-500">No client rows found.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={6} className="py-6 text-center text-sm text-slate-500">No client rows found.</TableCell></TableRow>
                     ) : filteredClients.map((client) => (
                       <TableRow key={client.id} className="border-b border-slate-100">
                         <TableCell className="py-1.5"><div className="flex flex-col"><span className="truncate text-xs font-medium text-slate-900">{client.name || "-"}</span>{client.industry ? <span className="text-[11px] text-slate-500 truncate">{client.industry}</span> : null}</div></TableCell>
                         <TableCell className="py-1.5"><div className="flex items-center gap-1 truncate text-xs text-slate-700"><User2 className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_person || "-"}</span></div></TableCell>
                         <TableCell className="py-1.5"><div className="space-y-0.5 text-xs text-slate-700"><div className="flex items-center gap-1 truncate"><Phone className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_phone || client.phone || "-"}</span></div><div className="flex items-center gap-1 truncate"><Mail className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_email || client.email || "-"}</span></div></div></TableCell>
                         <TableCell className="py-1.5"><div className="flex items-center gap-1 text-xs text-slate-700"><Building2 className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{[client.address, client.city, client.state, client.country].filter(Boolean).join(", ") || "-"}</span></div></TableCell>
+                        <TableCell className="py-1.5 text-center">
+                          <Switch
+                            checked={!!client.dormant_flag}
+                            onCheckedChange={() => toggleDormant(client)}
+                          />
+                        </TableCell>
                         <TableCell className="py-1.5 text-right">
                           <div className="flex items-center justify-end gap-0.5">
                             {(client.coordinates || client.coords) && (
