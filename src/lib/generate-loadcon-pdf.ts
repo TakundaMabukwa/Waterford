@@ -11,6 +11,10 @@ export interface LoadconPdfData {
   customerName?: string
   collectionAddress?: string
   delivery?: string
+  loadingPointCompany?: string
+  loadingPointCity?: string
+  offloadingPointCompany?: string
+  offloadingPointCity?: string
   vessel?: string
   weight?: string
   containerNumber?: string
@@ -21,6 +25,8 @@ export interface LoadconPdfData {
   emptyTN?: string
   notes?: string
   completedBy?: string
+  createdBy?: string
+  createdTimestamp?: string
   invoiceNo?: string
   rate?: string
   financeDate?: string
@@ -85,7 +91,11 @@ export function buildLoadconHTML(data: LoadconPdfData): string {
         ${row('Booking Ref:', data.bookingRef, true)}
         ${row('Customer Reference:', data.customerReference)}
         ${row('Collection Address:', data.collectionAddress)}
+        ${row('Loading Point Company:', data.loadingPointCompany)}
+        ${row('Loading Point City:', data.loadingPointCity)}
         ${row('Delivery:', data.delivery)}
+        ${row('Offloading Point Company:', data.offloadingPointCompany)}
+        ${row('Offloading Point City:', data.offloadingPointCity)}
         ${row('Load Type:', data.loadType)}
         ${row('Load Date:', data.loadDate)}
         ${row('Vessel:', data.vessel)}
@@ -97,7 +107,7 @@ export function buildLoadconHTML(data: LoadconPdfData): string {
         ${row('Zone:', data.zone)}
         ${row('Empty T/N:', data.emptyTN)}
         ${row('Notes:', data.notes, false, 'vertical-align:top')}
-        ${row('Completed By:', data.completedBy)}
+        ${row2('Completed By:', data.completedBy, 'Created By:', data.createdBy ? `${data.createdBy} - ${data.createdTimestamp || ''}` : '')}
       </tbody>
     </table>
   </div>

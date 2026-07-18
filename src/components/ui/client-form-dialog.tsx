@@ -35,7 +35,6 @@ const defaultFormState = {
   phone: "",
   industry: "",
   credit_limit: "",
-  status: "Active",
   postal_code: "",
   registration_number: "",
   registration_name: "",
@@ -46,6 +45,8 @@ const defaultFormState = {
   operating_hours: "",
   capacity: "",
   notes: "",
+  notification_period: "0",
+  blocked: false,
 }
 
 function ClientFormContent({
@@ -94,7 +95,6 @@ function ClientFormContent({
         phone: initialRecord.phone || "",
         industry: initialRecord.industry || "",
         credit_limit: initialRecord.credit_limit?.toString() || "",
-        status: initialRecord.status || "Active",
         postal_code: initialRecord.postal_code || "",
         registration_number: initialRecord.registration_number || "",
         registration_name: initialRecord.registration_name || "",
@@ -105,6 +105,8 @@ function ClientFormContent({
         operating_hours: initialRecord.operating_hours || "",
         capacity: initialRecord.capacity || "",
         notes: initialRecord.notes || "",
+        notification_period: initialRecord.notification_period?.toString() || "0",
+        blocked: Boolean(initialRecord.blocked),
       })
       const parsedCoords = parsePoint(initialRecord.coords || initialRecord.location_coordinates)
       if (parsedCoords) setCenterPoint(parsedCoords)
@@ -253,6 +255,8 @@ function ClientFormContent({
       const body: any = {
         ...formState,
         credit_limit: formState.credit_limit || "0",
+        notification_period: Number(formState.notification_period) || 0,
+        blocked: formState.blocked === "true" || formState.blocked === true,
         coordinates: polygon.length >= 3 ? JSON.stringify(polygon) : null,
         coords: centerPoint ? `${centerPoint.lat},${centerPoint.lng}` : null,
       }
@@ -293,15 +297,43 @@ function ClientFormContent({
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Client Name</Label>
-                <Input value={formState.name} onChange={(e) => updateField("name", e.target.value)} />
+                <Input value={formState.name} onChange={(e) => {
+                  const val = e.target.value
+                  updateField("name", val)
+                  if (!isEditing) updateField("client_id", val)
+                }} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Client ID</Label>
-                <Input value={formState.client_id} onChange={(e) => updateField("client_id", e.target.value)} />
+                <Input value={formState.client_id} onChange={(e) => updateField("client_id", e.target.value)} disabled={isEditing} readOnly={isEditing} className={isEditing ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Status</Label>
-                <Input value={formState.status} onChange={(e) => updateField("status", e.target.value)} />
+                <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Notification Period (0-6)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={6}
+                  value={formState.notification_period}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    if (val === "") { updateField("notification_period", ""); return }
+                    const num = Number(val)
+                    if (num > 6) { toast.error("6 is the max"); return }
+                    if (num < 0) return
+                    updateField("notification_period", val)
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Blocked</Label>
+                <button
+                  type="button"
+                  onClick={() => updateField("blocked", (!formState.blocked).toString())}
+                  className={`inline-flex h-7 w-12 items-center rounded-full transition-colors ${formState.blocked === "true" || formState.blocked === true ? "bg-red-500" : "bg-emerald-500"}`}
+                >
+                  <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${formState.blocked === "true" || formState.blocked === true ? "translate-x-6" : "translate-x-1"}`} />
+                </button>
+                <span className="ml-2 text-xs text-slate-600">{formState.blocked === "true" || formState.blocked === true ? "Yes" : "No"}</span>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Industry</Label>

@@ -30,7 +30,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
 import { FuelStopForm } from "@/components/ui/fuel-stop-modal";
 import { ClientFormDialog } from "@/components/ui/client-form-dialog";
 import { useGoogleMaps } from "@/hooks/use-google-maps";
@@ -53,6 +52,8 @@ type ClientRecord = {
   industry?: string | null;
   credit_limit?: number | null;
   dormant_flag?: boolean | null;
+  blocked?: boolean | null;
+  notification_period?: number | null;
   postal_code?: string | null;
   fax_number?: string | null;
   registration_number?: string | null;
@@ -206,7 +207,7 @@ export default function ClientsPage() {
   }, [stops, search]);
 
   const activeClients = filteredClients.filter((client) => client.status !== "Inactive" && !client.dormant_flag).length;
-  const dormantClients = filteredClients.filter((client) => Boolean(client.dormant_flag)).length;
+  const blockedClients = filteredClients.filter((client) => Boolean(client.blocked)).length;
   const stopStations = filteredStops.filter((stop) => (stop.type || "").toLowerCase().includes("fuel")).length;
   const stopWithPrice = filteredStops.filter((stop) => Number(stop.fuel_price_per_liter || 0) > 0).length;
   const stopWithContacts = filteredStops.filter((stop) => Boolean(stop.contact_person || stop.contact_phone || stop.contact_email)).length;
@@ -231,22 +232,14 @@ export default function ClientsPage() {
     setIsStopSheetOpen(false);
   };
 
-  const toggleDormant = async (client: ClientRecord) => {
-    const newValue = !client.dormant_flag;
-    try {
-      const response = await fetch("/api/eps-client-list", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: client.id, dormant_flag: newValue }),
-      });
-      if (!response.ok) throw new Error("Failed to update");
-      setClients((prev) =>
-        prev.map((c) => (c.id === client.id ? { ...c, dormant_flag: newValue } : c))
-      );
-      toast.success();
-    } catch {
-      toast.error("Failed to update dormant status");
-    }
+  const toggleBlocked = (clientId: number) => {
+    setClients((prev) =>
+      prev.map((c) => {
+        if (String(c.id) !== String(clientId)) return c
+        const current = Boolean(c.blocked)
+        return { ...c, blocked: !current }
+      })
+    );
   };
 
   const currentTitle = activeTab === "clients" ? "Clients" : "Stops";
@@ -255,8 +248,8 @@ export default function ClientsPage() {
     : "View, add, and update fuel stop and geozone records.";
 
   return (
-    <div className="w-full min-w-0 max-w-full space-y-6 overflow-x-hidden">
-      <div className="flex items-start justify-between gap-4">
+    <div className="w-full space-y-6 overflow-hidden">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">{currentTitle}</h1>
           <p className="text-slate-600">{currentDescription}</p>
@@ -280,7 +273,7 @@ export default function ClientsPage() {
           <TabsTrigger value="stops">Stops</TabsTrigger>
         </TabsList>
 
-        <div className="relative max-w-md">
+        <div className="relative w-full max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <Input
             value={search}
@@ -291,34 +284,44 @@ export default function ClientsPage() {
         </div>
 
         <TabsContent value="clients" className="space-y-6">
-          <div className="grid w-full min-w-0 gap-4 md:grid-cols-3">
-            <Card className="min-w-0"><CardContent className="pt-6"><div className="text-sm text-slate-500">Total Clients</div><div className="mt-2 text-3xl font-bold text-slate-900">{clients.length}</div></CardContent></Card>
-            <Card className="min-w-0"><CardContent className="pt-6"><div className="text-sm text-slate-500">Active</div><div className="mt-2 text-3xl font-bold text-emerald-600">{activeClients}</div></CardContent></Card>
-            <Card className="min-w-0"><CardContent className="pt-6"><div className="text-sm text-slate-500">Dormant</div><div className="mt-2 text-3xl font-bold text-amber-600">{dormantClients}</div></CardContent></Card>
+          <div className="grid w-full gap-4 grid-cols-1 sm:grid-cols-3">
+            <Card><CardContent className="pt-6"><div className="text-sm text-slate-500">Total Clients</div><div className="mt-2 text-3xl font-bold text-slate-900">{clients.length}</div></CardContent></Card>
+            <Card><CardContent className="pt-6"><div className="text-sm text-slate-500">Active</div><div className="mt-2 text-3xl font-bold text-emerald-600">{activeClients}</div></CardContent></Card>
+            <Card><CardContent className="pt-6"><div className="text-sm text-slate-500">Blocked</div><div className="mt-2 text-3xl font-bold text-red-600">{blockedClients}</div></CardContent></Card>
           </div>
 
-          <Card className="w-full min-w-0 max-w-full overflow-hidden">
+          <Card className="w-full overflow-hidden">
             <CardHeader><CardTitle>Client List</CardTitle></CardHeader>
-            <CardContent>
-              <div className="w-full overflow-x-auto rounded-lg border border-slate-200">
-                <Table className="min-w-[900px] w-full">
-                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-[200px] text-xs">Name</TableHead><TableHead className="w-[140px] text-xs">Contact</TableHead><TableHead className="w-[190px] text-xs">Phone / Email</TableHead><TableHead className="text-xs">Address</TableHead><TableHead className="w-[90px] text-center text-xs">Dormant</TableHead><TableHead className="w-[130px] text-right text-xs">Actions</TableHead></TableRow></TableHeader>
+            <CardContent className="p-0">
+              <div className="w-full overflow-x-auto">
+                <Table className="w-full text-xs table-fixed">
+                  <colgroup>
+                    <col className="w-[30%]" />
+                    <col className="w-[30%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[15%]" />
+                    <col className="w-[15%]" />
+                  </colgroup>
+                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="text-xs">Name</TableHead><TableHead className="text-xs">Contact</TableHead><TableHead className="text-center text-xs">Blocked</TableHead><TableHead className="text-center text-xs">Notifications</TableHead><TableHead className="text-right text-xs">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {isLoadingClients ? (
-                      <TableRow><TableCell colSpan={6} className="py-6 text-center text-sm text-slate-500">Loading clients...</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-slate-500">Loading clients...</TableCell></TableRow>
                     ) : filteredClients.length === 0 ? (
-                      <TableRow><TableCell colSpan={6} className="py-6 text-center text-sm text-slate-500">No client rows found.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-slate-500">No client rows found.</TableCell></TableRow>
                     ) : filteredClients.map((client) => (
                       <TableRow key={client.id} className="border-b border-slate-100">
                         <TableCell className="py-1.5"><div className="flex flex-col"><span className="truncate text-xs font-medium text-slate-900">{client.name || "-"}</span>{client.industry ? <span className="text-[11px] text-slate-500 truncate">{client.industry}</span> : null}</div></TableCell>
-                        <TableCell className="py-1.5"><div className="flex items-center gap-1 truncate text-xs text-slate-700"><User2 className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_person || "-"}</span></div></TableCell>
-                        <TableCell className="py-1.5"><div className="space-y-0.5 text-xs text-slate-700"><div className="flex items-center gap-1 truncate"><Phone className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_phone || client.phone || "-"}</span></div><div className="flex items-center gap-1 truncate"><Mail className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_email || client.email || "-"}</span></div></div></TableCell>
-                        <TableCell className="py-1.5"><div className="flex items-center gap-1 text-xs text-slate-700"><Building2 className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{[client.address, client.city, client.state, client.country].filter(Boolean).join(", ") || "-"}</span></div></TableCell>
+                        <TableCell className="py-1.5"><div className="space-y-0.5 text-xs text-slate-700"><div className="flex items-center gap-1 truncate"><User2 className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_person || "-"}</span></div><div className="flex items-center gap-1 truncate"><Phone className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_phone || client.phone || "-"}</span></div><div className="flex items-center gap-1 truncate"><Mail className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{client.contact_email || client.email || "-"}</span></div></div></TableCell>
                         <TableCell className="py-1.5 text-center">
-                          <Switch
-                            checked={!!client.dormant_flag}
-                            onCheckedChange={() => toggleDormant(client)}
-                          />
+                          <span
+                            onClick={() => toggleBlocked(client.id)}
+                            className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium cursor-pointer select-none ${client.blocked ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}
+                          >
+                            {client.blocked ? "Yes" : "No"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-1.5 text-center text-xs text-slate-700">
+                          every {client.notification_period || 0} hour(s)
                         </TableCell>
                         <TableCell className="py-1.5 text-right">
                           <div className="flex items-center justify-end gap-0.5">
@@ -340,18 +343,26 @@ export default function ClientsPage() {
         </TabsContent>
 
         <TabsContent value="stops" className="space-y-6">
-          <div className="grid w-full min-w-0 gap-4 md:grid-cols-3">
-            <Card className="min-w-0"><CardContent className="pt-6"><div className="text-sm text-slate-500">Total Stops</div><div className="mt-2 text-3xl font-bold text-slate-900">{stops.length}</div></CardContent></Card>
-            <Card className="min-w-0"><CardContent className="pt-6"><div className="text-sm text-slate-500">Fuel Stops</div><div className="mt-2 text-3xl font-bold text-emerald-600">{stopStations}</div></CardContent></Card>
-            <Card className="min-w-0"><CardContent className="pt-6"><div className="text-sm text-slate-500">With Contact</div><div className="mt-2 text-3xl font-bold text-amber-600">{stopWithContacts}</div></CardContent></Card>
+          <div className="grid w-full gap-4 grid-cols-1 sm:grid-cols-3">
+            <Card><CardContent className="pt-6"><div className="text-sm text-slate-500">Total Stops</div><div className="mt-2 text-3xl font-bold text-slate-900">{stops.length}</div></CardContent></Card>
+            <Card><CardContent className="pt-6"><div className="text-sm text-slate-500">Fuel Stops</div><div className="mt-2 text-3xl font-bold text-emerald-600">{stopStations}</div></CardContent></Card>
+            <Card><CardContent className="pt-6"><div className="text-sm text-slate-500">With Contact</div><div className="mt-2 text-3xl font-bold text-amber-600">{stopWithContacts}</div></CardContent></Card>
           </div>
 
-          <Card className="w-full min-w-0 max-w-full overflow-hidden">
+          <Card className="w-full overflow-hidden">
             <CardHeader><CardTitle>Stop List</CardTitle></CardHeader>
-            <CardContent>
-              <div className="w-full overflow-x-auto rounded-lg border border-slate-200">
-                <Table className="min-w-[860px] w-full">
-                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="w-[150px] text-xs">Stop</TableHead><TableHead className="w-[120px] text-xs">Geozone</TableHead><TableHead className="w-[180px] text-xs">Contact</TableHead><TableHead className="w-[70px] text-xs">Fuel Price</TableHead><TableHead className="text-xs">Address</TableHead><TableHead className="w-[130px] text-right text-xs">Actions</TableHead></TableRow></TableHeader>
+            <CardContent className="p-0">
+              <div className="w-full overflow-x-auto">
+                <Table className="w-full text-xs table-fixed">
+                  <colgroup>
+                    <col className="w-[20%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[22%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[26%]" />
+                    <col className="w-[8%]" />
+                  </colgroup>
+                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="text-xs">Stop</TableHead><TableHead className="text-xs">Geozone</TableHead><TableHead className="text-xs">Contact</TableHead><TableHead className="text-xs">Fuel Price</TableHead><TableHead className="text-xs">Address</TableHead><TableHead className="text-right text-xs">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {isLoadingStops ? (
                       <TableRow><TableCell colSpan={6} className="py-6 text-center text-sm text-slate-500">Loading stops...</TableCell></TableRow>

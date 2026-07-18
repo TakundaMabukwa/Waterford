@@ -540,9 +540,23 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
       <div className="mb-2 p-2 rounded-lg bg-white/20 border border-white/5">
         <div className="flex items-center gap-1 mb-1">
           <div className="w-1.5 h-1.5 bg-slate-500 rounded-full" />
-          <span className="text-xs font-medium text-slate-700 uppercase">Note</span>
+          <span className="text-xs font-medium text-slate-700 uppercase">Driver Notes</span>
         </div>
         <div className="text-xs text-slate-900">{trip.status_notes || 'No notes added'}</div>
+      </div>
+      <div className="mb-2 p-2 rounded-lg bg-white/20 border border-white/5">
+        <div className="flex items-center gap-1 mb-1">
+          <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+          <span className="text-xs font-medium text-slate-700 uppercase">Client Notes</span>
+        </div>
+        <div className="text-xs text-slate-900">
+          {(() => {
+            const notes = parseClientNotes(trip)
+            if (notes.length === 0) return 'No client notes'
+            const latest = notes[notes.length - 1]
+            return latest.message
+          })()}
+        </div>
       </div>
 
       <div className="mb-2 p-2 rounded-lg bg-white/20 border border-white/5">

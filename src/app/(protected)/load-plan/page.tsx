@@ -95,6 +95,11 @@ export default function LoadPlanPage() {
   const [dropOffPoint, setDropOffPoint] = useState('')
   const [dropOffSelection, setDropOffSelection] = useState<any | null>(null)
   const [showSecondSection, setShowSecondSection] = useState(false)
+  // Loading & Offloading Point details
+  const [loadingPointCompany, setLoadingPointCompany] = useState('')
+  const [loadingPointCity, setLoadingPointCity] = useState('')
+  const [offloadingPointCompany, setOffloadingPointCompany] = useState('')
+  const [offloadingPointCity, setOffloadingPointCity] = useState('')
   const secondRef = useRef<HTMLDivElement | null>(null)
   const locationLookupCacheRef = useRef(new Map<string, { lat: number; lng: number; address: string; name: string } | null>())
   const reverseLookupCacheRef = useRef(new Map<string, string | null>())
@@ -128,6 +133,13 @@ export default function LoadPlanPage() {
   const [showClientForm, setShowClientForm] = useState(false)
   const [editClientRecord, setEditClientRecord] = useState<any | null>(null)
   const [showQuickGeozone, setShowQuickGeozone] = useState(false)
+  const [reuseOrderNumber, setReuseOrderNumber] = useState(false)
+  const [showReuseOrderModal, setShowReuseOrderModal] = useState(false)
+  const [reuseOrderTrips, setReuseOrderTrips] = useState<any[]>([])
+  const [reuseOrderPage, setReuseOrderPage] = useState(0)
+  const [reuseOrderHasMore, setReuseOrderHasMore] = useState(true)
+  const [reuseOrderLoading, setReuseOrderLoading] = useState(false)
+  const [reuseOrderSearch, setReuseOrderSearch] = useState('')
   const [tripDays, setTripDays] = useState(1)
   const [isManuallyOrdered, setIsManuallyOrdered] = useState(false)
   const [estimatedTravelHours, setEstimatedTravelHours] = useState(0)
@@ -383,7 +395,7 @@ export default function LoadPlanPage() {
         trackingVehicles
       ] = await Promise.all([
         supabase.from('trips').select('*').order('created_at', { ascending: false }).not('status', 'in', '("delivered","completed")'),
-        fetch('/api/eps-client-list').then(res => res.json()).then(data => ({ data: data.data, error: null })).catch(error => ({ data: null, error })),
+        fetch('/api/eps-client-list').then(res => res.json()).then(data => ({ data: (data.data || []).filter((c: any) => !c.blocked), error: null })).catch(error => ({ data: null, error })),
         fetchAllVehicles(),
         supabase.from('drivers').select('*'),
         supabase.from('cost_centers').select('*'),
@@ -430,7 +442,11 @@ export default function LoadPlanPage() {
           etaPickup: pickupLocations?.[0]?.scheduled_time || trip.startdate || '',
           etaDropoff: dropoffLocations?.[0]?.scheduled_time || trip.enddate || '',
           loadingLocation: trip.origin || '',
-          dropOffPoint: trip.destination || ''
+          dropOffPoint: trip.destination || '',
+          loadingPointCompany: trip.loading_point_company || '',
+          loadingPointCity: trip.loading_point_city || '',
+          offloadingPointCompany: trip.offloading_point_company || '',
+          offloadingPointCity: trip.offloading_point_city || '',
         }
       })
       
@@ -1104,6 +1120,29 @@ export default function LoadPlanPage() {
     return () => { cancelled = true }
   }, [selectedVehicleId, estimatedDistance, tripDays])
 
+  // Fetch order numbers when reuse modal opens
+  useEffect(() => {
+    if (!showReuseOrderModal || reuseOrderPage !== 0) return
+    let cancelled = false
+    const fetchOrders = async () => {
+      setReuseOrderLoading(true)
+      try {
+        const res = await fetch(`/api/trips/reuse-order?page=0&limit=100`)
+        const data = await res.json()
+        if (!cancelled && data.data) {
+          setReuseOrderTrips(data.data)
+          setReuseOrderHasMore(data.data.length === 100)
+        }
+      } catch (err) {
+        console.error('Error loading order numbers:', err)
+      } finally {
+        if (!cancelled) setReuseOrderLoading(false)
+      }
+    }
+    fetchOrders()
+    return () => { cancelled = true }
+  }, [showReuseOrderModal, reuseOrderPage])
+
 
 
   // Calculate distance from point to route line
@@ -1606,7 +1645,7 @@ export default function LoadPlanPage() {
       const res = await fetch("/api/eps-client-list")
       const data = await res.json()
       if (data.data) {
-        setClients(data.data)
+        setClients(data.data.filter((c: any) => !c.blocked))
         const updated = data.data.find((c: any) => String(c.id) === String(selectedClient?.id))
         if (updated) {
           setSelectedClient((prev: any) => ({ ...prev, ...updated }))
@@ -1684,7 +1723,11 @@ export default function LoadPlanPage() {
         trip_type: tripType,
         selected_stop_points: stopPoints,
         selected_vehicle_type: selectedVehicleType,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        loading_point_company: loadingPointCompany,
+        loading_point_city: loadingPointCity,
+        offloading_point_company: offloadingPointCompany,
+        offloading_point_city: offloadingPointCity,
       }
       
       const { error } = await supabase
@@ -1771,6 +1814,7 @@ export default function LoadPlanPage() {
 
       const tripData = {
         trip_id: `LOAD-${Date.now()}`,
+        ordernumber: reuseOrderNumber ? orderNumber : null,
         rate: rate,
         cargo: commodity,
         origin: loadingLocation,
@@ -1824,6 +1868,10 @@ export default function LoadPlanPage() {
         approximated_driver_cost: costBreakdown?.driverCost || 0,
         total_vehicle_cost: totalVehicleCost,
         estimated_distance: estimatedDistance,
+        loading_point_company: loadingPointCompany,
+        loading_point_city: loadingPointCity,
+        offloading_point_company: offloadingPointCompany,
+        offloading_point_city: offloadingPointCity,
       }
       
       console.log('Inserting trip data:', tripData)
@@ -1841,20 +1889,23 @@ export default function LoadPlanPage() {
       const createdTrip = tripResult?.[0]
       const newTripId = createdTrip?.id
 
-      // Get sequential order number only after trip insert succeeds
-      const orderRes = await fetch('/api/next-order-number', { method: 'POST' })
-      if (!orderRes.ok) throw new Error('Failed to get next order number')
-      const { orderNumber: nextNumber } = await orderRes.json()
-      const orderNumberStr = `WC${nextNumber}`
-      setOrderNumber(orderNumberStr)
+      // Get sequential order number only if not reusing
+      let orderNumberStr = orderNumber
+      if (!reuseOrderNumber || !orderNumber) {
+        const orderRes = await fetch('/api/next-order-number', { method: 'POST' })
+        if (!orderRes.ok) throw new Error('Failed to get next order number')
+        const { orderNumber: nextNumber } = await orderRes.json()
+        orderNumberStr = `WC${nextNumber}`
+        setOrderNumber(orderNumberStr)
 
-      // Update trip with the order number
-      const { error: updateError } = await supabase
-        .from('trips')
-        .update({ ordernumber: orderNumberStr })
-        .eq('id', newTripId)
-      if (updateError) {
-        console.error('Error updating trip order number:', updateError)
+        // Update trip with the order number
+        const { error: updateError } = await supabase
+          .from('trips')
+          .update({ ordernumber: orderNumberStr })
+          .eq('id', newTripId)
+        if (updateError) {
+          console.error('Error updating trip order number:', updateError)
+        }
       }
 
       // Generate and store loadcon PDF
@@ -1951,6 +2002,7 @@ export default function LoadPlanPage() {
       // Reset form
       setClient(''); setSelectedClient(null); setManualClientName(''); setCommodity(''); setRate('0'); setOrderNumber(''); setComment('')
       setEtaPickup(''); setLoadingLocation(''); setEtaDropoff(''); setDropOffPoint('')
+      setLoadingPointCompany(''); setLoadingPointCity(''); setOffloadingPointCompany(''); setOffloadingPointCity('')
       setDriverAssignments([{ id: '', name: '', first_name: '', surname: '' }])
       setSelectedVehicleId('')
       setSelectedTrailerId('')
@@ -1964,6 +2016,11 @@ export default function LoadPlanPage() {
       setSelectedVehicleType('')
       setShowSecondSection(false)
       setOptimizedRoute(null)
+      setReuseOrderNumber(false)
+      setShowReuseOrderModal(false)
+      setReuseOrderTrips([])
+      setReuseOrderPage(0)
+      setReuseOrderHasMore(true)
       
       // Refresh data
       fetchData()
@@ -2151,18 +2208,25 @@ export default function LoadPlanPage() {
                       } catch { return '' }
                     }
                     getCompletedBy().then((completedBy) => {
+                      const now = new Date()
                       const data: LoadconPrintData = {
                         orderNumber: orderNumber || '',
                         loadType: 'Cross Border',
-                        loadDate: new Date().toLocaleDateString('en-ZA'),
+                        loadDate: now.toLocaleDateString('en-ZA'),
                         customerName: getClientName(),
                         collectionAddress: loadingLocation || '',
                         delivery: dropOffPoint || '',
+                        loadingPointCompany: loadingPointCompany || '',
+                        loadingPointCity: loadingPointCity || '',
+                        offloadingPointCompany: offloadingPointCompany || '',
+                        offloadingPointCity: offloadingPointCity || '',
                         weight: '',
                         collectedBy: deliveredByStr,
                         deliveredBy: deliveredByStr,
                         notes: comment || '',
                         completedBy,
+                        createdBy: completedBy,
+                        createdTimestamp: now.toLocaleString('en-ZA'),
                         rate: rate || '',
                         bookingRef: orderNumber ? `${orderNumber} - ${getClientName()}` : '',
                       }
@@ -2199,7 +2263,28 @@ export default function LoadPlanPage() {
                     </div>
                     <div>
                       <Label htmlFor="orderNumber">Order Number</Label>
-                      <Input value={orderNumber} readOnly placeholder="Auto-assigned on create" />
+                      <div className="flex gap-2">
+                        <Input value={orderNumber} readOnly placeholder={reuseOrderNumber ? "Reusing selected" : "Auto-assigned on create"} className={!reuseOrderNumber ? "" : "bg-blue-50"} />
+                        <Button
+                          type="button"
+                          variant={reuseOrderNumber ? "default" : "outline"}
+                          size="sm"
+                          className={`shrink-0 px-3 ${reuseOrderNumber ? "bg-blue-600 text-white" : ""}`}
+                          onClick={() => {
+                            if (reuseOrderNumber) {
+                              setReuseOrderNumber(false)
+                              setOrderNumber('')
+                            } else {
+                              setShowReuseOrderModal(true)
+                              setReuseOrderPage(0)
+                              setReuseOrderTrips([])
+                              setReuseOrderHasMore(true)
+                            }
+                          }}
+                        >
+                          {reuseOrderNumber ? "Selected" : "Reuse"}
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   <div className="space-y-4">
@@ -2323,6 +2408,52 @@ export default function LoadPlanPage() {
                       }, [clients, client])
                       }
                     />
+                  </div>
+                </div>
+
+                {/* Loading & Offloading Point Details */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <Label className="text-sm font-semibold text-slate-700">Loading Point</Label>
+                    <div>
+                      <Label htmlFor="loadingPointCompany" className="text-xs">Company Name</Label>
+                      <Input
+                        id="loadingPointCompany"
+                        value={loadingPointCompany}
+                        onChange={(e) => setLoadingPointCompany(e.target.value)}
+                        placeholder="Enter loading company name"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="loadingPointCity" className="text-xs">City</Label>
+                      <Input
+                        id="loadingPointCity"
+                        value={loadingPointCity}
+                        onChange={(e) => setLoadingPointCity(e.target.value)}
+                        placeholder="Enter loading city"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <Label className="text-sm font-semibold text-slate-700">Offloading Point</Label>
+                    <div>
+                      <Label htmlFor="offloadingPointCompany" className="text-xs">Company Name</Label>
+                      <Input
+                        id="offloadingPointCompany"
+                        value={offloadingPointCompany}
+                        onChange={(e) => setOffloadingPointCompany(e.target.value)}
+                        placeholder="Enter offloading company name"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="offloadingPointCity" className="text-xs">City</Label>
+                      <Input
+                        id="offloadingPointCity"
+                        value={offloadingPointCity}
+                        onChange={(e) => setOffloadingPointCity(e.target.value)}
+                        placeholder="Enter offloading city"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -2938,16 +3069,23 @@ export default function LoadPlanPage() {
                         if (manualClientName) return manualClientName
                         return client
                       }
+                      const now = new Date()
                       const data: LoadconPrintData = {
                         orderNumber: orderNumber || 'WC000000',
           loadType: 'Cross Border',
-          loadDate: new Date().toLocaleDateString('en-ZA'),
+          loadDate: now.toLocaleDateString('en-ZA'),
           customerName: getClientName(),
           collectionAddress: loadingLocation || '',
           delivery: dropOffPoint || '',
+          loadingPointCompany: loadingPointCompany || '',
+          loadingPointCity: loadingPointCity || '',
+          offloadingPointCompany: offloadingPointCompany || '',
+          offloadingPointCity: offloadingPointCity || '',
           collectedBy: deliveredByStr,
           deliveredBy: deliveredByStr,
                         notes: comment || '',
+                        createdBy: '',
+                        createdTimestamp: now.toLocaleString('en-ZA'),
                         rate: rate || '',
                         bookingRef: orderNumber && orderNumber !== 'WC000000' ? `${orderNumber} - ${getClientName()}` : '',
                       }
@@ -3209,7 +3347,98 @@ export default function LoadPlanPage() {
           // Don't clear optimized route immediately - let the effect handle it
         }}
       />
-      
+
+      {showReuseOrderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-lg bg-white shadow-lg">
+            <div className="flex items-center justify-between border-b p-4">
+              <div>
+                <h3 className="text-lg font-semibold">Reuse Order Number</h3>
+                <p className="text-sm text-gray-600">Select an existing order number from past trips</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => { setShowReuseOrderModal(false); setReuseOrderNumber(false); setOrderNumber(''); setReuseOrderSearch(''); }}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="p-4 pb-0">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={reuseOrderSearch}
+                  onChange={(e) => setReuseOrderSearch(e.target.value)}
+                  placeholder="Search by order number or client name..."
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            <div className="max-h-96 overflow-y-auto p-4">
+              {reuseOrderLoading && reuseOrderTrips.length === 0 ? (
+                <p className="py-4 text-center text-sm text-gray-500">Loading...</p>
+              ) : reuseOrderTrips.length === 0 ? (
+                <p className="py-4 text-center text-sm text-gray-500">No order numbers found</p>
+              ) : (
+                <div className="space-y-1">
+                  {reuseOrderTrips
+                    .filter((trip) => {
+                      if (!reuseOrderSearch.trim()) return true
+                      const q = reuseOrderSearch.toLowerCase()
+                      const orderNum = (trip.ordernumber || '').toLowerCase()
+                      const clientName = (trip.clientdetails?.name || '').toLowerCase()
+                      return orderNum.includes(q) || clientName.includes(q)
+                    })
+                    .map((trip) => (
+                      <button
+                        key={trip.id}
+                        type="button"
+                        className="w-full rounded-md border border-slate-200 px-3 py-2 text-left hover:bg-slate-50 transition-colors"
+                        onClick={() => {
+                          setOrderNumber(trip.ordernumber || '')
+                          setReuseOrderNumber(true)
+                          setShowReuseOrderModal(false)
+                          setReuseOrderSearch('')
+                        }}
+                      >
+                        <div className="text-sm font-medium text-slate-900">{trip.ordernumber}</div>
+                        <div className="text-xs text-slate-500">{trip.clientdetails?.name || 'Unknown client'}</div>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-between border-t p-4">
+              <Button variant="outline" onClick={() => { setShowReuseOrderModal(false); setReuseOrderNumber(false); setOrderNumber(''); setReuseOrderSearch(''); }}>
+                Cancel
+              </Button>
+              {reuseOrderHasMore && (
+                <Button
+                  variant="outline"
+                  disabled={reuseOrderLoading}
+                  onClick={async () => {
+                    setReuseOrderLoading(true)
+                    try {
+                      const nextPage = reuseOrderPage + 1
+                      const res = await fetch(`/api/trips/reuse-order?page=${nextPage}&limit=100`)
+                      const data = await res.json()
+                      if (data.data) {
+                        setReuseOrderTrips((prev) => [...prev, ...data.data])
+                        setReuseOrderPage(nextPage)
+                        setReuseOrderHasMore(data.data.length === 100)
+                      }
+                    } catch (err) {
+                      console.error('Error loading order numbers:', err)
+                    } finally {
+                      setReuseOrderLoading(false)
+                    }
+                  }}
+                >
+                  {reuseOrderLoading ? 'Loading...' : 'Load More'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <Toast
         open={toast.isVisible}
         onOpenChange={(open) => !open && hideToast()}

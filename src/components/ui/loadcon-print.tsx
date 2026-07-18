@@ -11,6 +11,10 @@ export interface LoadconPrintData {
   customerName?: string
   collectionAddress?: string
   delivery?: string
+  loadingPointCompany?: string
+  loadingPointCity?: string
+  offloadingPointCompany?: string
+  offloadingPointCity?: string
   vessel?: string
   weight?: string
   containerNumber?: string
@@ -21,6 +25,8 @@ export interface LoadconPrintData {
   emptyTN?: string
   notes?: string
   completedBy?: string
+  createdBy?: string
+  createdTimestamp?: string
   invoiceNo?: string
   rate?: string
   financeDate?: string
