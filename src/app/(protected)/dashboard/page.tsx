@@ -80,6 +80,7 @@ import { mapFuelStopToOverlay } from "@/lib/fuel-stop-map";
 import LiveStreamTab from "@/components/dashboard/live-stream-tab";
 import VehicleCameraModal from "@/components/dashboard/vehicle-camera-modal";
 import { geocodeAddress, getDirectionsByCoords } from "@/lib/mapbox-directions";
+import { getGoogleDirectionsByCoords } from "@/lib/google-directions";
 
 const normalizePlate = (value: string | undefined | null) =>
   String(value || '')
@@ -1175,7 +1176,7 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
           }
 
           if (cancelled) return
-          const result = await getDirectionsByCoords(currentCoordinates, dropoffCoordinates)
+          const result = await getGoogleDirectionsByCoords(currentCoordinates, dropoffCoordinates)
           if (!result) {
             etaMap.set(tripKey, { status: "unavailable" })
           } else {
