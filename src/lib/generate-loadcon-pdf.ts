@@ -238,6 +238,7 @@ export function generateLoadconPdf(data: LoadconPdfData): Blob {
   drawRow('Empty T/N:', data.emptyTN)
   drawNotesRow('Notes:', data.notes)
   drawRow('Completed By:', data.completedBy)
+  drawRow('Created By:', data.createdBy ? `${data.createdBy} - ${data.createdTimestamp || ''}` : '')
 
   doc.setDrawColor(220, 38, 38)
   doc.rect(margin - 1, tableStartY - 1, contentWidth + 2, y - tableStartY + 2, 'S')

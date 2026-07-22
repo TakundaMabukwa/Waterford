@@ -4,9 +4,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Download, FileText, Paperclip, Route, Truck } from 'lucide-react'
+import { Download, FileText, Paperclip, Route, Truck, Plus } from 'lucide-react'
 // @ts-ignore
 import ExcelJS from 'exceljs'
+import SundryInvoiceModal from '@/components/audit/SundryInvoiceModal'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -56,6 +57,10 @@ export default function AuditPage() {
   const [tripDocuments, setTripDocuments] = useState<any[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
+  const [activeTab, setActiveTab] = useState<'trips' | 'sundry'>('trips')
+  const [sundryInvoices, setSundryInvoices] = useState<any[]>([])
+  const [sundryLoading, setSundryLoading] = useState(false)
+  const [showSundryModal, setShowSundryModal] = useState(false)
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date()
     d.setMonth(d.getMonth() - 1, 1)
@@ -98,6 +103,23 @@ export default function AuditPage() {
 
     loadRecords()
   }, [supabase, appliedDateFrom, appliedDateTo])
+
+  useEffect(() => {
+    if (activeTab !== 'sundry') return
+    const fetchSundry = async () => {
+      setSundryLoading(true)
+      try {
+        const res = await fetch('/api/sundry-invoices')
+        const result = await res.json()
+        setSundryInvoices(result.data || [])
+      } catch (err) {
+        console.error('Error fetching sundry invoices:', err)
+      } finally {
+        setSundryLoading(false)
+      }
+    }
+    fetchSundry()
+  }, [activeTab])
 
   useEffect(() => {
     let next = records
@@ -383,6 +405,27 @@ export default function AuditPage() {
         </Card>
       </div>
 
+      {/* Tab Bar */}
+      <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5 w-fit">
+        <button
+          onClick={() => setActiveTab('trips')}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'trips' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Trip Invoices
+        </button>
+        <button
+          onClick={() => setActiveTab('sundry')}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'sundry' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Sundry Invoices
+        </button>
+      </div>
+
+      {activeTab === 'trips' ? (
       <Card>
         <CardContent className="pt-6">
           <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center">
@@ -539,6 +582,73 @@ export default function AuditPage() {
           ) : null}
         </CardContent>
       </Card>
+      ) : (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-lg font-bold text-[#001e42]">Sundry Invoices</h3>
+            <Button onClick={() => setShowSundryModal(true)} className="bg-[#001e42] text-white hover:bg-[#0b2955]">
+              <Plus className="mr-2 h-4 w-4" /> New Sundry Invoice
+            </Button>
+          </div>
+
+          {sundryLoading ? (
+            <div className="py-8 text-center text-sm text-slate-500">Loading sundry invoices...</div>
+          ) : sundryInvoices.length === 0 ? (
+            <div className="py-8 text-center text-sm text-slate-500">No sundry invoices found.</div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full border-collapse text-left">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Due Date</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount Due</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sundryInvoices.map((inv: any) => (
+                    <tr key={inv.id} className="border-t hover:bg-slate-50">
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-slate-900">{inv.invoice_number}</div>
+                      </td>
+                      <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
+                      <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
+                      <td className="px-3 py-2 text-sm text-slate-700">{inv.due_date || 'On Receipt'}</td>
+                      <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
+                        {currency(toNumber(inv.amount_due))}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {inv.invoice_url && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => window.open(inv.invoice_url, '_blank')}
+                          >
+                            <FileText className="mr-1 h-3 w-3" /> Download
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      )}
+
+      <SundryInvoiceModal open={showSundryModal} onClose={() => {
+        setShowSundryModal(false)
+        if (activeTab === 'sundry') {
+          fetch('/api/sundry-invoices').then(r => r.json()).then(result => setSundryInvoices(result.data || []))
+        }
+      }} />
 
       <Dialog open={documentsOpen} onOpenChange={setDocumentsOpen}>
         <DialogContent className="max-w-3xl">

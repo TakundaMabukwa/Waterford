@@ -79,8 +79,7 @@ import { VehicleDashboardModal } from "@/components/ui/vehicle-dashboard-modal";
 import { mapFuelStopToOverlay } from "@/lib/fuel-stop-map";
 import LiveStreamTab from "@/components/dashboard/live-stream-tab";
 import VehicleCameraModal from "@/components/dashboard/vehicle-camera-modal";
-import { geocodeAddress, getDirectionsByCoords } from "@/lib/mapbox-directions";
-import { getGoogleDirectionsByCoords } from "@/lib/google-directions";
+import { googleGeocode, getGoogleRouteWithGeometry, getGoogleDirectionsByCoords } from "@/lib/google-directions";
 
 const normalizePlate = (value: string | undefined | null) =>
   String(value || '')
@@ -706,15 +705,15 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
             if (pickup || dropoff) {
               try {
                 const [pickupResult, dropoffResult] = await Promise.all([
-                  pickup ? geocodeAddress(pickup) : null,
-                  dropoff ? geocodeAddress(dropoff) : null,
+                   pickup ? googleGeocode(pickup) : null,
+                   dropoff ? googleGeocode(dropoff) : null,
                 ]);
 
                 if (pickupResult && dropoffResult) {
                   const pickupCoords: CoordinatePair = [pickupResult.lng, pickupResult.lat];
                   const dropoffCoords: CoordinatePair = [dropoffResult.lng, dropoffResult.lat];
 
-                  const routeResult = await getDirectionsByCoords(pickupCoords, dropoffCoords);
+                  const routeResult = await getGoogleRouteWithGeometry(pickupCoords, dropoffCoords);
                   if (routeResult?.coordinates?.length) {
                     routeCoords = routeResult.coordinates;
                     console.log('Generated preplanned route with', routeCoords.length, 'points');
@@ -751,15 +750,15 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
 
                 if (origin || destination) {
                   const [originResult, destResult] = await Promise.all([
-                    origin ? geocodeAddress(origin) : null,
-                    destination ? geocodeAddress(destination) : null,
+                    origin ? googleGeocode(origin) : null,
+                    destination ? googleGeocode(destination) : null,
                   ]);
 
                   if (originResult && destResult) {
                     const originCoords: CoordinatePair = [originResult.lng, originResult.lat];
                     const destCoords: CoordinatePair = [destResult.lng, destResult.lat];
 
-                    const routeResult = await getDirectionsByCoords(originCoords, destCoords);
+                    const routeResult = await getGoogleRouteWithGeometry(originCoords, destCoords);
                     if (routeResult?.coordinates?.length) {
                       routeCoords = routeResult.coordinates;
                       console.log('Generated fallback route:', routeCoords.length, 'points');
@@ -1159,7 +1158,7 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
               dropoffCoordinates = cached
             } else {
               try {
-                const result = await geocodeAddress(dropoffAddress)
+                const result = await googleGeocode(dropoffAddress)
                 if (result) {
                   dropoffCoordinates = [result.lng, result.lat] as CoordinatePair
                   geocodeCache.set(cacheKey, dropoffCoordinates)

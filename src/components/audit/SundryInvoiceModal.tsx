@@ -1,0 +1,644 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+'use client'
+
+import { useState } from 'react'
+import { X, Plus, Trash2, Download, Loader2 } from 'lucide-react'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { toast } from 'sonner'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
+)
+
+type InvoiceLineItem = {
+  id: string
+  description: string
+  quantity: number
+  unitPrice: number
+  vatType: 'zero' | 'standard' | 'exempt'
+}
+
+const VAT_RATES: Record<string, number> = {
+  zero: 0,
+  standard: 0.15,
+  exempt: 0,
+}
+
+const VAT_LABELS: Record<string, string> = {
+  zero: 'Zero Rate',
+  standard: '15% VAT',
+  exempt: 'Exempt',
+}
+
+const formatCurrency = (value: number, currencyCode: string = 'ZAR') =>
+  new Intl.NumberFormat('en-ZA', {
+    style: 'currency',
+    currency: currencyCode,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+
+const formatNum = (value: number) =>
+  new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
+
+type Props = {
+  open: boolean
+  onClose: () => void
+}
+
+export default function SundryInvoiceModal({ open, onClose }: Props) {
+  const today = new Date().toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })
+
+  const [invoiceDate, setInvoiceDate] = useState(today)
+  const [invoiceNumber, setInvoiceNumber] = useState('')
+  const [customerName, setCustomerName] = useState('')
+  const [customerAddress, setCustomerAddress] = useState('')
+  const [customerVat, setCustomerVat] = useState('')
+  const [dueDate, setDueDate] = useState('')
+  const [currency, setCurrency] = useState('ZAR')
+  const [notes, setNotes] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [lessAmountPaid, setLessAmountPaid] = useState(0)
+  const [lessAmountCredited, setLessAmountCredited] = useState(0)
+
+  const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([
+    {
+      id: 'line-1',
+      description: '',
+      quantity: 1,
+      unitPrice: 0,
+      vatType: 'zero' as const,
+    },
+  ])
+
+  const updateLine = (id: string, field: keyof InvoiceLineItem, value: any) => {
+    setLineItems((prev) => prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)))
+  }
+
+  const addLine = () => {
+    setLineItems((prev) => [
+      ...prev,
+      {
+        id: `line-${Date.now()}`,
+        description: '',
+        quantity: 1,
+        unitPrice: 0,
+        vatType: 'zero' as const,
+      },
+    ])
+  }
+
+  const removeLine = (id: string) => {
+    setLineItems((prev) => prev.filter((item) => item.id !== id))
+  }
+
+  const subtotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
+  const totalVat = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice * VAT_RATES[item.vatType], 0)
+  const totalZar = subtotal + totalVat
+  const amountDue = totalZar - lessAmountPaid - lessAmountCredited
+
+  const generatePdf = async () => {
+    setGenerating(true)
+    try {
+      // Get invoice number from shared counter first
+      const numRes = await fetch('/api/next-invoice-number', { method: 'POST' })
+      const numData = await numRes.json()
+      const invNumber = numData.invoiceNumber || 'INV10000'
+      setInvoiceNumber(invNumber)
+
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+      const pw = doc.internal.pageSize.getWidth()
+      const ml = 15
+      const mr = 15
+      let y = 15
+
+      // WATERFORD LOGO (top right)
+      doc.setFontSize(24)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(0, 30, 66)
+      doc.text('WATERFORD', pw - mr, y + 8, { align: 'right' })
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(232, 153, 63)
+      doc.text('carriers', pw - mr, y + 14, { align: 'right' })
+
+      y += 22
+
+      // TAX INVOICE (left)
+      doc.setFontSize(24)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(0, 0, 0)
+      doc.text('TAX INVOICE', ml, y)
+      y += 12
+
+      // LEFT: Customer details
+      const custY = y + 2
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(0, 0, 0)
+      doc.text(customerName || 'Customer', ml, custY)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      const addrLines = customerAddress ? doc.splitTextToSize(customerAddress, 65) : []
+      if (addrLines.length) {
+        doc.text(addrLines, ml, custY + 5)
+      }
+      if (customerVat) {
+        doc.text(`VAT Number: ${customerVat}`, ml, custY + 5 + addrLines.length * 4.5 + 2)
+      }
+
+      // RIGHT: Invoice details + Company info
+      const invLabelX = 100
+      const invValueX = 132
+      const coInfoX = 165
+      const refMaxW = coInfoX - invValueX - 2
+      let ry = custY - 5
+
+      // Row 1: Invoice Date + Company line 1
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.text('Invoice Date', invLabelX, ry)
+      doc.setFont('helvetica', 'normal')
+      doc.text(invoiceDate, invValueX, ry)
+      doc.text('Waterford Carriers (Pty)', coInfoX, ry)
+      ry += 5
+
+      // Row 2: Invoice Number + Company line 2
+      doc.setFont('helvetica', 'bold')
+      doc.text('Invoice Number', invLabelX, ry)
+      doc.setFont('helvetica', 'normal')
+      doc.text(invNumber, invValueX, ry)
+      doc.text('Ltd', coInfoX, ry)
+      ry += 5
+
+      // Row 3: Reference + Company line 3
+      doc.setFont('helvetica', 'bold')
+      doc.text('Reference', invLabelX, ry)
+      doc.setFont('helvetica', 'normal')
+      const refText = 'SUNDRY INVOICE'
+      doc.text(refText, invValueX, ry)
+      doc.text('96 Cavaleros Drive', coInfoX, ry)
+      ry += 5
+
+      doc.text('Industries West', coInfoX, ry)
+      ry += 5
+
+      doc.text('Germiston, 1401', coInfoX, ry)
+      ry += 5
+
+      doc.text('SOUTH AFRICA', coInfoX, ry)
+      ry += 5
+
+      doc.text('Tel: +27 (10) 300 8398', coInfoX, ry)
+      ry += 5
+
+      doc.text('Co Reg: 2020/601042/07', coInfoX, ry)
+      ry += 7
+
+      // VAT Number row
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.text('VAT Number', invLabelX, ry)
+      doc.setFont('helvetica', 'normal')
+      doc.text('4090291693', invValueX, ry)
+
+      y = Math.max(custY + 5 + addrLines.length * 4.5 + (customerVat ? 8 : 0), ry) + 8
+
+      // LINE ITEMS TABLE
+      const tableData = lineItems.map((item) => {
+        const lineTotal = item.quantity * item.unitPrice
+        return [
+          item.description,
+          String(item.quantity ? formatNum(item.quantity) : ''),
+          formatNum(item.unitPrice),
+          VAT_LABELS[item.vatType] || '',
+          formatNum(lineTotal),
+        ]
+      })
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Description', 'Quantity', 'Unit Price', 'VAT', `Amount ${currency}`]],
+        body: tableData,
+        theme: 'plain',
+        styles: {
+          fontSize: 9,
+          cellPadding: { top: 5, bottom: 5, left: 2, right: 2 },
+          lineWidth: 0,
+          lineColor: [255, 255, 255],
+          overflow: 'linebreak',
+          borderColor: [255, 255, 255],
+        },
+        headStyles: {
+          textColor: [0, 0, 0],
+          fontStyle: 'bold',
+          fontSize: 9,
+          cellPadding: { top: 4, bottom: 6, left: 2, right: 2 },
+          lineWidth: 0,
+          lineColor: [255, 255, 255],
+          borderColor: [255, 255, 255],
+        },
+        columnStyles: {
+          0: { cellWidth: 58, halign: 'left' },
+          1: { cellWidth: 22, halign: 'right' },
+          2: { cellWidth: 25, halign: 'right' },
+          3: { cellWidth: 38, halign: 'left', overflow: 'linebreak' },
+          4: { cellWidth: 30, halign: 'right' },
+        },
+        didDrawCell: (data) => {
+          const { doc: d } = data
+          if (data.section === 'head' && data.column.index === 0) {
+            const lineY = data.cell.y + data.cell.height + 1
+            d.setDrawColor(0, 0, 0)
+            d.setLineWidth(0.5)
+            d.line(ml, lineY, pw - mr, lineY)
+          }
+          if (data.section === 'body' && data.column.index === 4) {
+            const lineY = data.cell.y + data.cell.height + 3
+            d.setDrawColor(220, 220, 220)
+            d.setLineWidth(0.2)
+            d.line(data.cell.x, lineY, data.cell.x + data.cell.width, lineY)
+          }
+        },
+      })
+
+      y = (doc as any).lastAutoTable.finalY + 10
+
+      // SUMMARY
+      const sL = pw - mr - 80
+      const sV = pw - mr
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      doc.setTextColor(0, 0, 0)
+
+      doc.text('Subtotal', sL, y)
+      doc.text(formatNum(subtotal), sV, y, { align: 'right' })
+      y += 6
+
+      doc.text('TOTAL VAT', sL, y)
+      doc.text(formatNum(totalVat), sV, y, { align: 'right' })
+      y += 5
+
+      doc.setDrawColor(180, 180, 180)
+      doc.setLineWidth(0.3)
+      doc.line(sL, y, sV, y)
+      y += 5
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10)
+      doc.text(`TOTAL ${currency}`, sL, y)
+      doc.text(formatNum(totalZar), sV, y, { align: 'right' })
+      y += 6
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      doc.text('Less Amount Paid', sL, y)
+      doc.text(lessAmountPaid > 0 ? formatNum(lessAmountPaid) : '-', sV, y, { align: 'right' })
+      y += 6
+
+      doc.text('Less Amount Credited', sL, y)
+      doc.text(lessAmountCredited > 0 ? formatNum(lessAmountCredited) : '-', sV, y, { align: 'right' })
+      y += 5
+
+      doc.setDrawColor(0, 0, 0)
+      doc.setLineWidth(0.3)
+      doc.line(sL, y, sV, y)
+      y += 5
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.text(`AMOUNT DUE ${currency}`, sL, y)
+      doc.text(formatNum(amountDue), sV, y, { align: 'right' })
+
+      y += 16
+
+      // BANK DETAILS
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(0, 0, 0)
+      doc.text(`Due Date: ${dueDate || 'On Receipt'}`, ml, y)
+      y += 7
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.text('Bank accounts:', ml, y)
+      y += 5
+      doc.text('South African Rand (ZAR)', ml, y)
+      y += 4
+      doc.text('First National Bank (FNB), Branch 210554, Acc 62878278946', ml, y)
+      y += 8
+
+      doc.text('Global account (USD)', ml, y)
+      y += 4
+      doc.text('Capitec Bank, Swift CABLZAJJ, Branch 450105, Acc 5000040384', ml, y)
+      y += 4
+      doc.text('Acc type CFC Call Account', ml, y)
+      y += 4
+      doc.text('142 West Street, Sandton, Johannesburg, 2196', ml, y)
+
+      y += 14
+
+      // FOOTER
+      doc.setFontSize(7)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(128, 128, 128)
+      doc.text(
+        'Company Registration No: 2020/601042/07.  Registered Office: 96 CAVALEROS DRIVE, INDUSTRIES WEST, GERMISTON, GERMISTON, GAUTENG, 1401, SOUTH AFRICA',
+        ml,
+        y
+      )
+
+      // Save locally
+      const fileName = `${invNumber}.pdf`
+      doc.save(fileName)
+
+      // Upload to Supabase storage
+      const pdfBlob = doc.output('blob')
+      const filePath = `invoices/${fileName}`
+      const { error: uploadError } = await supabase.storage
+        .from('invoices')
+        .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true })
+
+      let invoiceUrl = null
+      if (!uploadError) {
+        const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(filePath)
+        invoiceUrl = urlData?.publicUrl || null
+      } else {
+        console.error('Upload error:', uploadError)
+      }
+
+      // Save to sundry_invoices table
+      const res = await fetch('/api/sundry-invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceNumber: invNumber,
+          customerName,
+          customerAddress,
+          customerVat,
+          invoiceDate,
+          dueDate,
+          notes,
+          lineItems: lineItems.map((item) => ({
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            vatType: item.vatType,
+          })),
+          subtotal,
+          vatAmount: totalVat,
+          totalAmount: totalZar,
+          lessAmountPaid,
+          lessAmountCredited,
+          amountDue,
+          invoiceUrl,
+          currency,
+        }),
+      })
+
+      const result = await res.json()
+      if (result.invoiceNumber) {
+        setInvoiceNumber(result.invoiceNumber)
+      }
+
+      toast.success('Sundry invoice generated and stored')
+      onClose()
+    } catch (err) {
+      console.error('Error generating sundry invoice:', err)
+      toast.error('Failed to generate invoice')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative z-10 mx-4 max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+          <div>
+            <h2 className="text-lg font-extrabold text-[#001e42]">Sundry Invoice</h2>
+            <p className="text-xs text-slate-500">Create a sundry invoice with custom line items</p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-6 p-6">
+          {/* Base Info */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Date</label>
+              <Input value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Number</label>
+              <Input value={invoiceNumber} disabled placeholder="Auto-generated on save" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Currency</label>
+              <Select value={currency} onValueChange={setCurrency}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ZAR">ZAR</SelectItem>
+                  <SelectItem value="USD">USD</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer Name</label>
+              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Customer or company name" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer Address</label>
+              <Input value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} placeholder="PO Box, City, Country" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer VAT Number</label>
+              <Input value={customerVat} onChange={(e) => setCustomerVat(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Due Date</label>
+              <Input value={dueDate} onChange={(e) => setDueDate(e.target.value)} placeholder="On Receipt" />
+            </div>
+          </div>
+
+          {/* Payments & Credits */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Less Amount Paid</label>
+              <Input
+                type="number"
+                value={lessAmountPaid || ''}
+                onChange={(e) => setLessAmountPaid(Number(e.target.value) || 0)}
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Less Amount Credited</label>
+              <Input
+                type="number"
+                value={lessAmountCredited || ''}
+                onChange={(e) => setLessAmountCredited(Number(e.target.value) || 0)}
+                placeholder="0.00"
+              />
+            </div>
+          </div>
+
+          {/* Line Items */}
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">Line Items</h3>
+              <Button variant="outline" size="sm" onClick={addLine}>
+                <Plus className="mr-1 h-3 w-3" /> Add Line
+              </Button>
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-20">Qty</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Unit Price</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">VAT</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Amount</th>
+                    <th className="px-4 py-3 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {lineItems.map((item) => (
+                    <tr key={item.id}>
+                      <td className="px-4 py-2">
+                        <Input
+                          value={item.description}
+                          onChange={(e) => updateLine(item.id, 'description', e.target.value)}
+                          placeholder="What is being invoiced"
+                          className="h-9 border-0 bg-transparent text-sm"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <Input
+                          type="number"
+                          value={item.quantity}
+                          onChange={(e) => updateLine(item.id, 'quantity', Number(e.target.value) || 0)}
+                          className="h-9 w-20 text-right"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          value={item.unitPrice || ''}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^0-9.-]/g, '')
+                            updateLine(item.id, 'unitPrice', Number(val) || 0)
+                          }}
+                          className="h-9 w-32 text-right"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <Select
+                          value={item.vatType}
+                          onValueChange={(val: 'zero' | 'standard' | 'exempt') => updateLine(item.id, 'vatType', val)}
+                        >
+                          <SelectTrigger className="h-9 w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="zero">Zero Rate</SelectItem>
+                            <SelectItem value="standard">15% VAT</SelectItem>
+                            <SelectItem value="exempt">Exempt</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-slate-900">
+                        {formatCurrency(item.quantity * item.unitPrice, currency)}
+                      </td>
+                      <td className="px-4 py-2">
+                        {lineItems.length > 1 && (
+                          <button onClick={() => removeLine(item.id)} className="text-slate-400 hover:text-red-500">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Summary */}
+          <div className="flex justify-end">
+            <div className="w-80 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600">Subtotal</span>
+                <span className="font-medium">{formatCurrency(subtotal, currency)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600">TOTAL VAT</span>
+                <span className="font-medium">{formatCurrency(totalVat, currency)}</span>
+              </div>
+              <div className="border-t border-slate-300 pt-2">
+                <div className="flex justify-between">
+                  <span className="text-sm font-bold">TOTAL {currency}</span>
+                  <span className="text-lg font-bold">{formatCurrency(totalZar, currency)}</span>
+                </div>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600">Less Amount Paid</span>
+                <span className="font-medium">{lessAmountPaid > 0 ? formatCurrency(lessAmountPaid, currency) : '-'}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600">Less Amount Credited</span>
+                <span className="font-medium">{lessAmountCredited > 0 ? formatCurrency(lessAmountCredited, currency) : '-'}</span>
+              </div>
+              <div className="border-t border-[#001e42] pt-2">
+                <div className="flex justify-between">
+                  <span className="text-sm font-bold text-[#001e42]">AMOUNT DUE {currency}</span>
+                  <span className="text-lg font-bold text-[#001e42]">{formatCurrency(amountDue, currency)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Notes (optional)</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#001e42] focus:outline-none"
+              placeholder="Additional notes..."
+            />
+          </div>
+        </div>
+
+        <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
+          <Button variant="outline" onClick={onClose} disabled={generating}>Cancel</Button>
+          <Button onClick={generatePdf} className="bg-[#001e42] text-white hover:bg-[#0b2955]" disabled={generating}>
+            {generating ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
+            ) : (
+              <><Download className="mr-2 h-4 w-4" /> Generate Sundry Invoice</>
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}

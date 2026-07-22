@@ -143,6 +143,7 @@ export default function LoadPlanPage() {
   const [tripDays, setTripDays] = useState(1)
   const [isManuallyOrdered, setIsManuallyOrdered] = useState(false)
   const [estimatedTravelHours, setEstimatedTravelHours] = useState(0)
+  const [currentUserEmail, setCurrentUserEmail] = useState('')
   const lastAutoEtaDropoffRef = useRef('')
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -463,6 +464,9 @@ export default function LoadPlanPage() {
       setVehicleTrackingData(trackingVehicles)
       setCostCenters(costCentersData || [])
       setAvailableStopPoints([])
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user?.email) setCurrentUserEmail(user.email)
     } catch (err) {
       console.error('Error fetching data:', err)
     }
@@ -1089,7 +1093,7 @@ export default function LoadPlanPage() {
     const fetchCost = async () => {
       setTripCostLoading(true)
       try {
-        console.log('[CostCalc] Fetching cost:', { vehicleId: selectedVehicleId, distanceKm: estimatedDistance, tripDays, fuelPrice: 21 })
+        console.log('[CostCalc] Fetching cost:', { vehicleId: selectedVehicleId, distanceKm: estimatedDistance, tripDays, fuelPrice: 20 })
         const res = await fetch('/api/calculate-cost', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1097,7 +1101,7 @@ export default function LoadPlanPage() {
             vehicleId: selectedVehicleId,
             distanceKm: estimatedDistance,
             tripDays: tripDays || 1,
-            fuelPrice: 21,
+            fuelPrice: 20,
           }),
         })
         if (!res.ok) {
@@ -1728,6 +1732,7 @@ export default function LoadPlanPage() {
         loading_point_city: loadingPointCity,
         offloading_point_company: offloadingPointCompany,
         offloading_point_city: offloadingPointCity,
+        updated_by: currentUserEmail,
       }
       
       const { error } = await supabase
@@ -1872,6 +1877,9 @@ export default function LoadPlanPage() {
         loading_point_city: loadingPointCity,
         offloading_point_company: offloadingPointCompany,
         offloading_point_city: offloadingPointCity,
+        created_by: currentUserEmail,
+        updated_by: currentUserEmail,
+        updated_at: new Date().toISOString(),
       }
       
       console.log('Inserting trip data:', tripData)
@@ -1947,6 +1955,8 @@ export default function LoadPlanPage() {
           deliveredBy: deliveredByStr,
           notes: comment || '',
           completedBy: completedByName,
+          createdBy: currentUserEmail,
+          createdTimestamp: new Date().toLocaleString('en-ZA'),
           rate: rate || '',
           bookingRef: orderNumberStr ? `${orderNumberStr} - ${getClientName()}` : '',
         }
@@ -2011,8 +2021,6 @@ export default function LoadPlanPage() {
       setTripType('local')
       setStopPoints([]) // Reset stop points for both trip types
       setCustomStopPoints([])
-      setFuelPricePerLiter('')
-      setGoodsInTransitPremium('0')
       setSelectedVehicleType('')
       setShowSecondSection(false)
       setOptimizedRoute(null)
