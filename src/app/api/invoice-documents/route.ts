@@ -35,6 +35,7 @@ export async function POST(request: Request) {
     const tripId = formData.get('trip_id') as string
     const ordernumber = formData.get('ordernumber') as string
     const invoiceNumber = formData.get('invoice_number') as string
+    const referenceNumber = formData.get('reference_number') as string
     const uploadedBy = formData.get('uploaded_by') as string
 
     if (!file || !auditId || !tripId) {
@@ -113,6 +114,7 @@ export async function POST(request: Request) {
           trip_id: tripId,
           ordernumber: ordernumber || '',
           invoice_number: invoiceNumber || '',
+          reference_number: referenceNumber || '',
           documents: [docEntry],
           uploaded_by: uploadedBy || '',
         }])

@@ -91,8 +91,7 @@ export default function GenerateInvoiceModal({
   const [dueDate, setDueDate] = useState('')
   const [notes, setNotes] = useState('')
   const [generating, setGenerating] = useState(false)
-  const [lessAmountPaid, setLessAmountPaid] = useState(0)
-  const [lessAmountCredited, setLessAmountCredited] = useState(0)
+  const [referenceNumber, setReferenceNumber] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadedDocs, setUploadedDocs] = useState<any[]>([])
   const [uploadError, setUploadError] = useState('')
@@ -180,7 +179,7 @@ export default function GenerateInvoiceModal({
   const subtotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
   const totalVat = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice * VAT_RATES[item.vatType], 0)
   const totalZar = subtotal + totalVat
-  const amountDue = totalZar - lessAmountPaid - lessAmountCredited
+  const amountDue = totalZar
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -196,6 +195,7 @@ export default function GenerateInvoiceModal({
         formData.append('trip_id', record.trip_id || record.trip_id || '')
         formData.append('ordernumber', record.ordernumber || '')
         formData.append('invoice_number', invoiceNumber || '')
+        formData.append('reference_number', referenceNumber || '')
         formData.append('uploaded_by', '')
 
         const res = await fetch('/api/invoice-documents', { method: 'POST', body: formData })
@@ -319,7 +319,7 @@ export default function GenerateInvoiceModal({
     doc.setFont('helvetica', 'bold')
     doc.text('Reference', invLabelX, ry)
     doc.setFont('helvetica', 'normal')
-    const refFullText = orderNum ? `${orderNum} - ADDITIONAL INVOICE S/T` : 'ADDITIONAL INVOICE S/T'
+    const refFullText = referenceNumber || orderNum || 'N/A'
     const refWrapped = doc.splitTextToSize(refFullText, refMaxW)
     doc.text(refWrapped[0], invValueX, ry)
     doc.text('96 Cavaleros Drive', coInfoX, ry)
@@ -438,16 +438,6 @@ export default function GenerateInvoiceModal({
     doc.text('TOTAL ZAR', sL, y)
     doc.text(formatNum(totalZar), sV, y, { align: 'right' })
     y += 6
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    doc.text('Less Amount Paid', sL, y)
-    doc.text(lessAmountPaid > 0 ? formatNum(lessAmountPaid) : '-', sV, y, { align: 'right' })
-    y += 6
-
-    doc.text('Less Amount Credited', sL, y)
-    doc.text(lessAmountCredited > 0 ? formatNum(lessAmountCredited) : '-', sV, y, { align: 'right' })
-    y += 5
 
     doc.setDrawColor(0, 0, 0)
     doc.setLineWidth(0.3)
@@ -570,26 +560,14 @@ export default function GenerateInvoiceModal({
             </div>
           </div>
 
-          {/* Payments & Credits */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Less Amount Paid (ZAR)</label>
-              <Input
-                type="number"
-                value={lessAmountPaid || ''}
-                onChange={(e) => setLessAmountPaid(Number(e.target.value) || 0)}
-                placeholder="0.00"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Less Amount Credited (ZAR)</label>
-              <Input
-                type="number"
-                value={lessAmountCredited || ''}
-                onChange={(e) => setLessAmountCredited(Number(e.target.value) || 0)}
-                placeholder="0.00"
-              />
-            </div>
+          {/* Reference Number */}
+          <div>
+            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Reference Number</label>
+            <Input
+              value={referenceNumber}
+              onChange={(e) => setReferenceNumber(e.target.value)}
+              placeholder="e.g. WC17060, PO Number, or custom reference"
+            />
           </div>
 
           {/* Line Items */}
@@ -692,14 +670,6 @@ export default function GenerateInvoiceModal({
                   <span className="text-sm font-bold">TOTAL ZAR</span>
                   <span className="text-lg font-bold">{formatCurrency(totalZar, invoiceCurrency)}</span>
                 </div>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">Less Amount Paid</span>
-                <span className="font-medium">{lessAmountPaid > 0 ? formatCurrency(lessAmountPaid, invoiceCurrency) : '-'}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">Less Amount Credited</span>
-                <span className="font-medium">{lessAmountCredited > 0 ? formatCurrency(lessAmountCredited, invoiceCurrency) : '-'}</span>
               </div>
               <div className="border-t border-[#001e42] pt-2">
                 <div className="flex justify-between">
