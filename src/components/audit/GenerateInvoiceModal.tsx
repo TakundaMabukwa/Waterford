@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, Download, Loader2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { X, Plus, Trash2, Download, Loader2, Upload, FileText, Image, FileSpreadsheet } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { Button } from '@/components/ui/button'
@@ -93,6 +93,10 @@ export default function GenerateInvoiceModal({
   const [generating, setGenerating] = useState(false)
   const [lessAmountPaid, setLessAmountPaid] = useState(0)
   const [lessAmountCredited, setLessAmountCredited] = useState(0)
+  const [uploading, setUploading] = useState(false)
+  const [uploadedDocs, setUploadedDocs] = useState<any[]>([])
+  const [uploadError, setUploadError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -111,6 +115,25 @@ export default function GenerateInvoiceModal({
     }
     fetchNumber()
   }, [open, orderNum])
+
+  // Load existing documents
+  useEffect(() => {
+    if (!open || !record?.id) return
+    const fetchDocs = async () => {
+      try {
+        const res = await fetch(`/api/invoice-documents?audit_id=${record.id}`)
+        const result = await res.json()
+        if (result.data?.documents) {
+          setUploadedDocs(result.data.documents)
+        } else {
+          setUploadedDocs([])
+        }
+      } catch {
+        setUploadedDocs([])
+      }
+    }
+    fetchDocs()
+  }, [open, record?.id])
 
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>(() => {
     if (splitRows.length) {
@@ -158,6 +181,54 @@ export default function GenerateInvoiceModal({
   const totalVat = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice * VAT_RATES[item.vatType], 0)
   const totalZar = subtotal + totalVat
   const amountDue = totalZar - lessAmountPaid - lessAmountCredited
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0 || !record?.id) return
+
+    setUploadError('')
+    for (const file of Array.from(files)) {
+      setUploading(true)
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('audit_id', String(record.id))
+        formData.append('trip_id', record.trip_id || record.trip_id || '')
+        formData.append('ordernumber', record.ordernumber || '')
+        formData.append('invoice_number', invoiceNumber || '')
+        formData.append('uploaded_by', '')
+
+        const res = await fetch('/api/invoice-documents', { method: 'POST', body: formData })
+        const result = await res.json()
+        if (!res.ok) {
+          setUploadError(result.error || 'Upload failed')
+          continue
+        }
+        setUploadedDocs((prev) => [...prev, result.document])
+      } catch (err) {
+        setUploadError('Upload failed')
+      } finally {
+        setUploading(false)
+      }
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleDeleteDoc = async (docId: string) => {
+    if (!record?.id) return
+    try {
+      const res = await fetch(`/api/invoice-documents?audit_id=${record.id}&doc_id=${docId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setUploadedDocs((prev) => prev.filter((d) => d.id !== docId))
+      }
+    } catch {}
+  }
+
+  const getFileIcon = (type: string) => {
+    if (type?.startsWith('image/')) return <Image className="h-4 w-4 text-blue-500" />
+    if (type?.includes('spreadsheet') || type?.includes('excel')) return <FileSpreadsheet className="h-4 w-4 text-green-600" />
+    return <FileText className="h-4 w-4 text-slate-500" />
+  }
 
   const markAuditInvoiced = async (invoiceUrl?: string) => {
     if (!record?.id) return
@@ -639,16 +710,62 @@ export default function GenerateInvoiceModal({
             </div>
           </div>
 
-          {/* Notes */}
+          {/* Documents */}
           <div>
-            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Notes (optional)</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#001e42] focus:outline-none"
-              placeholder="Additional notes..."
+            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">
+              Supporting Documents {uploadedDocs.length > 0 && `(${uploadedDocs.length})`}
+            </label>
+            <div
+              className="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-center hover:border-[#001e42] hover:bg-slate-100 transition-colors cursor-pointer"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="mx-auto mb-2 h-6 w-6 text-slate-400" />
+              <p className="text-sm text-slate-600">
+                {uploading ? 'Uploading...' : 'Click to upload or drag files here'}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                Images, PDF, Word, Excel, PowerPoint, TXT, CSV — Max 20MB each
+              </p>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
+              onChange={handleFileUpload}
+              className="hidden"
             />
+            {uploadError && (
+              <p className="mt-1 text-xs text-red-600">{uploadError}</p>
+            )}
+
+            {uploadedDocs.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {uploadedDocs.map((doc) => (
+                  <div key={doc.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {getFileIcon(doc.file_type)}
+                      <span className="truncate text-sm text-slate-700">{doc.file_name}</span>
+                      <span className="shrink-0 text-xs text-slate-400">
+                        {doc.file_size ? `${(doc.file_size / 1024).toFixed(0)}KB` : ''}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {doc.file_url && (
+                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-600">
+                            <Download className="h-3 w-3" />
+                          </Button>
+                        </a>
+                      )}
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500 hover:text-red-700" onClick={() => handleDeleteDoc(doc.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
