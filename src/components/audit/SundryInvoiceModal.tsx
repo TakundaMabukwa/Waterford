@@ -317,33 +317,25 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       doc.text(`AMOUNT DUE ${currency}`, sL, y)
       doc.text(formatNum(amountDue), sV, y, { align: 'right' })
 
-      y += 16
+      // BANK DETAILS — pinned to bottom of page
+      const pageH = doc.internal.pageSize.getHeight()
+      const footerStartY = pageH - 55
 
-      // BANK DETAILS
       doc.setFontSize(10)
       doc.setFont('helvetica', 'bold')
       doc.setTextColor(0, 0, 0)
-      doc.text(`Due Date: ${dueDate || 'On Receipt'}`, ml, y)
-      y += 7
+      doc.text(`Due Date: ${dueDate || 'On Receipt'}`, ml, footerStartY)
 
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
-      doc.text('Bank accounts:', ml, y)
-      y += 5
-      doc.text('South African Rand (ZAR)', ml, y)
-      y += 4
-      doc.text('First National Bank (FNB), Branch 210554, Acc 62878278946', ml, y)
-      y += 8
+      doc.text('Bank accounts:', ml, footerStartY + 7)
+      doc.text('South African Rand (ZAR)', ml, footerStartY + 12)
+      doc.text('First National Bank (FNB), Branch 210554, Acc 62878278946', ml, footerStartY + 16)
 
-      doc.text('Global account (USD)', ml, y)
-      y += 4
-      doc.text('Capitec Bank, Swift CABLZAJJ, Branch 450105, Acc 5000040384', ml, y)
-      y += 4
-      doc.text('Acc type CFC Call Account', ml, y)
-      y += 4
-      doc.text('142 West Street, Sandton, Johannesburg, 2196', ml, y)
-
-      y += 14
+      doc.text('Global account (USD)', ml, footerStartY + 23)
+      doc.text('Capitec Bank, Swift CABLZAJJ, Branch 450105, Acc 5000040384', ml, footerStartY + 27)
+      doc.text('Acc type CFC Call Account', ml, footerStartY + 31)
+      doc.text('142 West Street, Sandton, Johannesburg, 2196', ml, footerStartY + 35)
 
       // FOOTER
       doc.setFontSize(7)
@@ -352,7 +344,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       doc.text(
         'Company Registration No: 2020/601042/07.  Registered Office: 96 CAVALEROS DRIVE, INDUSTRIES WEST, GERMISTON, GERMISTON, GAUTENG, 1401, SOUTH AFRICA',
         ml,
-        y
+        footerStartY + 44
       )
 
       // Save locally
