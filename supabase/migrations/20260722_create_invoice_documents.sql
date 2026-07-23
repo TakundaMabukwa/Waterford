@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS public.invoice_documents (
   ordernumber text NULL,
   invoice_number text NULL,
   documents jsonb NOT NULL DEFAULT '[]'::jsonb,
-  reference_number text NULL,
   uploaded_by text NULL,
   created_at timestamp without time zone NULL DEFAULT now(),
   updated_at timestamp without time zone NULL DEFAULT now(),

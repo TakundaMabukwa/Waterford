@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(
   req: Request,
@@ -7,32 +12,57 @@ export async function POST(
 ) {
   try {
     const { id } = await context.params;
-    const supabase = await createClient();
     const body = await req.json().catch(() => ({}));
 
+    // 1. Update audit record
     const updateData: Record<string, any> = {
       is_invoiced: true,
       invoice_rate: body.invoiceRate ?? null,
       invoice_amount: body.invoiceAmount ?? null,
       invoice_currency: body.invoiceCurrency ?? null,
+      reference_number: body.referenceNumber ?? null,
     };
     if (body.invoiceUrl) {
       updateData.invoice_url = body.invoiceUrl;
     }
 
-    const { data, error } = await supabase
+    const { data: auditData, error: auditError } = await supabase
       .from('audit')
       .update(updateData)
       .eq('id', Number(id))
       .select()
       .single();
 
-    if (error) {
-      console.error('Failed to mark audit invoiced:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (auditError) {
+      console.error('Failed to mark audit invoiced:', auditError);
+      return NextResponse.json({ error: auditError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, audit: data });
+    // 2. Create invoice_documents row if it doesn't exist
+    const { data: existingDoc } = await supabase
+      .from('invoice_documents')
+      .select('id')
+      .eq('audit_id', Number(id))
+      .single();
+
+    if (!existingDoc) {
+      const { error: docError } = await supabase
+        .from('invoice_documents')
+        .insert([{
+          audit_id: Number(id),
+          trip_id: body.tripId || auditData.trip_id || '',
+          ordernumber: body.ordernumber || auditData.ordernumber || '',
+          invoice_number: body.invoiceNumber || '',
+          documents: [],
+          uploaded_by: body.uploadedBy || '',
+        }]);
+
+      if (docError) {
+        console.error('Failed to create invoice_documents row:', docError);
+      }
+    }
+
+    return NextResponse.json({ success: true, audit: auditData });
   } catch (err) {
     console.error('Mark invoiced error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

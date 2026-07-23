@@ -195,7 +195,6 @@ export default function GenerateInvoiceModal({
         formData.append('trip_id', record.trip_id || record.trip_id || '')
         formData.append('ordernumber', record.ordernumber || '')
         formData.append('invoice_number', invoiceNumber || '')
-        formData.append('reference_number', referenceNumber || '')
         formData.append('uploaded_by', '')
 
         const res = await fetch('/api/invoice-documents', { method: 'POST', body: formData })
@@ -241,6 +240,10 @@ export default function GenerateInvoiceModal({
           invoiceRate: invoiceRate,
           invoiceAmount: totalZar,
           invoiceCurrency: invoiceCurrency,
+          referenceNumber: referenceNumber || null,
+          invoiceNumber: invoiceNumber || '',
+          tripId: record.trip_id || '',
+          ordernumber: record.ordernumber || '',
         }),
       })
     } catch (err) {
