@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from 'react'
 import { X, Plus, Trash2, Download, Loader2, Upload, FileText, Image, FileSpreadsheet } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import JSZip from 'jszip'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -84,7 +85,6 @@ export default function GenerateInvoiceModal({
 
   const [invoiceDate, setInvoiceDate] = useState(today)
   const [invoiceNumber, setInvoiceNumber] = useState('')
-  const [invoiceLoading, setInvoiceLoading] = useState(true)
   const [customerName, setCustomerName] = useState(getClientName())
   const [customerAddress, setCustomerAddress] = useState('')
   const [customerVat, setCustomerVat] = useState('')
@@ -97,25 +97,6 @@ export default function GenerateInvoiceModal({
   const [uploadError, setUploadError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    const fetchNumber = async () => {
-      setInvoiceLoading(true)
-      try {
-        const res = await fetch('/api/next-invoice-number', { method: 'POST' })
-        const data = await res.json()
-        if (data.invoiceNumber) setInvoiceNumber(data.invoiceNumber)
-        else setInvoiceNumber(`INV${orderNum}`)
-      } catch {
-        setInvoiceNumber(`INV${orderNum}`)
-      } finally {
-        setInvoiceLoading(false)
-      }
-    }
-    fetchNumber()
-  }, [open, orderNum])
-
-  // Load existing documents
   useEffect(() => {
     if (!open || !record?.id) return
     const fetchDocs = async () => {
@@ -253,6 +234,20 @@ export default function GenerateInvoiceModal({
 
   const generatePdf = async () => {
     setGenerating(true)
+
+    // Fetch invoice number now (only on actual generation)
+    let invNumber = invoiceNumber
+    if (!invNumber) {
+      try {
+        const numRes = await fetch('/api/next-invoice-number', { method: 'POST' })
+        const numData = await numRes.json()
+        invNumber = numData.invoiceNumber || `INV${orderNum || '00000'}`
+      } catch {
+        invNumber = `INV${orderNum || '00000'}`
+      }
+      setInvoiceNumber(invNumber)
+    }
+
     const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
     const pw = doc.internal.pageSize.getWidth()
     const ml = 15
@@ -314,7 +309,7 @@ export default function GenerateInvoiceModal({
     doc.setFont('helvetica', 'bold')
     doc.text('Invoice Number', invLabelX, ry)
     doc.setFont('helvetica', 'normal')
-    doc.text(invoiceNumber, invValueX, ry)
+    doc.text(invNumber, invValueX, ry)
     doc.text('Ltd', coInfoX, ry)
     ry += 5
 
@@ -482,8 +477,7 @@ export default function GenerateInvoiceModal({
       footerStartY + 44
     )
 
-    const fileName = `${invoiceNumber || 'invoice'}.pdf`
-    doc.save(fileName)
+    const fileName = `${invNumber || 'invoice'}.pdf`
 
     // Upload PDF to Supabase storage
     const pdfBlob = doc.output('blob')
@@ -501,6 +495,48 @@ export default function GenerateInvoiceModal({
     }
 
     await markAuditInvoiced(invoiceUrl || undefined)
+
+    // Bundle invoice PDF + all attached documents
+    try {
+      const zip = new JSZip()
+      zip.file(fileName, pdfBlob)
+
+      // Fetch existing documents for this audit
+      if (record?.id) {
+        const docRes = await fetch(`/api/invoice-documents?audit_id=${record.id}`)
+        const docResult = await docRes.json()
+        const docs = docResult.data?.documents || []
+
+        for (const doc of docs) {
+          if (doc.file_url) {
+            try {
+              const fileRes = await fetch(doc.file_url)
+              if (fileRes.ok) {
+                const fileBlob = await fileRes.blob()
+                zip.file(doc.file_name || `document-${doc.id}`, fileBlob)
+              }
+            } catch {
+              // Skip files that can't be fetched
+            }
+          }
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      const zipFileName = `${invNumber || 'invoice'}-documents.zip`
+      const zipUrl = URL.createObjectURL(zipBlob)
+      const a = document.createElement('a')
+      a.href = zipUrl
+      a.download = zipFileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(zipUrl)
+    } catch {
+      // Fallback: just download the PDF
+      doc.save(fileName)
+    }
+
     toast.success('Invoice generated and stored')
     setGenerating(false)
   }
@@ -530,12 +566,7 @@ export default function GenerateInvoiceModal({
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Number</label>
-              <div className="relative">
-                <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} disabled={invoiceLoading} />
-                {invoiceLoading && (
-                  <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-slate-400" />
-                )}
-              </div>
+              <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="Auto-generated on generate" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer Name</label>
@@ -736,11 +767,11 @@ export default function GenerateInvoiceModal({
 
         <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
           <Button variant="outline" onClick={onClose} disabled={generating}>Cancel</Button>
-          <Button onClick={generatePdf} className="bg-[#001e42] text-white hover:bg-[#0b2955]" disabled={invoiceLoading || generating}>
+          <Button onClick={generatePdf} className="bg-[#001e42] text-white hover:bg-[#0b2955]" disabled={generating}>
             {generating ? (
               <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
             ) : (
-              <><Download className="mr-2 h-4 w-4" /> Generate Invoice PDF</>
+              <><Download className="mr-2 h-4 w-4" /> Generate Invoice & Download</>
             )}
           </Button>
         </div>

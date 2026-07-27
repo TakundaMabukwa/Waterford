@@ -77,7 +77,7 @@ import { EditTripModal } from "@/components/ui/edit-trip-modal";
 import GoogleLiveMapView from "@/components/map/google-live-map-view";
 import { VehicleDashboardModal } from "@/components/ui/vehicle-dashboard-modal";
 import { mapFuelStopToOverlay } from "@/lib/fuel-stop-map";
-import LiveStreamTab from "@/components/dashboard/live-stream-tab";
+
 import VehicleCameraModal from "@/components/dashboard/vehicle-camera-modal";
 import { googleGeocode, getGoogleRouteWithGeometry, getGoogleDirectionsByCoords } from "@/lib/google-directions";
 
@@ -1892,50 +1892,62 @@ const STATUS_OPTIONS = [
 
 // Trip Reports Section Component
 function TripReportsSection() {
-  const [completedTrips, setCompletedTrips] = useState<any[]>([])
+  const [trips, setTrips] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [expandedTrip, setExpandedTrip] = useState<string | null>(null)
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
 
   useEffect(() => {
-    async function fetchCompletedTrips() {
+    async function fetchTrips() {
+      setLoading(true)
       try {
         const supabase = createClient()
+        const [year, month] = selectedMonth.split('-').map(Number)
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`
+        const lastDay = new Date(year, month, 0).getDate()
+        const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+
         const { data, error } = await supabase
           .from('trips')
           .select('*')
-          .not('status', 'eq', 'pending')
-          .order('updated_at', { ascending: false })
-        
+          .or('status.eq.completed,status.eq.delivered,statusnotes.like.%TRIP COMPLETED EARLY%,status_notes.like.%TRIP COMPLETED EARLY%')
+          .gte('created_at', `${startDate}T00:00:00`)
+          .lte('created_at', `${endDate}T23:59:59`)
+          .order('created_at', { ascending: false })
+
         if (error) throw error
-        setCompletedTrips(data || [])
+        setTrips(data || [])
       } catch (err) {
-        console.error('Error fetching completed trips:', err)
+        console.error('Error fetching trip reports:', err)
       } finally {
         setLoading(false)
       }
     }
-    
-    fetchCompletedTrips()
-  }, [])
+    fetchTrips()
+  }, [selectedMonth])
 
-  const getTimingStatus = (scheduledTime: string, actualTime: string) => {
-    if (!scheduledTime || !actualTime) return 'Unknown'
-    
-    const scheduled = new Date(scheduledTime)
-    const actual = new Date(actualTime)
-    const diffMinutes = (actual.getTime() - scheduled.getTime()) / (1000 * 60)
-    
-    if (diffMinutes <= -15) return 'Early'
-    if (diffMinutes >= 15) return 'Late'
-    return 'On Time'
+  const getDisplayStatus = (trip: any) => {
+    const sn = (trip.statusnotes || trip.status_notes || '').toLowerCase()
+    if (sn.includes('trip completed early') || sn.includes('trip cancelled')) return 'trip cancelled'
+    if (trip.status === 'delivered') return 'delivered'
+    if (trip.status === 'completed') return 'completed'
+    return trip.status
   }
 
-  const getStatusColor = (status: string) => {
+  const cleanStatusNotes = (trip: any) => {
+    const raw = trip.statusnotes || trip.status_notes || ''
+    return raw.replace(/Completed by:.*\n?/g, '').trim()
+  }
+
+  const statusBadgeColor = (status: string) => {
     switch (status) {
-      case 'Early': return 'text-blue-700 bg-blue-50'
-      case 'Late': return 'text-red-700 bg-red-50'
-      case 'On Time': return 'text-green-700 bg-green-50'
-      default: return 'text-gray-700 bg-gray-50'
+      case 'completed': return 'bg-blue-100 text-blue-800'
+      case 'delivered': return 'bg-green-100 text-green-800'
+      case 'trip cancelled': return 'bg-red-100 text-red-800'
+      case 'on-trip': return 'bg-yellow-100 text-yellow-800'
+      default: return 'bg-slate-100 text-slate-700'
     }
   }
 
@@ -1944,305 +1956,64 @@ function TripReportsSection() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="mb-4">
-        <h2 className="text-3xl font-bold tracking-tight">Trip Reports</h2>
-        <p className="text-muted-foreground">Performance analysis for active, completed and delivered trips</p>
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-xl font-bold tracking-tight">Trip Reports</h2>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-slate-600">Month:</label>
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
       </div>
 
-      <div className="space-y-3">
-        {completedTrips.map((trip) => {
-          const clientDetails = typeof trip.clientdetails === 'string' ? JSON.parse(trip.clientdetails) : trip.clientdetails
-          const pickupLocations = trip.pickup_locations || trip.pickuplocations || []
-          const dropoffLocations = trip.dropoff_locations || trip.dropofflocations || []
-          
-          const scheduledPickup = pickupLocations[0]?.scheduled_time
-          const scheduledDropoff = dropoffLocations[0]?.scheduled_time
-          const actualStart = trip.actual_start_time
-          const actualEnd = trip.actual_end_time
-          
-          const startStatus = getTimingStatus(scheduledPickup, actualStart)
-          const arrivalStatus = getTimingStatus(scheduledDropoff, actualEnd)
-          
-          // Check if trip is late based on estimated arrival
-          const estimatedArrival = trip.dropoff_locations?.[0]?.scheduled_time || trip.dropofflocations?.[0]?.scheduled_time
-          const isLate = estimatedArrival && !actualEnd && new Date() > new Date(estimatedArrival)
-          const displayArrivalStatus = isLate ? 'Late' : arrivalStatus
-          
-          // Check for unauthorized stops in alert_message
-          let unauthorizedStops = trip.unauthorized_stops_count || 0
-          if (trip.alert_message && Array.isArray(trip.alert_message)) {
-            const unauthorizedAlerts = trip.alert_message.filter(alert => 
-              typeof alert === 'object' && alert.type && 
-              alert.type.toLowerCase().includes('unauthorized')
-            )
-            unauthorizedStops = Math.max(unauthorizedStops, unauthorizedAlerts.length)
-          }
-          
-          const isExpanded = expandedTrip === trip.id
-          
-          return (
-            <Card key={trip.id} className="border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-              <CardHeader 
-                className="cursor-pointer hover:bg-slate-50 transition-colors"
-                onClick={() => setExpandedTrip(isExpanded ? null : trip.id)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
-                      <Truck className="w-5 h-5 text-slate-600" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg font-semibold text-slate-900">
-                        {clientDetails?.name || 'Unknown Client'} - Trip #{trip.trip_id || trip.id}
-                      </CardTitle>
-                      <p className="text-sm text-slate-600">
-                        {trip.origin} → {trip.destination}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className={cn('px-2 py-1 text-xs font-medium', 
-                      trip.status === 'delivered' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
-                    )}>
-                      {trip.status}
+      <div className="bg-white rounded-lg border border-slate-200 overflow-auto max-h-[calc(100vh-220px)]">
+        <Table className="text-xs">
+          <TableHeader>
+            <TableRow className="bg-slate-50">
+              <TableHead className="py-2 px-3 font-semibold text-slate-700">Order #</TableHead>
+              <TableHead className="py-2 px-3 font-semibold text-slate-700">Client</TableHead>
+              <TableHead className="py-2 px-3 font-semibold text-slate-700">Route</TableHead>
+              <TableHead className="py-2 px-3 font-semibold text-slate-700">End Date</TableHead>
+              <TableHead className="py-2 px-3 font-semibold text-slate-700">Status</TableHead>
+              <TableHead className="py-2 px-3 font-semibold text-slate-700">Notes</TableHead>
+              <TableHead className="py-2 px-3 font-semibold text-slate-700">Status Notes</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {trips.map((trip) => {
+              const clientDetails = typeof trip.clientdetails === 'string' ? JSON.parse(trip.clientdetails) : trip.clientdetails
+              const displayStatus = getDisplayStatus(trip)
+              return (
+                <TableRow key={trip.id} className="hover:bg-slate-50">
+                  <TableCell className="py-1.5 px-3 font-medium text-slate-900">{trip.ordernumber || '-'}</TableCell>
+                  <TableCell className="py-1.5 px-3 text-slate-600 max-w-[150px] truncate">{clientDetails?.name || trip.selectedclient || '-'}</TableCell>
+                  <TableCell className="py-1.5 px-3 text-slate-600 max-w-[180px] truncate">{trip.origin} → {trip.destination}</TableCell>
+                  <TableCell className="py-1.5 px-3 text-slate-600 whitespace-nowrap">{trip.enddate || trip.end_date || '-'}</TableCell>
+                  <TableCell className="py-1.5 px-3">
+                    <Badge className={`px-1.5 py-0.5 text-[10px] font-medium ${statusBadgeColor(displayStatus)}`}>
+                      {displayStatus}
                     </Badge>
-                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 w-4" />}
-                  </div>
-                </div>
-              </CardHeader>
-              
-              {isExpanded && (
-                <CardContent className="pt-0">
-                  <div className="bg-slate-50 rounded-lg p-4">
-                    <h4 className="font-semibold text-slate-900 mb-4">Trip Performance Analysis</h4>
-                    
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-slate-100">
-                            <TableHead className="font-semibold text-slate-700">Metric</TableHead>
-                            <TableHead className="font-semibold text-slate-700">Scheduled</TableHead>
-                            <TableHead className="font-semibold text-slate-700">Actual</TableHead>
-                            <TableHead className="font-semibold text-slate-700">Status</TableHead>
-                            <TableHead className="font-semibold text-slate-700">Notes</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          <TableRow className="hover:bg-slate-50">
-                            <TableCell className="font-medium text-slate-900">Trip Start</TableCell>
-                            <TableCell className="text-slate-600">
-                              {scheduledPickup ? new Date(scheduledPickup).toLocaleString() : 'Not scheduled'}
-                            </TableCell>
-                            <TableCell className="text-slate-600">
-                              {actualStart ? new Date(actualStart).toLocaleString() : 'Not recorded'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={cn('px-2 py-1 text-xs font-medium', getStatusColor(startStatus))}>
-                                {startStatus}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-slate-600">
-                              {scheduledPickup && actualStart ? (() => {
-                                const diffMinutes = Math.abs(Math.round((new Date(actualStart).getTime() - new Date(scheduledPickup).getTime()) / (1000 * 60)))
-                                const hours = Math.floor(diffMinutes / 60)
-                                const minutes = diffMinutes % 60
-                                return hours > 0 ? `${hours}h ${minutes}m difference` : `${minutes}m difference`
-                              })() : 'No timing data'}
-                            </TableCell>
-                          </TableRow>
-                          
-                          <TableRow className="hover:bg-slate-50">
-                            <TableCell className="font-medium text-slate-900">Trip Arrival</TableCell>
-                            <TableCell className="text-slate-600">
-                              {scheduledDropoff ? new Date(scheduledDropoff).toLocaleString() : 'Not scheduled'}
-                            </TableCell>
-                            <TableCell className="text-slate-600">
-                              {actualEnd ? new Date(actualEnd).toLocaleString() : 'Not recorded'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={cn('px-2 py-1 text-xs font-medium', getStatusColor(displayArrivalStatus))}>
-                                {displayArrivalStatus}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-slate-600">
-                              {scheduledDropoff && actualEnd ? (() => {
-                                const diffMinutes = Math.abs(Math.round((new Date(actualEnd).getTime() - new Date(scheduledDropoff).getTime()) / (1000 * 60)))
-                                const hours = Math.floor(diffMinutes / 60)
-                                const minutes = diffMinutes % 60
-                                return hours > 0 ? `${hours}h ${minutes}m difference` : `${minutes}m difference`
-                              })() : 'No timing data'}
-                            </TableCell>
-                          </TableRow>
-                          
-                          <TableRow className="hover:bg-slate-50">
-                            <TableCell className="font-medium text-slate-900">Unauthorized Stops</TableCell>
-                            <TableCell className="text-slate-600">0 expected</TableCell>
-                            <TableCell className="text-slate-600">{unauthorizedStops} detected</TableCell>
-                            <TableCell>
-                              <Badge className={cn('px-2 py-1 text-xs font-medium', 
-                                unauthorizedStops === 0 ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'
-                              )}>
-                                {unauthorizedStops === 0 ? 'Compliant' : 'Non-Compliant'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-slate-600">
-                              {unauthorizedStops > 0 ? `${unauthorizedStops} unauthorized stop(s)` : 'No violations'}
-                            </TableCell>
-                          </TableRow>
-                          
-                          <TableRow className="hover:bg-slate-50">
-                            <TableCell className="font-medium text-slate-900">Distance</TableCell>
-                            <TableCell className="text-slate-600">
-                              {trip.estimated_distance ? `${trip.estimated_distance} km` : 'Not estimated'}
-                            </TableCell>
-                            <TableCell className="text-slate-600">
-                              {trip.total_distance ? `${trip.total_distance} km` : 'Not recorded'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50">
-                                Completed
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-slate-600">
-                              {trip.estimated_distance && trip.total_distance ? 
-                                `${Math.round(((trip.total_distance - trip.estimated_distance) / trip.estimated_distance) * 100)}% variance` : 
-                                'No comparison data'
-                              }
-                            </TableCell>
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-                    </div>
-                    
-                    <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* Timing Performance */}
-                      <Card className="border-0 shadow-sm">
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-base font-semibold flex items-center gap-2">
-                            <Clock className="w-4 h-4 text-blue-600" />
-                            Timing Performance
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-medium text-slate-600">Trip Start</span>
-                              <div className="flex items-center gap-2">
-                                <div className={cn("w-3 h-3 rounded-full", 
-                                  startStatus === 'On Time' ? 'bg-emerald-500' : 
-                                  startStatus === 'Early' ? 'bg-blue-500' : 'bg-red-500'
-                                )} />
-                                <span className={cn("text-sm font-semibold",
-                                  startStatus === 'On Time' ? 'text-emerald-700' : 
-                                  startStatus === 'Early' ? 'text-blue-700' : 'text-red-700'
-                                )}>{startStatus}</span>
-                              </div>
-                            </div>
-                            <div className="w-full bg-slate-100 rounded-full h-2">
-                              <div className={cn("h-2 rounded-full transition-all duration-500",
-                                startStatus === 'On Time' ? 'bg-emerald-500 w-full' : 
-                                startStatus === 'Early' ? 'bg-blue-500 w-4/5' : 'bg-red-500 w-1/3'
-                              )} />
-                            </div>
-                            
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-medium text-slate-600">Trip Arrival</span>
-                              <div className="flex items-center gap-2">
-                                <div className={cn("w-3 h-3 rounded-full", 
-                                  displayArrivalStatus === 'On Time' ? 'bg-emerald-500' : 
-                                  displayArrivalStatus === 'Early' ? 'bg-blue-500' : 'bg-red-500'
-                                )} />
-                                <span className={cn("text-sm font-semibold",
-                                  displayArrivalStatus === 'On Time' ? 'text-emerald-700' : 
-                                  displayArrivalStatus === 'Early' ? 'text-blue-700' : 'text-red-700'
-                                )}>{displayArrivalStatus}</span>
-                              </div>
-                            </div>
-                            <div className="w-full bg-slate-100 rounded-full h-2">
-                              <div className={cn("h-2 rounded-full transition-all duration-500",
-                                displayArrivalStatus === 'On Time' ? 'bg-emerald-500 w-full' : 
-                                displayArrivalStatus === 'Early' ? 'bg-blue-500 w-4/5' : 'bg-red-500 w-1/3'
-                              )} />
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      {/* Route Compliance */}
-                      <Card className="border-0 shadow-sm">
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-base font-semibold flex items-center gap-2">
-                            <CheckCircle className="w-4 h-4 text-emerald-600" />
-                            Route Compliance
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="flex items-center justify-center mb-4">
-                            <div className="relative w-32 h-32">
-                              <div className="absolute inset-0 rounded-full border-8 border-slate-100" />
-                              <div className={cn("absolute inset-0 rounded-full border-8 border-t-8 transition-all duration-1000",
-                                unauthorizedStops === 0 ? 'border-emerald-500 rotate-0' : 'border-red-500',
-                                unauthorizedStops === 0 ? 'border-t-emerald-500' : 'border-t-red-500'
-                              )} style={{
-                                transform: `rotate(${unauthorizedStops === 0 ? '360deg' : '90deg'})`
-                              }} />
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <div className="text-center">
-                                  <div className={cn("text-2xl font-bold",
-                                    unauthorizedStops === 0 ? 'text-emerald-600' : 'text-red-600'
-                                  )}>
-                                    {unauthorizedStops === 0 ? '100%' : '0%'}
-                                  </div>
-                                  <div className="text-xs text-slate-500">Compliant</div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between text-sm">
-                              <div className="flex items-center gap-2">
-                                <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                                <span className="text-slate-600">Compliant Route</span>
-                              </div>
-                              <span className="font-semibold text-emerald-700">
-                                {unauthorizedStops === 0 ? '✓' : '✗'}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                              <div className="flex items-center gap-2">
-                                <div className="w-3 h-3 rounded-full bg-red-500" />
-                                <span className="text-slate-600">Violations</span>
-                              </div>
-                              <span className="font-semibold text-red-700">
-                                {unauthorizedStops}
-                              </span>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    {trip.notes && (
-                      <div className="mt-4 p-3 bg-white rounded border border-slate-200">
-                        <h5 className="font-medium text-slate-900 mb-2">Trip Notes</h5>
-                        <p className="text-sm text-slate-600">{trip.notes}</p>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              )}
-            </Card>
-          )
-        })}
-        
-        {completedTrips.length === 0 && (
-          <div className="text-center py-12 text-slate-500">
-            <Truck className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p className="text-lg font-medium mb-2">No trips found</p>
-            <p className="text-sm">Trip reports will appear here for active and completed trips</p>
-          </div>
-        )}
+                  </TableCell>
+                  <TableCell className="py-1.5 px-3 text-slate-600 whitespace-normal break-words">{trip.notes || '-'}</TableCell>
+                  <TableCell className="py-1.5 px-3 text-slate-600 whitespace-normal break-words">{cleanStatusNotes(trip) || '-'}</TableCell>
+                </TableRow>
+              )
+            })}
+            {trips.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-12 text-slate-500">
+                  <Truck className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium mb-2">No trips found</p>
+                  <p className="text-sm">No completed, delivered or cancelled trips for this month</p>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
       </div>
     </div>
   )
@@ -2553,12 +2324,6 @@ export default function Dashboard() {
                 Live Map
               </TabsTrigger>
               <TabsTrigger
-                value="live-stream"
-                className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
-              >
-                Live Stream
-              </TabsTrigger>
-              <TabsTrigger
                 value="reports"
                 className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
@@ -2593,12 +2358,6 @@ export default function Dashboard() {
                 className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
                 Live Map
-              </TabsTrigger>
-              <TabsTrigger
-                value="live-stream"
-                className="px-6 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white data-[state=active]:shadow-sm"
-              >
-                Live Stream
               </TabsTrigger>
               <TabsTrigger
                 value="reports"
@@ -2657,12 +2416,6 @@ export default function Dashboard() {
               setCurrentTripForVideo={setCurrentTripForVideo}
               onlineDevices={onlineDevices}
             />
-          </div>
-        )}
-
-        {activeTab === "live-stream" && (
-          <div className="space-y-4">
-            <LiveStreamTab />
           </div>
         )}
 
@@ -3789,7 +3542,7 @@ export default function Dashboard() {
               <div className="bg-yellow-50 p-3 rounded border-l-4 border-yellow-500">
                 <div className="flex items-center gap-2 mb-2">
                   <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                  <span className="font-medium text-yellow-800">Trip #{currentTripForClose.trip_id || currentTripForClose.id}</span>
+                  <span className="font-medium text-yellow-800">Trip #{currentTripForClose.ordernumber || currentTripForClose.trip_id || currentTripForClose.id}</span>
                 </div>
                 <p className="text-sm text-yellow-700">
                   This will mark the trip as completed before all steps are finished.

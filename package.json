@@ -55,6 +55,7 @@
     "js-cookie": "^3.0.5",
     "jspdf": "^3.0.4",
     "jspdf-autotable": "^5.0.8",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.552.0",
     "mapbox-gl": "^3.14.0",
     "motion": "^12.23.12",
