@@ -513,7 +513,7 @@ export default function AuditPage() {
                 {filteredRecords.map((record) => (
                   <tr key={record.id} className="border-t hover:bg-slate-50">
                     <td className="px-3 py-2">
-                      <div className="font-medium text-slate-900">{record.ordernumber || record.trip_id || '—'}</div>
+                      <div className="font-medium text-slate-900">{record.ordernumber || '—'}</div>
                     </td>
                     <td className="px-3 py-2 text-sm text-slate-700">{getClientName(record)}</td>
                     <td className="px-3 py-2 text-sm text-slate-700">{record.cargo || 'N/A'}</td>
@@ -653,9 +653,9 @@ export default function AuditPage() {
           <DialogHeader>
             <DialogTitle>Trip Documents</DialogTitle>
             <DialogDescription>
-              {selectedDocumentRecord?.ordernumber || selectedDocumentRecord?.trip_id
-                ? `Files attached to ${selectedDocumentRecord.ordernumber || selectedDocumentRecord.trip_id}`
-                : 'Files attached to this trip'}
+              {selectedDocumentRecord?.ordernumber
+                ? `Files attached to ${selectedDocumentRecord.ordernumber}`
+                : 'Files attached to this record'}
             </DialogDescription>
           </DialogHeader>
 

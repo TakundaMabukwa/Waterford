@@ -551,10 +551,9 @@ export default function AuditTripWorkspace({
                 Financial Reporting
               </div>
               <div className="truncate text-lg font-extrabold text-[#001e42]">
-                {record?.trip_id || 'Trip Audit'}
+                {record?.ordernumber || 'Trip Audit'}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                <span>{record?.ordernumber || 'No order number'}</span>
                 <span>{getClientName(record)}</span>
                 <span>{record?.origin || 'N/A'} to {record?.destination || 'N/A'}</span>
               </div>
