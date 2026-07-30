@@ -10,14 +10,16 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const auditId = searchParams.get('audit_id')
   const tripId = searchParams.get('trip_id')
+  const sundryInvoiceId = searchParams.get('sundry_invoice_id')
 
-  if (!auditId && !tripId) {
-    return NextResponse.json({ error: 'audit_id or trip_id is required' }, { status: 400 })
+  if (!auditId && !tripId && !sundryInvoiceId) {
+    return NextResponse.json({ error: 'audit_id, trip_id, or sundry_invoice_id is required' }, { status: 400 })
   }
 
   let query = supabase.from('invoice_documents').select('*')
   if (auditId) query = query.eq('audit_id', Number(auditId))
   if (tripId) query = query.eq('trip_id', tripId)
+  if (sundryInvoiceId) query = query.eq('sundry_invoice_id', Number(sundryInvoiceId))
 
   const { data, error } = await query.single()
   if (error && error.code !== 'PGRST116') {
@@ -33,12 +35,16 @@ export async function POST(request: Request) {
     const file = formData.get('file') as File
     const auditId = formData.get('audit_id') as string
     const tripId = formData.get('trip_id') as string
+    const sundryInvoiceId = formData.get('sundry_invoice_id') as string
     const ordernumber = formData.get('ordernumber') as string
     const invoiceNumber = formData.get('invoice_number') as string
     const uploadedBy = formData.get('uploaded_by') as string
 
-    if (!file || !auditId || !tripId) {
-      return NextResponse.json({ error: 'file, audit_id, and trip_id are required' }, { status: 400 })
+    if (!file) {
+      return NextResponse.json({ error: 'file is required' }, { status: 400 })
+    }
+    if (!auditId && !sundryInvoiceId) {
+      return NextResponse.json({ error: 'audit_id or sundry_invoice_id is required' }, { status: 400 })
     }
 
     // Validate file type
@@ -60,7 +66,8 @@ export async function POST(request: Request) {
     }
 
     const ext = file.name.split('.').pop() || 'bin'
-    const filePath = `invoice-docs/${tripId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+    const folderId = sundryInvoiceId || tripId || 'unknown'
+    const filePath = `invoice-docs/${folderId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
 
     // Upload to storage
     const buffer = Buffer.from(await file.arrayBuffer())
@@ -89,11 +96,22 @@ export async function POST(request: Request) {
     }
 
     // Upsert into invoice_documents — append to documents jsonb array
-    const { data: existing } = await supabase
-      .from('invoice_documents')
-      .select('id, documents')
-      .eq('audit_id', Number(auditId))
-      .single()
+    let existing = null
+    if (auditId) {
+      const { data } = await supabase
+        .from('invoice_documents')
+        .select('id, documents')
+        .eq('audit_id', Number(auditId))
+        .single()
+      existing = data
+    } else if (sundryInvoiceId) {
+      const { data } = await supabase
+        .from('invoice_documents')
+        .select('id, documents')
+        .eq('sundry_invoice_id', Number(sundryInvoiceId))
+        .single()
+      existing = data
+    }
 
     if (existing) {
       const updatedDocs = [...(existing.documents || []), docEntry]
@@ -106,16 +124,22 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `Failed to save document: ${updateError.message}` }, { status: 500 })
       }
     } else {
+      const insertRow: any = {
+        ordernumber: ordernumber || '',
+        invoice_number: invoiceNumber || '',
+        documents: [docEntry],
+        uploaded_by: uploadedBy || '',
+      }
+      if (auditId) {
+        insertRow.audit_id = Number(auditId)
+        insertRow.trip_id = tripId || ''
+      }
+      if (sundryInvoiceId) {
+        insertRow.sundry_invoice_id = Number(sundryInvoiceId)
+      }
       const { error: insertError } = await supabase
         .from('invoice_documents')
-        .insert([{
-          audit_id: Number(auditId),
-          trip_id: tripId,
-          ordernumber: ordernumber || '',
-          invoice_number: invoiceNumber || '',
-          documents: [docEntry],
-          uploaded_by: uploadedBy || '',
-        }])
+        .insert([insertRow])
       if (insertError) {
         console.error('Insert error:', insertError)
         return NextResponse.json({ error: `Failed to save document: ${insertError.message}` }, { status: 500 })

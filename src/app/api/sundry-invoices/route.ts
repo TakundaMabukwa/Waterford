@@ -35,7 +35,7 @@ export async function POST(request: Request) {
       customer_vat: body.customerVat || '',
       invoice_date: body.invoiceDate || '',
       due_date: body.dueDate || '',
-      notes: body.notes || '',
+      reference_number: body.referenceNumber || '',
       line_items: body.lineItems || [],
       subtotal: body.subtotal || 0,
       vat_amount: body.vatAmount || 0,

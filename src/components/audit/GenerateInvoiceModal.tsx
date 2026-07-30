@@ -278,15 +278,16 @@ export default function GenerateInvoiceModal({
     doc.setFontSize(10)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(0, 0, 0)
-    doc.text(customerName || 'Customer', ml, custY)
+    const nameLines = doc.splitTextToSize(customerName || 'Customer', 80)
+    doc.text(nameLines, ml, custY)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
-    const addrLines = customerAddress ? doc.splitTextToSize(customerAddress, 65) : []
+    const addrLines = customerAddress ? doc.splitTextToSize(customerAddress, 80) : []
     if (addrLines.length) {
-      doc.text(addrLines, ml, custY + 5)
+      doc.text(addrLines, ml, custY + nameLines.length * 4.5 + 2)
     }
     if (customerVat) {
-      doc.text(`VAT Number: ${customerVat}`, ml, custY + 5 + addrLines.length * 4.5 + 2)
+      doc.text(`VAT Number: ${customerVat}`, ml, custY + nameLines.length * 4.5 + 2 + addrLines.length * 4.5 + 2)
     }
 
     // ── RIGHT: Invoice details + Company info ──────────────────────
@@ -546,7 +547,7 @@ export default function GenerateInvoiceModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative z-10 mx-4 max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+      <div className="relative z-10 mx-4 max-h-[95vh] w-full max-w-[95vw] overflow-y-auto rounded-2xl bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <div>
             <h2 className="text-lg font-extrabold text-[#001e42]">Generate Invoice</h2>

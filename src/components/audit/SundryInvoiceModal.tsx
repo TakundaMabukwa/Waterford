@@ -1,8 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicitany */
 'use client'
 
-import { useState } from 'react'
-import { X, Plus, Trash2, Download, Loader2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { X, Plus, Trash2, Download, Loader2, Upload } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { Button } from '@/components/ui/button'
@@ -57,15 +57,43 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
 
   const [invoiceDate, setInvoiceDate] = useState(today)
   const [invoiceNumber, setInvoiceNumber] = useState('')
+  const [referenceNumber, setReferenceNumber] = useState('')
   const [customerName, setCustomerName] = useState('')
   const [customerAddress, setCustomerAddress] = useState('')
   const [customerVat, setCustomerVat] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [currency, setCurrency] = useState('ZAR')
-  const [notes, setNotes] = useState('')
   const [generating, setGenerating] = useState(false)
-  const [lessAmountPaid, setLessAmountPaid] = useState(0)
-  const [lessAmountCredited, setLessAmountCredited] = useState(0)
+
+  const [clients, setClients] = useState<any[]>([])
+  const [selectedClientId, setSelectedClientId] = useState('')
+
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    async function fetchClients() {
+      try {
+        const res = await fetch('/api/eps-client-list', { cache: 'no-store' })
+        const result = await res.json()
+        if (result.data) setClients(result.data)
+      } catch {}
+    }
+    fetchClients()
+  }, [])
+
+  const handleClientSelect = (clientId: string) => {
+    setSelectedClientId(clientId)
+    const client = clients.find((c) => String(c.id) === clientId)
+    if (client) {
+      setCustomerName(client.name || '')
+      const addrParts = [client.address, client.city, client.country].filter(Boolean)
+      setCustomerAddress(addrParts.join(', '))
+      setCustomerVat(client.vat_number || client.tax_number || '')
+    }
+  }
 
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([
     {
@@ -101,7 +129,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
   const subtotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
   const totalVat = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice * VAT_RATES[item.vatType], 0)
   const totalZar = subtotal + totalVat
-  const amountDue = totalZar - lessAmountPaid - lessAmountCredited
+  const amountDue = totalZar
 
   const generatePdf = async () => {
     setGenerating(true)
@@ -142,15 +170,16 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       doc.setFontSize(10)
       doc.setFont('helvetica', 'bold')
       doc.setTextColor(0, 0, 0)
-      doc.text(customerName || 'Customer', ml, custY)
+      const nameLines = doc.splitTextToSize(customerName || 'Customer', 80)
+      doc.text(nameLines, ml, custY)
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
-      const addrLines = customerAddress ? doc.splitTextToSize(customerAddress, 65) : []
+      const addrLines = customerAddress ? doc.splitTextToSize(customerAddress, 80) : []
       if (addrLines.length) {
-        doc.text(addrLines, ml, custY + 5)
+        doc.text(addrLines, ml, custY + nameLines.length * 4.5 + 2)
       }
       if (customerVat) {
-        doc.text(`VAT Number: ${customerVat}`, ml, custY + 5 + addrLines.length * 4.5 + 2)
+        doc.text(`VAT Number: ${customerVat}`, ml, custY + nameLines.length * 4.5 + 2 + addrLines.length * 4.5 + 2)
       }
 
       // RIGHT: Invoice details + Company info
@@ -181,7 +210,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       doc.setFont('helvetica', 'bold')
       doc.text('Reference', invLabelX, ry)
       doc.setFont('helvetica', 'normal')
-      const refText = 'SUNDRY INVOICE'
+      const refText = referenceNumber || 'SUNDRY INVOICE'
       doc.text(refText, invValueX, ry)
       doc.text('96 Cavaleros Drive', coInfoX, ry)
       ry += 5
@@ -295,16 +324,6 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       doc.setFontSize(10)
       doc.text(`TOTAL ${currency}`, sL, y)
       doc.text(formatNum(totalZar), sV, y, { align: 'right' })
-      y += 6
-
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(10)
-      doc.text('Less Amount Paid', sL, y)
-      doc.text(lessAmountPaid > 0 ? formatNum(lessAmountPaid) : '-', sV, y, { align: 'right' })
-      y += 6
-
-      doc.text('Less Amount Credited', sL, y)
-      doc.text(lessAmountCredited > 0 ? formatNum(lessAmountCredited) : '-', sV, y, { align: 'right' })
       y += 5
 
       doc.setDrawColor(0, 0, 0)
@@ -377,7 +396,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           customerVat,
           invoiceDate,
           dueDate,
-          notes,
+          referenceNumber,
           lineItems: lineItems.map((item) => ({
             description: item.description,
             quantity: item.quantity,
@@ -387,8 +406,6 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           subtotal,
           vatAmount: totalVat,
           totalAmount: totalZar,
-          lessAmountPaid,
-          lessAmountCredited,
           amountDue,
           invoiceUrl,
           currency,
@@ -398,6 +415,20 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       const result = await res.json()
       if (result.invoiceNumber) {
         setInvoiceNumber(result.invoiceNumber)
+      }
+
+      // Upload pending documents linked to this sundry invoice
+      if (result.data?.id && pendingFiles.length > 0) {
+        for (const file of pendingFiles) {
+          try {
+            const formData = new FormData()
+            formData.append('file', file)
+            formData.append('sundry_invoice_id', String(result.data.id))
+            formData.append('invoice_number', invNumber)
+            formData.append('uploaded_by', '')
+            await fetch('/api/invoice-documents', { method: 'POST', body: formData })
+          } catch {}
+        }
       }
 
       toast.success('Sundry invoice generated and stored')
@@ -415,7 +446,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative z-10 mx-4 max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+      <div className="relative z-10 mx-4 max-h-[95vh] w-full max-w-[95vw] overflow-y-auto rounded-2xl bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <div>
             <h2 className="text-lg font-extrabold text-[#001e42]">Sundry Invoice</h2>
@@ -450,6 +481,23 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
               </Select>
             </div>
             <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Reference</label>
+              <Input value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} placeholder="e.g. PO Number or custom reference" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Client (optional)</label>
+              <Select value={selectedClientId} onValueChange={handleClientSelect}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select client to auto-fill" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer Name</label>
               <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Customer or company name" />
             </div>
@@ -464,28 +512,6 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Due Date</label>
               <Input value={dueDate} onChange={(e) => setDueDate(e.target.value)} placeholder="On Receipt" />
-            </div>
-          </div>
-
-          {/* Payments & Credits */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Less Amount Paid</label>
-              <Input
-                type="number"
-                value={lessAmountPaid || ''}
-                onChange={(e) => setLessAmountPaid(Number(e.target.value) || 0)}
-                placeholder="0.00"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Less Amount Credited</label>
-              <Input
-                type="number"
-                value={lessAmountCredited || ''}
-                onChange={(e) => setLessAmountCredited(Number(e.target.value) || 0)}
-                placeholder="0.00"
-              />
             </div>
           </div>
 
@@ -590,14 +616,6 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                   <span className="text-lg font-bold">{formatCurrency(totalZar, currency)}</span>
                 </div>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">Less Amount Paid</span>
-                <span className="font-medium">{lessAmountPaid > 0 ? formatCurrency(lessAmountPaid, currency) : '-'}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">Less Amount Credited</span>
-                <span className="font-medium">{lessAmountCredited > 0 ? formatCurrency(lessAmountCredited, currency) : '-'}</span>
-              </div>
               <div className="border-t border-[#001e42] pt-2">
                 <div className="flex justify-between">
                   <span className="text-sm font-bold text-[#001e42]">AMOUNT DUE {currency}</span>
@@ -607,16 +625,52 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
             </div>
           </div>
 
-          {/* Notes */}
+          {/* Documents */}
           <div>
-            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Notes (optional)</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-[#001e42] focus:outline-none"
-              placeholder="Additional notes..."
+            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">
+              Supporting Documents {pendingFiles.length > 0 && `(${pendingFiles.length})`}
+            </label>
+            <div
+              className="rounded-lg border-2 border-dashed border-slate-300 p-4 text-center cursor-pointer hover:border-[#001e42] transition-colors"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="mx-auto mb-2 h-6 w-6 text-slate-400" />
+              <p className="text-sm text-slate-600">
+                {uploading ? 'Uploading...' : 'Click to upload or drag files here'}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                Images, PDF, Word, Excel — Max 20MB per file
+              </p>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
+              onChange={(e) => {
+                if (e.target.files) {
+                  setPendingFiles((prev) => [...prev, ...Array.from(e.target.files!)])
+                }
+                e.target.value = ''
+              }}
+              className="hidden"
             />
+            {uploadError && <p className="mt-1 text-xs text-red-600">{uploadError}</p>}
+            {pendingFiles.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {pendingFiles.map((file, i) => (
+                  <div key={i} className="flex items-center justify-between rounded border border-slate-200 px-3 py-2">
+                    <span className="truncate text-sm text-slate-700">{file.name}</span>
+                    <button
+                      onClick={() => setPendingFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="ml-2 text-slate-400 hover:text-red-500 shrink-0"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
