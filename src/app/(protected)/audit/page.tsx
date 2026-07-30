@@ -139,7 +139,6 @@ export default function AuditPage() {
       const query = searchTerm.toLowerCase()
       next = next.filter(
         (record) =>
-          record.trip_id?.toLowerCase().includes(query) ||
           record.ordernumber?.toLowerCase().includes(query) ||
           record.origin?.toLowerCase().includes(query) ||
           record.destination?.toLowerCase().includes(query)
@@ -514,8 +513,7 @@ export default function AuditPage() {
                 {filteredRecords.map((record) => (
                   <tr key={record.id} className="border-t hover:bg-slate-50">
                     <td className="px-3 py-2">
-                      <div className="font-medium text-slate-900">{record.trip_id}</div>
-                      <div className="text-xs text-slate-500">{record.ordernumber || 'No order number'}</div>
+                      <div className="font-medium text-slate-900">{record.ordernumber || record.trip_id || '—'}</div>
                     </td>
                     <td className="px-3 py-2 text-sm text-slate-700">{getClientName(record)}</td>
                     <td className="px-3 py-2 text-sm text-slate-700">{record.cargo || 'N/A'}</td>
@@ -655,7 +653,9 @@ export default function AuditPage() {
           <DialogHeader>
             <DialogTitle>Trip Documents</DialogTitle>
             <DialogDescription>
-              {selectedDocumentRecord?.trip_id ? `Files attached to ${selectedDocumentRecord.trip_id}` : 'Files attached to this trip'}
+              {selectedDocumentRecord?.ordernumber || selectedDocumentRecord?.trip_id
+                ? `Files attached to ${selectedDocumentRecord.ordernumber || selectedDocumentRecord.trip_id}`
+                : 'Files attached to this trip'}
             </DialogDescription>
           </DialogHeader>
 
