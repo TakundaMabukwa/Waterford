@@ -335,7 +335,7 @@ const parseClientNotes = (trip: any): Array<{ message: string; created_at: strin
 }
 
 // Driver Card Component with fetched driver info
-const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, onlineDevices, isVisible = true, fuelData = null }: any) {
+const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNotesImages, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, onlineDevices, isVisible = true, fuelData = null }: any) {
   const router = useRouter()
   const [driverInfo, setDriverInfo] = useState<any>(null)
   const [vehicleInfo, setVehicleInfo] = useState<any>(null)
@@ -543,6 +543,27 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
           <span className="text-xs font-medium text-slate-700 uppercase">Driver Notes</span>
         </div>
         <div className="text-xs text-slate-900">{trip.status_notes || 'No notes added'}</div>
+        {trip.notes_images && trip.notes_images.trim() && (
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {trip.notes_images.split(',').map((url: string, idx: number) => {
+              const trimmed = url.trim()
+              if (!trimmed) return null
+              const fileName = trimmed.split('/').pop() || `image-${idx}`
+              return (
+                <a
+                  key={idx}
+                  href={trimmed}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 hover:bg-blue-100"
+                >
+                  <FileText className="h-3 w-3" />
+                  {fileName}
+                </a>
+              )
+            })}
+          </div>
+        )}
       </div>
       <div className="mb-2 p-2 rounded-lg bg-white/20 border border-white/5">
         <div className="flex items-center gap-1 mb-1">
@@ -857,6 +878,7 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
           onClick={() => {
             setCurrentTripForNote(trip);
             setNoteText(trip.notes || trip.status_notes || '');
+            setNotesImages(trip.notes_images || '');
             setNoteTarget('driver');
             setNoteOpen(true);
           }}
@@ -991,7 +1013,7 @@ function LiveElapsed({ timestamp }: { timestamp: string }) {
 }
 
 // Enhanced routing components with proper waypoints
-const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, refreshTrigger, setRefreshTrigger, setPickupTimeOpen, setDropoffTimeOpen, setCurrentTripForTime, setTimeType, setSelectedTime, currentUnauthorizedTrip, setCurrentUnauthorizedTrip, setUnauthorizedStopModalOpen, loadingPhotos, setLoadingPhotos, setCurrentTripPhotos, setPhotosModalOpen, setCurrentTripAlerts, setAlertsModalOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, onlineDevices, isVisible = true, fuelMap = null }: any) {
+const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNotesImages, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, refreshTrigger, setRefreshTrigger, setPickupTimeOpen, setDropoffTimeOpen, setCurrentTripForTime, setTimeType, setSelectedTime, currentUnauthorizedTrip, setCurrentUnauthorizedTrip, setUnauthorizedStopModalOpen, loadingPhotos, setLoadingPhotos, setCurrentTripPhotos, setPhotosModalOpen, setCurrentTripAlerts, setAlertsModalOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, onlineDevices, isVisible = true, fuelMap = null }: any) {
   const [trips, setTrips] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [dropoffEtaByTrip, setDropoffEtaByTrip] = useState<Record<string, TripEtaState>>({})
@@ -1006,7 +1028,7 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
         const { data, error } = await supabase
           .from('trips')
           .select('*')
-          .not('status', 'in', '("delivered","completed")')
+          .in('status', ['accepted', 'arrived-at-loading', 'loading', 'on-trip', 'offloading', 'breakdown', 'delivered', 'completed'])
           .order('updated_at', { ascending: false })
           .limit(100)
         if (error) throw error
@@ -1047,9 +1069,11 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
   }, [refreshTrigger])
 
   // Sort trips to put unauthorized stops at the top
-  const tripsList = useMemo(() => {
+  const ALLOWED_STATUSES = ['accepted', 'arrived-at-loading', 'loading', 'on-trip', 'offloading', 'breakdown', 'delivered', 'completed']
+
+const tripsList = useMemo(() => {
     const filtered = trips
-      .filter(trip => trip.status?.toLowerCase() !== 'delivered' && trip.status?.toLowerCase() !== 'completed')
+      .filter(trip => ALLOWED_STATUSES.includes(trip.status?.toLowerCase()))
       .sort((a, b) => {
         const aUnauthorized = a.unauthorized_stops_count || 0
         const bUnauthorized = b.unauthorized_stops_count || 0
@@ -1103,9 +1127,9 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
     async function fetchTripEtas() {
       if (!isVisible) return
 
-      const activeTrips = trips.filter(
-        (trip) => trip.status?.toLowerCase() !== 'delivered' && trip.status?.toLowerCase() !== 'completed'
-      )
+       const activeTrips = trips.filter(
+         (trip) => ALLOWED_STATUSES.includes(trip.status?.toLowerCase())
+       )
 
       if (activeTrips.length === 0) {
         setDropoffEtaByTrip({})
@@ -1415,11 +1439,12 @@ const STATUS_OPTIONS = [
               trip={trip} 
               userRole={userRole}
               isVisible={isVisible}
-              fuelData={fuelMap.get(tripVehiclePlate) || null}
-              handleViewMap={handleViewMap}
-              setCurrentTripForNote={setCurrentTripForNote}
-              setNoteText={setNoteText}
-              setNoteOpen={setNoteOpen}
+               fuelData={fuelMap.get(tripVehiclePlate) || null}
+               handleViewMap={handleViewMap}
+               setCurrentTripForNote={setCurrentTripForNote}
+               setNoteText={setNoteText}
+               setNotesImages={setNotesImages}
+               setNoteOpen={setNoteOpen}
               setAvailableDrivers={setAvailableDrivers}
               setCurrentTripForChange={setCurrentTripForChange}
               setChangeDriverOpen={setChangeDriverOpen}
@@ -2029,6 +2054,7 @@ export default function Dashboard() {
   const [noteOpen, setNoteOpen] = useState(false);
   const [currentTripForNote, setCurrentTripForNote] = useState<any>(null);
   const [noteText, setNoteText] = useState('');
+  const [notesImages, setNotesImages] = useState('');
   const [noteTarget, setNoteTarget] = useState<'driver' | 'client'>('driver');
   const [changeDriverOpen, setChangeDriverOpen] = useState(false);
   const [currentTripForChange, setCurrentTripForChange] = useState<any>(null);
@@ -2378,14 +2404,15 @@ export default function Dashboard() {
                 <p className="text-muted-foreground">Monitor all trips with progress tracking and waypoints</p>
               </div>
             </div>
-            <RoutingSection 
-              userRole={userRole}
-              isVisible={activeTab === "routing"}
-              handleViewMap={handleViewMap}
-              setCurrentTripForNote={setCurrentTripForNote}
-              setNoteText={setNoteText}
-              setNoteOpen={setNoteOpen}
-              setAvailableDrivers={setAvailableDrivers}
+             <RoutingSection 
+               userRole={userRole}
+               isVisible={activeTab === "routing"}
+               handleViewMap={handleViewMap}
+               setCurrentTripForNote={setCurrentTripForNote}
+               setNoteText={setNoteText}
+               setNotesImages={setNotesImages}
+               setNoteOpen={setNoteOpen}
+               setAvailableDrivers={setAvailableDrivers}
               setCurrentTripForChange={setCurrentTripForChange}
               setChangeDriverOpen={setChangeDriverOpen}
               refreshTrigger={refreshTrigger}
@@ -3030,10 +3057,11 @@ export default function Dashboard() {
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  setNoteOpen(false)
-                  setCurrentTripForNote(null)
-                  setNoteText('')
-                  setNoteTarget('driver')
+                 setNoteOpen(false)
+                 setCurrentTripForNote(null)
+                 setNoteText('')
+                 setNotesImages('')
+                 setNoteTarget('driver')
                 }}
               >
                 <X className="h-4 w-4" />
@@ -3049,11 +3077,13 @@ export default function Dashboard() {
                   onChange={(e) => {
                     const nextTarget = e.target.value as 'driver' | 'client'
                     setNoteTarget(nextTarget)
-                    if (nextTarget === 'driver') {
-                      setNoteText(currentTripForNote?.notes || currentTripForNote?.status_notes || '')
-                    } else {
-                      setNoteText('')
-                    }
+                     if (nextTarget === 'driver') {
+                       setNoteText(currentTripForNote?.notes || currentTripForNote?.status_notes || '')
+                       setNotesImages(currentTripForNote?.notes_images || '')
+                     } else {
+                       setNoteText('')
+                       setNotesImages('')
+                     }
                   }}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
@@ -3061,18 +3091,30 @@ export default function Dashboard() {
                   <option value="client">Client note</option>
                 </select>
               </div>
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">
-                  {noteTarget === 'client' ? 'Add or update client note' : 'Add or update driver note'}
-                </label>
-                <textarea
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  rows={5}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder={noteTarget === 'client' ? 'Type a client note here...' : 'Type a driver note here...'}
-                />
-              </div>
+               <div>
+                 <label className="mb-2 block text-sm font-medium text-gray-700">
+                   {noteTarget === 'client' ? 'Add or update client note' : 'Add or update driver note'}
+                 </label>
+                 <textarea
+                   value={noteText}
+                   onChange={(e) => setNoteText(e.target.value)}
+                   rows={5}
+                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                   placeholder={noteTarget === 'client' ? 'Type a client note here...' : 'Type a driver note here...'}
+                 />
+               </div>
+               <div>
+                 <label className="mb-2 block text-sm font-medium text-gray-700">
+                   Note Images (comma-separated URLs)
+                 </label>
+                 <input
+                   type="text"
+                   value={notesImages}
+                   onChange={(e) => setNotesImages(e.target.value)}
+                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                   placeholder="https://example.com/image1.jpg, https://example.com/image2.jpg"
+                 />
+               </div>
               {noteTarget === 'client' && (
                 <div>
                   <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -3136,6 +3178,7 @@ export default function Dashboard() {
                             notes: trimmedNote,
                             status_notes: trimmedNote,
                             statusnotes: trimmedNote,
+                            notes_images: notesImages.trim(),
                           }
 
                       const { error } = await supabase
@@ -3152,7 +3195,7 @@ export default function Dashboard() {
                                 ...trip,
                                 ...(noteTarget === 'client'
                                   ? { clients_notes: nextClientNotes }
-                                  : { notes: trimmedNote, status_notes: trimmedNote, statusnotes: trimmedNote }),
+                                  : { notes: trimmedNote, status_notes: trimmedNote, statusnotes: trimmedNote, notes_images: notesImages.trim() }),
                               }
                             : trip
                         )
