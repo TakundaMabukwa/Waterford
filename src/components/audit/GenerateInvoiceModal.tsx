@@ -318,7 +318,7 @@ export default function GenerateInvoiceModal({
     doc.setFont('helvetica', 'bold')
     doc.text('Reference', invLabelX, ry)
     doc.setFont('helvetica', 'normal')
-    const refFullText = referenceNumber || orderNum || 'N/A'
+    const refFullText = referenceNumber || 'N/A'
     const refWrapped = doc.splitTextToSize(refFullText, refMaxW)
     doc.text(refWrapped[0], invValueX, ry)
     doc.text('96 Cavaleros Drive', coInfoX, ry)
@@ -330,9 +330,18 @@ export default function GenerateInvoiceModal({
     doc.text('Industries West', coInfoX, ry)
     ry += 5
 
+    // Row 4: Order Number (bigger) + Company line 4
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.text('Order Number', invLabelX, ry)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(14)
+    doc.text(orderNum || 'N/A', invValueX, ry)
+    doc.setFontSize(9)
     doc.text('Germiston, 1401', coInfoX, ry)
     ry += 5
 
+    doc.setFontSize(9)
     doc.text('SOUTH AFRICA', coInfoX, ry)
     ry += 5
 
