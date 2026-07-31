@@ -1061,7 +1061,7 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
         const { data, error } = await supabase
           .from('trips')
           .select('*')
-          .in('status', ['accepted', 'arrived-at-loading', 'loading', 'on-trip', 'offloading', 'breakdown', 'delivered', 'completed'])
+          .in('status', ['accepted', 'arrived-at-loading', 'loading', 'on-trip', 'offloading', 'delivered', 'completed'])
           .order('updated_at', { ascending: false })
           .limit(100)
         if (error) throw error
@@ -1272,7 +1272,6 @@ const STATUS_OPTIONS = [
     { label: "On Trip", value: "on-trip" },
     { label: "Arrived at Offloading", value: "arrived-at-offloading" },
     { label: "Offloading", value: "offloading" },
-    { label: "Breakdown", value: "breakdown" },
     { label: "Delivered", value: "delivered" },
     { label: "Completed", value: "completed" },
     { label: "Cancelled", value: "cancelled" },
@@ -1286,7 +1285,6 @@ const STATUS_OPTIONS = [
     { label: "On trip", value: "on-trip" },
     { label: "Arrived at offloading", value: "arrived-at-offloading" },
     { label: "Offloading", value: "offloading" },
-    { label: "Breakdown", value: "breakdown" },
     { label: "Delivered", value: "delivered" },
     { label: "Complete", value: "completed" }
   ]
