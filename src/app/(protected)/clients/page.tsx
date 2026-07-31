@@ -54,6 +54,7 @@ type ClientRecord = {
   dormant_flag?: boolean | null;
   blocked?: boolean | null;
   notification_period?: number | null;
+  notification_groups?: any[] | null;
   postal_code?: string | null;
   fax_number?: string | null;
   registration_number?: string | null;
@@ -296,18 +297,19 @@ export default function ClientsPage() {
               <div className="w-full overflow-x-auto">
                 <Table className="w-full text-xs table-fixed">
                   <colgroup>
-                    <col className="w-[30%]" />
-                    <col className="w-[30%]" />
+                    <col className="w-[25%]" />
+                    <col className="w-[25%]" />
+                    <col className="w-[12%]" />
                     <col className="w-[10%]" />
-                    <col className="w-[15%]" />
-                    <col className="w-[15%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[14%]" />
                   </colgroup>
-                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="text-xs">Name</TableHead><TableHead className="text-xs">Contact</TableHead><TableHead className="text-center text-xs">Blocked</TableHead><TableHead className="text-center text-xs">Notifications</TableHead><TableHead className="text-right text-xs">Actions</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="text-xs">Name</TableHead><TableHead className="text-xs">Contact</TableHead><TableHead className="text-center text-xs">Blocked</TableHead><TableHead className="text-center text-xs">Groups</TableHead><TableHead className="text-center text-xs">Notifications</TableHead><TableHead className="text-right text-xs">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {isLoadingClients ? (
-                      <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-slate-500">Loading clients...</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={6} className="py-6 text-center text-sm text-slate-500">Loading clients...</TableCell></TableRow>
                     ) : filteredClients.length === 0 ? (
-                      <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-slate-500">No client rows found.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={6} className="py-6 text-center text-sm text-slate-500">No client rows found.</TableCell></TableRow>
                     ) : filteredClients.map((client) => (
                       <TableRow key={client.id} className="border-b border-slate-100">
                         <TableCell className="py-1.5"><div className="flex flex-col"><span className="truncate text-xs font-medium text-slate-900">{client.name || "-"}</span>{client.industry ? <span className="text-[11px] text-slate-500 truncate">{client.industry}</span> : null}</div></TableCell>
@@ -319,6 +321,19 @@ export default function ClientsPage() {
                           >
                             {client.blocked ? "Yes" : "No"}
                           </span>
+                        </TableCell>
+                        <TableCell className="py-1.5 text-center">
+                          {Array.isArray(client.notification_groups) && client.notification_groups.length > 0 ? (
+                            <div className="flex flex-wrap gap-1 justify-center">
+                              {client.notification_groups.map((g, i) => (
+                                <span key={i} className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                                  {g.name || `Group ${i + 1}`}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
                         </TableCell>
                         <TableCell className="py-1.5 text-center text-xs text-slate-700">
                           every {client.notification_period || 0} hour(s)

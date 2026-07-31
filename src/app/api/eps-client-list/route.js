@@ -39,7 +39,7 @@ export async function GET() {
     while (true) {
       const { data, error } = await supabase
         .from('eps_client_list')
-        .select('id, name, address, city, state, country, client_id, contact_person, contact_phone, contact_email, email, phone, status, industry, credit_limit, dormant_flag, postal_code, fax_number, registration_number, registration_name, ck_number, tax_number, vat_number, operating_hours, capacity, notes, coordinates, coords, blocked, notification_period, created_at, updated_at')
+        .select('id, name, address, city, state, country, client_id, contact_person, contact_phone, contact_email, email, phone, status, industry, credit_limit, dormant_flag, postal_code, fax_number, registration_number, registration_name, ck_number, tax_number, vat_number, operating_hours, capacity, notes, coordinates, coords, blocked, notification_period, notification_groups, created_at, updated_at')
         .order('name')
         .range(from, from + batchSize - 1)
       
@@ -122,6 +122,7 @@ export async function POST(request) {
       facilities: Array.isArray(payload.facilities) ? payload.facilities.filter(Boolean) : [],
       pickup_locations: Array.isArray(payload.pickup_locations) ? payload.pickup_locations : [],
       dropoff_locations: Array.isArray(payload.dropoff_locations) ? payload.dropoff_locations : [],
+      notification_groups: Array.isArray(payload.notification_groups) ? payload.notification_groups : [],
       updated_at: new Date().toISOString(),
     }
 
@@ -225,6 +226,7 @@ export async function PUT(request) {
       facilities: payload.facilities !== undefined ? (Array.isArray(payload.facilities) ? payload.facilities.filter(Boolean) : []) : existing.facilities,
       pickup_locations: payload.pickup_locations !== undefined ? (Array.isArray(payload.pickup_locations) ? payload.pickup_locations : []) : existing.pickup_locations,
       dropoff_locations: payload.dropoff_locations !== undefined ? (Array.isArray(payload.dropoff_locations) ? payload.dropoff_locations : []) : existing.dropoff_locations,
+      notification_groups: payload.notification_groups !== undefined ? (Array.isArray(payload.notification_groups) ? payload.notification_groups : []) : existing.notification_groups,
       updated_at: new Date().toISOString(),
     }
 

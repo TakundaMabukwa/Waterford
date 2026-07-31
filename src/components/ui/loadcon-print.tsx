@@ -191,7 +191,7 @@ export function LoadconPrint({ data }: { data: LoadconPrintData }) {
               <tr>
                 <td style={labelStyle}>Date:</td>
                 <td style={valueStyle}>{data.financeDate || ''}</td>
-                <td style={labelStyle}>Captured By:</td>
+                <td style={labelStyle}>Invoiced By:</td>
                 <td style={valueStyle}>{data.capturedBy || ''}</td>
               </tr>
             </tbody>

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
-import { X, Loader2, RotateCcw, Trash2 } from "lucide-react"
+import { X, Loader2, RotateCcw, Trash2, Plus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -47,6 +47,7 @@ const defaultFormState = {
   notes: "",
   notification_period: "0",
   blocked: false,
+  notification_groups: [] as Array<{ name: string; emails: string[] }>,
 }
 
 function ClientFormContent({
@@ -107,6 +108,7 @@ function ClientFormContent({
         notes: initialRecord.notes || "",
         notification_period: initialRecord.notification_period?.toString() || "0",
         blocked: Boolean(initialRecord.blocked),
+        notification_groups: Array.isArray(initialRecord.notification_groups) ? initialRecord.notification_groups : [],
       })
       const parsedCoords = parsePoint(initialRecord.coords || initialRecord.location_coordinates)
       if (parsedCoords) setCenterPoint(parsedCoords)
@@ -259,6 +261,7 @@ function ClientFormContent({
         blocked: formState.blocked === "true" || formState.blocked === true,
         coordinates: polygon.length >= 3 ? JSON.stringify(polygon) : null,
         coords: centerPoint ? `${centerPoint.lat},${centerPoint.lng}` : null,
+        notification_groups: formState.notification_groups || [],
       }
       if (isEditing) body.id = initialRecord.id
 
@@ -482,6 +485,103 @@ function ClientFormContent({
               <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Notes</Label>
               <Textarea value={formState.notes} onChange={(e) => updateField("notes", e.target.value)} rows={3} />
             </div>
+          </section>
+
+          <section className="space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Notification Groups</h3>
+              <p className="text-xs text-slate-500">Organize client contacts into groups for trip assignment.</p>
+            </div>
+            {formState.notification_groups.length === 0 && (
+              <p className="text-xs text-slate-400 italic">No groups created yet.</p>
+            )}
+            {formState.notification_groups.map((group, gIdx) => (
+              <div key={gIdx} className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={group.name}
+                    onChange={(e) => {
+                      const updated = [...formState.notification_groups]
+                      updated[gIdx] = { ...updated[gIdx], name: e.target.value }
+                      setFormState((prev) => ({ ...prev, notification_groups: updated }))
+                    }}
+                    placeholder="Group name"
+                    className="flex-1 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    onClick={() => {
+                      const updated = formState.notification_groups.filter((_, i) => i !== gIdx)
+                      setFormState((prev) => ({ ...prev, notification_groups: updated }))
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="space-y-1">
+                  {group.emails.map((email, eIdx) => (
+                    <div key={eIdx} className="flex items-center gap-2">
+                      <Input
+                        value={email}
+                        onChange={(e) => {
+                          const updated = [...formState.notification_groups]
+                          const newEmails = [...updated[gIdx].emails]
+                          newEmails[eIdx] = e.target.value
+                          updated[gIdx] = { ...updated[gIdx], emails: newEmails }
+                          setFormState((prev) => ({ ...prev, notification_groups: updated }))
+                        }}
+                        placeholder="Email address"
+                        className="flex-1 text-xs"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-slate-400 hover:text-red-500"
+                        onClick={() => {
+                          const updated = [...formState.notification_groups]
+                          const newEmails = updated[gIdx].emails.filter((_, i) => i !== eIdx)
+                          updated[gIdx] = { ...updated[gIdx], emails: newEmails }
+                          setFormState((prev) => ({ ...prev, notification_groups: updated }))
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                    onClick={() => {
+                      const updated = [...formState.notification_groups]
+                      updated[gIdx] = { ...updated[gIdx], emails: [...updated[gIdx].emails, ''] }
+                      setFormState((prev) => ({ ...prev, notification_groups: updated }))
+                    }}
+                  >
+                    <Plus className="mr-1 h-3 w-3" /> Add Email
+                  </Button>
+                </div>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-xs"
+              onClick={() => {
+                setFormState((prev) => ({
+                  ...prev,
+                  notification_groups: [...prev.notification_groups, { name: '', emails: [''] }],
+                }))
+              }}
+            >
+              <Plus className="mr-1 h-3 w-3" /> Add Group
+            </Button>
           </section>
 
           {error && (

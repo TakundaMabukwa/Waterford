@@ -87,6 +87,7 @@ export default function LoadPlanPage() {
   const [rate, setRate] = useState('0')
   const [orderNumber, setOrderNumber] = useState('')
   const [comment, setComment] = useState('')
+  const [selectedNotificationGroup, setSelectedNotificationGroup] = useState(null)
   // Address & ETA section
   const [etaPickup, setEtaPickup] = useState('')
   const [loadingLocation, setLoadingLocation] = useState('')
@@ -1732,6 +1733,7 @@ export default function LoadPlanPage() {
         loading_point_city: loadingPointCity,
         offloading_point_company: offloadingPointCompany,
         offloading_point_city: offloadingPointCity,
+        notification_group: selectedNotificationGroup || {},
         updated_by: currentUserEmail,
       }
       
@@ -1877,6 +1879,7 @@ export default function LoadPlanPage() {
         loading_point_city: loadingPointCity,
         offloading_point_company: offloadingPointCompany,
         offloading_point_city: offloadingPointCity,
+        notification_group: selectedNotificationGroup || {},
         created_by: currentUserEmail,
         updated_by: currentUserEmail,
         updated_at: new Date().toISOString(),
@@ -2010,7 +2013,7 @@ export default function LoadPlanPage() {
       }
       
       // Reset form
-      setClient(''); setSelectedClient(null); setManualClientName(''); setCommodity(''); setRate('0'); setOrderNumber(''); setComment('')
+      setClient(''); setSelectedClient(null); setManualClientName(''); setCommodity(''); setRate('0'); setOrderNumber(''); setComment(''); setSelectedNotificationGroup(null)
       setEtaPickup(''); setLoadingLocation(''); setEtaDropoff(''); setDropOffPoint('')
       setLoadingPointCompany(''); setLoadingPointCity(''); setOffloadingPointCompany(''); setOffloadingPointCity('')
       setDriverAssignments([{ id: '', name: '', first_name: '', surname: '' }])
@@ -2314,6 +2317,30 @@ export default function LoadPlanPage() {
                       />
                     </div>
                   </div>
+
+                  {selectedClient?.notification_groups?.length > 0 && (
+                    <div>
+                      <Label htmlFor="notificationGroup">Notification Group</Label>
+                      <Select
+                        value={selectedNotificationGroup?.name || ''}
+                        onValueChange={(val) => {
+                          const group = selectedClient.notification_groups.find(g => g.name === val)
+                          setSelectedNotificationGroup(group || null)
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a group (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {selectedClient.notification_groups.map((group, idx) => (
+                            <SelectItem key={idx} value={group.name}>
+                              {group.name} ({group.emails?.length || 0} emails)
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
                   <div className="md:col-span-2">
                     <Label htmlFor="comment">Comment</Label>

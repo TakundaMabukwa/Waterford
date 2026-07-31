@@ -5,14 +5,15 @@ import { cn } from "@/lib/utils"
 import { Truck, MapPin, CheckCircle, Clock, Package } from "lucide-react"
 
 const WORKFLOW_STATUSES = [
-  { label: "Pending", value: "pending" },
   { label: "Accept", value: "accepted" },
-  { label: "Arrived", value: "arrived-at-loading" },
+  { label: "Arrived at loading", value: "arrived-at-loading" },
   { label: "Loading", value: "loading" },
-  { label: "OnTrip", value: "on-trip" },
-  { label: "Arrive", value: "arrive" },
+  { label: "On trip", value: "on-trip" },
+  { label: "Arrived at offloading", value: "arrived-at-offloading" },
   { label: "Offloading", value: "offloading" },
+  { label: "Breakdown", value: "breakdown" },
   { label: "Delivered", value: "delivered" },
+  { label: "Complete", value: "completed" }
 ]
 
 function LiveElapsed({ timestamp }: { timestamp: string }) {
@@ -89,14 +90,14 @@ function getWaypoints(trip: any) {
 
   const stops = trip.selected_stop_points || trip.selectedstoppoints || []
   if (stops.length > 0) {
-    const loadingPos = baseWaypoints[4].position
-    const onTripPos = baseWaypoints[5].position
+    const loadingPos = baseWaypoints[2].position
+    const onTripPos = baseWaypoints[3].position
     const stopSpacing = (onTripPos - loadingPos) / (stops.length + 1)
 
     const stopWaypoints = stops.map((stop: any, index: number) => ({
       position: loadingPos + stopSpacing * (index + 1),
       label: `Stop ${index + 1}`,
-      completed: currentStatusIndex > 4,
+      completed: currentStatusIndex > 3,
       current: false,
       isStop: true,
       stopId: stop,
@@ -107,11 +108,11 @@ function getWaypoints(trip: any) {
     }))
 
     const adjustedWaypoints = [...baseWaypoints]
-    for (let i = 5; i < adjustedWaypoints.length; i++) {
-      adjustedWaypoints[i].position = onTripPos + ((i - 5) / (WORKFLOW_STATUSES.length - 6)) * (100 - onTripPos)
+    for (let i = 4; i < adjustedWaypoints.length; i++) {
+      adjustedWaypoints[i].position = onTripPos + ((i - 4) / (WORKFLOW_STATUSES.length - 4)) * (100 - onTripPos)
     }
 
-    return [...adjustedWaypoints.slice(0, 5), ...stopWaypoints, ...adjustedWaypoints.slice(5)]
+    return [...adjustedWaypoints.slice(0, 3), ...stopWaypoints, ...adjustedWaypoints.slice(3)]
   }
 
   return baseWaypoints
@@ -262,13 +263,13 @@ export default function ClientTripRouting({ trips }: { trips: any[] }) {
                           )}
                         </div>
                         <span className={cn(
-                          "text-[10px] mt-1 text-center max-w-12 leading-tight",
+                          "text-[10px] mt-1 text-center max-w-[5rem] whitespace-nowrap leading-tight",
                           waypoint.isStop ? "text-orange-600 font-medium" :
                           waypoint.current ? "text-sky-700 font-semibold" :
                           waypoint.completed ? "text-emerald-700 font-medium" :
                           "text-slate-500"
                         )}>
-                          {waypoint.label.split(" ")[0]}
+                          {waypoint.label}
                         </span>
                       </div>
                     ))}

@@ -51,6 +51,17 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
   const [dropOffPoint, setDropOffPoint] = useState('')
   const [optimizedRoute, setOptimizedRoute] = useState(null)
   const [isOptimizing, setIsOptimizing] = useState(false)
+  const [reuseOrderNumber, setReuseOrderNumber] = useState(false)
+  const [loadingPointCompany, setLoadingPointCompany] = useState('')
+  const [loadingPointCity, setLoadingPointCity] = useState('')
+  const [offloadingPointCompany, setOffloadingPointCompany] = useState('')
+  const [offloadingPointCity, setOffloadingPointCity] = useState('')
+  const [showReuseModal, setShowReuseModal] = useState(false)
+  const [reuseSearch, setReuseSearch] = useState('')
+  const [reuseTrips, setReuseTrips] = useState([])
+  const [reuseLoading, setReuseLoading] = useState(false)
+  const [originalStopPoints, setOriginalStopPoints] = useState([])
+  const [notificationGroup, setNotificationGroup] = useState(null)
 
   // Driver assignments state
   const [driverAssignments, setDriverAssignments] = useState([{ id: '', name: '' }])
@@ -328,6 +339,7 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
       const dropoffLocs = trip.dropoff_locations || trip.dropofflocations || []
       const assignments = trip.vehicleassignments || trip.vehicle_assignments || []
       const selectedStopPoints = trip.selected_stop_points || trip.selectedstoppoints || []
+      setOriginalStopPoints(selectedStopPoints)
 
       setClient(clientDetails?.name || '')
       setSelectedClient(clientDetails)
@@ -337,6 +349,11 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
       setComment(trip.notes || trip.status_notes || '')
       setLoadingLocation(trip.origin || '')
       setDropOffPoint(trip.destination || '')
+      setLoadingPointCompany(trip.loading_point_company || '')
+      setLoadingPointCity(trip.loading_point_city || '')
+      setOffloadingPointCompany(trip.offloading_point_company || '')
+      setOffloadingPointCity(trip.offloading_point_city || '')
+      setNotificationGroup(trip.notification_group || null)
       setEtaPickup(pickupLocs[0]?.scheduled_time || '')
       setEtaDropoff(dropoffLocs[0]?.scheduled_time || '')
       setTripType(trip.trip_type || 'local')
@@ -381,6 +398,9 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
         setStopPoints(stopPointIds)
         setCustomStopPoints(customPoints)
       }
+    }
+    if (isOpen) {
+      fetchStopPoints()
     }
   }, [trip, isOpen, vehicles])
 
@@ -574,6 +594,34 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
     return () => clearTimeout(timeoutId)
   }, [loadingLocation, dropOffPoint, stopPoints, customStopPoints, getSelectedStopPointsData])
 
+  // Fetch trips for reuse order number modal
+  useEffect(() => {
+    if (!showReuseModal) return
+    const fetchReuseTrips = async () => {
+      setReuseLoading(true)
+      try {
+        const res = await fetch('/api/trips/reuse-order')
+        const json = await res.json()
+        setReuseTrips(json.data || [])
+      } catch {
+        setReuseTrips([])
+      }
+      setReuseLoading(false)
+    }
+    fetchReuseTrips()
+  }, [showReuseModal])
+
+  const filteredReuseTrips = useMemo(() => {
+    if (!reuseSearch) return reuseTrips
+    const s = reuseSearch.toLowerCase()
+    return reuseTrips.filter((t) => {
+      const clientName = t.clientdetails
+        ? (typeof t.clientdetails === 'string' ? JSON.parse(t.clientdetails)?.name : t.clientdetails?.name)
+        : ''
+      return t.ordernumber?.toLowerCase().includes(s) || clientName?.toLowerCase().includes(s)
+    })
+  }, [reuseTrips, reuseSearch])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     updateTrip()
@@ -597,6 +645,11 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
         origin: loadingLocation,
         destination: dropOffPoint,
         notes: comment,
+        loading_point_company: loadingPointCompany,
+        loading_point_city: loadingPointCity,
+        offloading_point_company: offloadingPointCompany,
+        offloading_point_city: offloadingPointCity,
+        notification_group: notificationGroup || {},
         
         clientdetails: selectedClient ? {
           name: selectedClient.name,
@@ -644,7 +697,10 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
             return { type: 'custom', name: customStopPoints[index], id: `custom_${index}` }
           } else if (pointId) {
             const point = availableStopPoints.find(p => p.id.toString() === pointId)
-            return point ? { type: 'existing', ...point } : null
+            if (point) return { type: 'existing', ...point }
+            const original = originalStopPoints.find(p => p.id === pointId || p.id?.toString() === pointId)
+            if (original) return original
+            return { type: 'existing', id: pointId, name: pointId }
           }
           return null
         }).filter(Boolean),
@@ -833,7 +889,27 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
               </div>
               <div>
                 <Label htmlFor="orderNumber">Order Number</Label>
-                <Input value={orderNumber} onChange={readOnly ? undefined : (e) => setOrderNumber(e.target.value)} placeholder="Order Number" readOnly={readOnly} className={readOnly ? 'bg-gray-50' : ''} />
+                <div className="flex items-center gap-2">
+                  <Input value={orderNumber} onChange={readOnly ? undefined : (e) => setOrderNumber(e.target.value)} placeholder="Order Number" readOnly={readOnly || reuseOrderNumber} className={readOnly ? 'bg-gray-50' : ''} />
+                  <input
+                    type="checkbox"
+                    checked={reuseOrderNumber}
+                    onChange={(e) => setReuseOrderNumber(e.target.checked)}
+                    disabled={readOnly}
+                    title="Reuse existing order number"
+                  />
+                  <span className="text-xs text-slate-500 whitespace-nowrap">Reuse</span>
+                  {reuseOrderNumber && !readOnly && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowReuseModal(true)}
+                    >
+                      Browse
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
             <div className="space-y-4">
@@ -891,6 +967,45 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
               />
             </div>
           </div>
+
+          {/* Loading/Offloading Points */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="border border-slate-200 rounded-lg p-4 space-y-3">
+              <Label className="text-sm font-semibold text-slate-700">Loading Point</Label>
+              <div>
+                <Label htmlFor="loadingPointCompany" className="text-xs text-slate-500">Company Name</Label>
+                <Input value={loadingPointCompany} onChange={readOnly ? undefined : (e) => setLoadingPointCompany(e.target.value)} placeholder="Enter loading company name" readOnly={readOnly} className={readOnly ? 'bg-gray-50' : ''} />
+              </div>
+              <div>
+                <Label htmlFor="loadingPointCity" className="text-xs text-slate-500">City</Label>
+                <Input value={loadingPointCity} onChange={readOnly ? undefined : (e) => setLoadingPointCity(e.target.value)} placeholder="Enter loading city" readOnly={readOnly} className={readOnly ? 'bg-gray-50' : ''} />
+              </div>
+            </div>
+            <div className="border border-slate-200 rounded-lg p-4 space-y-3">
+              <Label className="text-sm font-semibold text-slate-700">Offloading Point</Label>
+              <div>
+                <Label htmlFor="offloadingPointCompany" className="text-xs text-slate-500">Company Name</Label>
+                <Input value={offloadingPointCompany} onChange={readOnly ? undefined : (e) => setOffloadingPointCompany(e.target.value)} placeholder="Enter offloading company name" readOnly={readOnly} className={readOnly ? 'bg-gray-50' : ''} />
+              </div>
+              <div>
+                <Label htmlFor="offloadingPointCity" className="text-xs text-slate-500">City</Label>
+                <Input value={offloadingPointCity} onChange={readOnly ? undefined : (e) => setOffloadingPointCity(e.target.value)} placeholder="Enter offloading city" readOnly={readOnly} className={readOnly ? 'bg-gray-50' : ''} />
+              </div>
+            </div>
+          </div>
+
+          {/* Notification Group */}
+          {notificationGroup && notificationGroup.name && (
+            <div className="flex items-center gap-2">
+              <Label className="text-sm font-medium text-slate-700">Notification Group:</Label>
+              <span className="inline-block rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                {notificationGroup.name}
+              </span>
+              {notificationGroup.emails?.length > 0 && (
+                <span className="text-xs text-slate-500">({notificationGroup.emails.length} email{notificationGroup.emails.length !== 1 ? 's' : ''})</span>
+              )}
+            </div>
+          )}
 
           {/* Trip Type Selection */}
           <div className="space-y-4">
@@ -1368,6 +1483,11 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
                     {loading ? 'Updating...' : 'Update Trip'}
                   </Button>
                 )}
+                {readOnly && (
+                  <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+                    Close
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -1378,7 +1498,56 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
       
 
     </Dialog.Root>
-    
+
+    {showReuseModal && (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[80vh] overflow-y-auto">
+          <div className="flex items-center justify-between p-4 border-b">
+            <h3 className="text-lg font-semibold">Reuse Order Number</h3>
+            <Button variant="ghost" size="sm" onClick={() => { setShowReuseModal(false); setReuseSearch(''); }}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="p-4">
+            <Input
+              placeholder="Search by order number or client..."
+              value={reuseSearch}
+              onChange={(e) => setReuseSearch(e.target.value)}
+              className="mb-3"
+            />
+            {reuseLoading ? (
+              <p className="text-sm text-slate-500">Loading...</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {filteredReuseTrips.map((t) => (
+                  <div
+                    key={t.id}
+                    className="flex items-center justify-between p-3 border rounded hover:bg-slate-50 cursor-pointer"
+                    onClick={() => {
+                      setOrderNumber(t.ordernumber)
+                      setShowReuseModal(false)
+                      setReuseSearch('')
+                      setReuseTrips([])
+                    }}
+                  >
+                    <div>
+                      <span className="font-medium text-slate-900">{t.ordernumber}</span>
+                      <span className="text-xs text-slate-500 ml-2">
+                        {t.clientdetails ? (typeof t.clientdetails === 'string' ? JSON.parse(t.clientdetails).name : t.clientdetails?.name) : 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {filteredReuseTrips.length === 0 && !reuseLoading && (
+                  <p className="text-sm text-slate-500 text-center py-8">No trips found</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+
     {showHistoryModal && (
       <TripHistoryModal
         isOpen={showHistoryModal}

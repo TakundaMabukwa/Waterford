@@ -117,7 +117,7 @@ export function buildLoadconHTML(data: LoadconPdfData): string {
     <table style="width:100%;border-collapse:collapse;font-size:11px">
       <tbody>
         ${row2('Invoice No:', data.invoiceNo, 'Rate:', data.rate)}
-        ${row2('Date:', data.financeDate, 'Captured By:', data.capturedBy)}
+        ${row2('Date:', data.financeDate, 'Invoiced By:', data.capturedBy)}
       </tbody>
     </table>
     <h3 style="font-size:14px;font-weight:bold;margin:15px 0 10px 5px">Crossborder</h3>
@@ -291,7 +291,7 @@ export function generateLoadconPdf(data: LoadconPdfData): Blob {
   }
 
   drawFinanceRow('Invoice No:', data.invoiceNo, 'Rate:', data.rate)
-  drawFinanceRow('Date:', data.financeDate, 'Captured By:', data.capturedBy)
+  drawFinanceRow('Date:', data.financeDate, 'Invoiced By:', data.capturedBy)
 
   y += 3
   doc.setFontSize(11)

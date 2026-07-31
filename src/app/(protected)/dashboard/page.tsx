@@ -334,6 +334,24 @@ const parseClientNotes = (trip: any): Array<{ message: string; created_at: strin
     .filter((note): note is { message: string; created_at: string | null; author: string | null } => Boolean(note))
 }
 
+const parseFcNotes = (trip: any): Array<{ message: string; created_at: string | null; author: string | null }> => {
+  const raw = trip?.fc_notes ?? []
+  const parsed = parseJsonValue(raw)
+  const asArray = Array.isArray(parsed) ? parsed : parsed && typeof parsed === 'object' ? [parsed] : []
+
+  return asArray
+    .map((note: any) => {
+      const message = String(note?.message ?? note?.note ?? note?.text ?? '').trim()
+      if (!message) return null
+      return {
+        message,
+        created_at: note?.created_at ?? note?.timestamp ?? null,
+        author: note?.author ?? note?.email ?? note?.by ?? null,
+      }
+    })
+    .filter((note): note is { message: string; created_at: string | null; author: string | null } => Boolean(note))
+}
+
 // Driver Card Component with fetched driver info
 const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNotesImages, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, onlineDevices, isVisible = true, fuelData = null }: any) {
   const router = useRouter()
@@ -574,6 +592,21 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
           {(() => {
             const notes = parseClientNotes(trip)
             if (notes.length === 0) return 'No client notes'
+            const latest = notes[notes.length - 1]
+            return latest.message
+          })()}
+        </div>
+      </div>
+
+      <div className="mb-2 p-2 rounded-lg bg-white/20 border border-white/5">
+        <div className="flex items-center gap-1 mb-1">
+          <div className="w-1.5 h-1.5 bg-orange-500 rounded-full" />
+          <span className="text-xs font-medium text-slate-700 uppercase">FC Notes</span>
+        </div>
+        <div className="text-xs text-slate-900">
+          {(() => {
+            const notes = parseFcNotes(trip)
+            if (notes.length === 0) return 'No FC notes'
             const latest = notes[notes.length - 1]
             return latest.message
           })()}
@@ -1069,7 +1102,7 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
   }, [refreshTrigger])
 
   // Sort trips to put unauthorized stops at the top
-  const ALLOWED_STATUSES = ['accepted', 'arrived-at-loading', 'loading', 'on-trip', 'offloading', 'breakdown', 'delivered', 'completed']
+  const ALLOWED_STATUSES = ['accepted', 'arrived-at-loading', 'loading', 'on-trip', 'arrived-at-offloading', 'offloading', 'breakdown', 'delivered', 'completed']
 
 const tripsList = useMemo(() => {
     const filtered = trips
@@ -1232,34 +1265,30 @@ const tripsList = useMemo(() => {
   }, [trips, isVisible])
 
 const STATUS_OPTIONS = [
-    { label: "Pending", value: "pending" },
     { label: "Accept", value: "accepted" },
     { label: "Reject", value: "rejected" },
     { label: "Arrived at Loading", value: "arrived-at-loading" },
     { label: "Loading", value: "loading" },
     { label: "On Trip", value: "on-trip" },
+    { label: "Arrived at Offloading", value: "arrived-at-offloading" },
+    { label: "Offloading", value: "offloading" },
+    { label: "Breakdown", value: "breakdown" },
+    { label: "Delivered", value: "delivered" },
     { label: "Completed", value: "completed" },
     { label: "Cancelled", value: "cancelled" },
-    { label: "Stopped", value: "stopped" },
-    { label: "Breakdown", value: "breakdown" },
-    { label: "Offloading", value: "offloading" },
-    { label: "Delivered", value: "delivered" },
 ]
 
   // Main workflow statuses for progress tracking
   const WORKFLOW_STATUSES = [
-    { label: "Pending", value: "pending" },
     { label: "Accept", value: "accepted" },
-    { label: "Arrived at Loading", value: "arrived-at-loading" },
-    // { label: "Staging Area", value: "staging-area" },
+    { label: "Arrived at loading", value: "arrived-at-loading" },
     { label: "Loading", value: "loading" },
-    { label: "OnTrip", value: "on-trip" },
-    {label: "Arrive", value: "arrive"},
+    { label: "On trip", value: "on-trip" },
+    { label: "Arrived at offloading", value: "arrived-at-offloading" },
     { label: "Offloading", value: "offloading" },
-    // { label: "Weighing In/Out", value: "weighing" },
-    // { label: "Depo", value: "depo" },
-    // { label: "Handover", value: "handover" },
-    { label: "Delivered", value: "delivered" }
+    { label: "Breakdown", value: "breakdown" },
+    { label: "Delivered", value: "delivered" },
+    { label: "Complete", value: "completed" }
   ]
 
   const getWaypointsWithStops = (trip: any) => {
@@ -1352,29 +1381,29 @@ const STATUS_OPTIONS = [
       }
     })
 
-    // Insert stops between Loading (index 4) and On Trip (index 5)
+    // Insert stops between Loading (index 2) and OnTrip (index 3)
     const stops = trip.selected_stop_points || trip.selectedstoppoints || []
     if (stops.length > 0) {
-      const loadingPos = baseWaypoints[4].position
-      const onTripPos = baseWaypoints[5].position
+      const loadingPos = baseWaypoints[2].position
+      const onTripPos = baseWaypoints[3].position
       const stopSpacing = (onTripPos - loadingPos) / (stops.length + 1)
       
       const stopWaypoints = stops.map((stop: any, index: number) => ({
         position: loadingPos + (stopSpacing * (index + 1)),
         label: `Stop ${index + 1}`,
-        completed: currentStatusIndex > 4,
+        completed: currentStatusIndex > 3,
         current: false,
         isStop: true,
         stopId: stop
       }))
       
-      // Adjust positions of waypoints after Loading
+      // Adjust positions of waypoints after OnTrip
       const adjustedWaypoints = [...baseWaypoints]
-      for (let i = 5; i < adjustedWaypoints.length; i++) {
-        adjustedWaypoints[i].position = onTripPos + ((i - 5) / (WORKFLOW_STATUSES.length - 6)) * (100 - onTripPos)
+      for (let i = 4; i < adjustedWaypoints.length; i++) {
+        adjustedWaypoints[i].position = onTripPos + ((i - 4) / (WORKFLOW_STATUSES.length - 4)) * (100 - onTripPos)
       }
       
-      return [...adjustedWaypoints.slice(0, 5), ...stopWaypoints, ...adjustedWaypoints.slice(5)]
+      return [...adjustedWaypoints.slice(0, 3), ...stopWaypoints, ...adjustedWaypoints.slice(3)]
     }
     
     return baseWaypoints
@@ -1581,7 +1610,10 @@ const STATUS_OPTIONS = [
               "px-2 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide",
               trip.status?.toLowerCase() === 'breakdown' ? 'bg-red-500 text-white' :
               trip.status?.toLowerCase() === 'delivered' ? 'bg-emerald-100 text-emerald-800' :
+              trip.status?.toLowerCase() === 'completed' ? 'bg-emerald-600 text-white' :
               trip.status?.toLowerCase() === 'on-trip' ? 'bg-sky-100 text-sky-800' :
+              trip.status?.toLowerCase() === 'arrived-at-offloading' ? 'bg-purple-100 text-purple-800' :
+              trip.status?.toLowerCase() === 'offloading' ? 'bg-indigo-100 text-indigo-800' :
               ['pending', 'accepted'].includes(trip.status?.toLowerCase()) ? 'bg-amber-100 text-amber-800' :
               ['rejected', 'cancelled', 'stopped'].includes(trip.status?.toLowerCase()) ? 'bg-rose-100 text-rose-800' :
               ['completed', 'depo', 'handover'].includes(trip.status?.toLowerCase()) ? 'bg-lime-100 text-lime-800' :
@@ -1599,7 +1631,7 @@ const STATUS_OPTIONS = [
 	              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
 	              <span className="text-xs font-medium text-gray-700 uppercase">Loading: ETA date to loading point</span>
 	              </div>
-	              <p className="text-xs font-medium text-black truncate">{trip.origin || 'Not specified'}</p>
+	              <p className="text-xs font-medium text-black break-words">{trip.origin || 'Not specified'}</p>
 	              </div>
 		              <div className="bg-white rounded-lg p-1.5 border border-slate-100">
 		              <div className="flex items-center justify-between gap-2 mb-0.5">
@@ -1616,7 +1648,7 @@ const STATUS_OPTIONS = [
 		                </span>
 		              )}
 		              </div>
-		              <p className="text-xs font-medium text-black truncate">{trip.destination || 'Not specified'}</p>
+		              <p className="text-xs font-medium text-black break-words">{trip.destination || 'Not specified'}</p>
 		              {dropoffEta?.status === 'ready' && dropoffEta.arrivalIso && (
 		                <p className="mt-0.5 text-xs font-semibold text-black">
 		                  Arrives {formatFullDateTime(dropoffEta.arrivalIso)}
@@ -1684,7 +1716,7 @@ const STATUS_OPTIONS = [
               )}
               </div>
               <span className={cn(
-              "text-xs mt-1 text-center max-w-12 leading-tight",
+              "text-[10px] mt-1 text-center max-w-[5rem] whitespace-nowrap leading-tight",
               waypoint.isStop ? "text-orange-600 font-medium" :
               waypoint.current && waypoint.warningLevel === 'danger' ? "text-red-600 font-semibold" :
               waypoint.current && waypoint.warningLevel === 'warning' ? "text-orange-600 font-semibold" :
@@ -1694,7 +1726,7 @@ const STATUS_OPTIONS = [
               waypoint.completed ? "text-emerald-700 font-medium" :
               "text-gray-600"
               )}>
-              {waypoint.label.split(' ')[0]}
+              {waypoint.label}
               </span>
               {waypoint.isStop && (
               <div className="absolute bottom-full mb-1 px-2 py-1 bg-white border rounded text-xs text-gray-700 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20">
@@ -2055,7 +2087,7 @@ export default function Dashboard() {
   const [currentTripForNote, setCurrentTripForNote] = useState<any>(null);
   const [noteText, setNoteText] = useState('');
   const [notesImages, setNotesImages] = useState('');
-  const [noteTarget, setNoteTarget] = useState<'driver' | 'client'>('driver');
+  const [noteTarget, setNoteTarget] = useState<'driver' | 'client' | 'fc'>('driver');
   const [changeDriverOpen, setChangeDriverOpen] = useState(false);
   const [currentTripForChange, setCurrentTripForChange] = useState<any>(null);
   const [availableDrivers, setAvailableDrivers] = useState<any[]>([]);
@@ -3075,11 +3107,15 @@ export default function Dashboard() {
                 <select
                   value={noteTarget}
                   onChange={(e) => {
-                    const nextTarget = e.target.value as 'driver' | 'client'
+                    const nextTarget = e.target.value as 'driver' | 'client' | 'fc'
                     setNoteTarget(nextTarget)
                      if (nextTarget === 'driver') {
                        setNoteText(currentTripForNote?.notes || currentTripForNote?.status_notes || '')
                        setNotesImages(currentTripForNote?.notes_images || '')
+                     } else if (nextTarget === 'fc') {
+                       const fcNotes = parseFcNotes(currentTripForNote)
+                       setNoteText(fcNotes.length > 0 ? fcNotes[fcNotes.length - 1].message : '')
+                       setNotesImages('')
                      } else {
                        setNoteText('')
                        setNotesImages('')
@@ -3089,18 +3125,19 @@ export default function Dashboard() {
                 >
                   <option value="driver">Driver note</option>
                   <option value="client">Client note</option>
+                  <option value="fc">FC note</option>
                 </select>
               </div>
                <div>
                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                   {noteTarget === 'client' ? 'Add or update client note' : 'Add or update driver note'}
+                    {noteTarget === 'client' ? 'Add or update client note' : noteTarget === 'fc' ? 'Add or update FC->Driver note' : 'Add or update driver note'}
                  </label>
                  <textarea
                    value={noteText}
                    onChange={(e) => setNoteText(e.target.value)}
                    rows={5}
                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                   placeholder={noteTarget === 'client' ? 'Type a client note here...' : 'Type a driver note here...'}
+                    placeholder={noteTarget === 'client' ? 'Type a client note here...' : noteTarget === 'fc' ? 'Type an FC->Driver note here...' : 'Type a driver note here...'}
                  />
                </div>
                <div>
@@ -3137,6 +3174,28 @@ export default function Dashboard() {
                   </div>
                 </div>
               )}
+              {noteTarget === 'fc' && (
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700">
+                    FC notes history
+                  </label>
+                  <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border border-gray-200 bg-gray-50 p-3">
+                    {parseFcNotes(currentTripForNote).length === 0 ? (
+                      <p className="text-xs text-gray-500">No FC notes saved yet.</p>
+                    ) : (
+                      parseFcNotes(currentTripForNote).slice(-5).reverse().map((entry, index) => (
+                        <div key={`${currentTripForNote.id}-fc-note-${index}`} className="rounded border border-gray-200 bg-white p-2">
+                          <p className="text-xs text-gray-800">{entry.message}</p>
+                          <p className="mt-1 text-[11px] text-gray-500">
+                            {entry.author || 'FC'}
+                            {entry.created_at ? ` - ${new Date(entry.created_at).toLocaleString()}` : ''}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -3159,6 +3218,7 @@ export default function Dashboard() {
                       const supabase = createClient()
                       const trimmedNote = noteText.trim()
                       const existingClientNotes = parseClientNotes(currentTripForNote)
+                      const existingFcNotes = parseFcNotes(currentTripForNote)
                       const nextClientNotes = noteTarget === 'client' && trimmedNote
                         ? [
                             ...existingClientNotes,
@@ -3169,10 +3229,24 @@ export default function Dashboard() {
                             },
                           ]
                         : existingClientNotes
+                      const nextFcNotes = noteTarget === 'fc' && trimmedNote
+                        ? [
+                            ...existingFcNotes,
+                            {
+                              message: trimmedNote,
+                              created_at: new Date().toISOString(),
+                              author: 'Dashboard',
+                            },
+                          ]
+                        : existingFcNotes
 
                       const updatePayload = noteTarget === 'client'
                         ? {
                             clients_notes: nextClientNotes,
+                          }
+                        : noteTarget === 'fc'
+                        ? {
+                            fc_notes: nextFcNotes,
                           }
                         : {
                             notes: trimmedNote,
@@ -3195,6 +3269,8 @@ export default function Dashboard() {
                                 ...trip,
                                 ...(noteTarget === 'client'
                                   ? { clients_notes: nextClientNotes }
+                                  : noteTarget === 'fc'
+                                  ? { fc_notes: nextFcNotes }
                                   : { notes: trimmedNote, status_notes: trimmedNote, statusnotes: trimmedNote, notes_images: notesImages.trim() }),
                               }
                             : trip
@@ -3210,7 +3286,7 @@ export default function Dashboard() {
                     }
                   }}
                 >
-                  Save {noteTarget === 'client' ? 'Client Note' : 'Driver Note'}
+                  Save {noteTarget === 'client' ? 'Client Note' : noteTarget === 'fc' ? 'FC Note' : 'Driver Note'}
                 </Button>
               </div>
             </div>
