@@ -1061,7 +1061,7 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
         const { data, error } = await supabase
           .from('trips')
           .select('*')
-          .in('status', ['accepted', 'arrived-at-loading', 'loading', 'on-trip', 'offloading', 'delivered', 'completed'])
+          .not('status', 'in', '("completed","delivered","complete")')
           .order('updated_at', { ascending: false })
           .limit(100)
         if (error) throw error
@@ -1102,7 +1102,7 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
   }, [refreshTrigger])
 
   // Sort trips to put unauthorized stops at the top
-  const ALLOWED_STATUSES = ['accepted', 'arrived-at-loading', 'loading', 'on-trip', 'arrived-at-offloading', 'offloading', 'breakdown', 'delivered', 'completed']
+  const ALLOWED_STATUSES = ['accepted', 'arrived-at-loading', 'loading', 'on-trip', 'arrived-at-offloading', 'offloading', 'pending']
 
 const tripsList = useMemo(() => {
     const filtered = trips
