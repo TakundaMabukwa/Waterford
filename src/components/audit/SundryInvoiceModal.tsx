@@ -24,6 +24,15 @@ type InvoiceLineItem = {
   vatType: 'zero' | 'standard' | 'exempt'
 }
 
+const SALES_CODES = [
+  { code: '200', label: 'Sales' },
+  { code: '201', label: 'Sales - Subcontractors' },
+  { code: '202', label: 'Sales - Other' },
+  { code: '203', label: 'Sales - Repo, Handling & Document Fees' },
+  { code: '206', label: 'Sales - Warehousing & Rental' },
+  { code: '260', label: 'Other Revenue' },
+]
+
 const VAT_RATES: Record<string, number> = {
   zero: 0,
   standard: 0.15,
@@ -47,21 +56,25 @@ const formatCurrency = (value: number, currencyCode: string = 'ZAR') =>
 const formatNum = (value: number) =>
   new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
 
+const formatDisplayDate = (isoDate: string) => {
+  if (!isoDate) return ''
+  const [y, m, d] = isoDate.split('-')
+  const date = new Date(Number(y), Number(m) - 1, Number(d))
+  return date.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })
+}
+
 type Props = {
   open: boolean
   onClose: () => void
 }
 
 export default function SundryInvoiceModal({ open, onClose }: Props) {
-  const today = new Date().toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })
-
-  const [invoiceDate, setInvoiceDate] = useState(today)
+  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().split('T')[0])
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [referenceNumber, setReferenceNumber] = useState('')
   const [customerName, setCustomerName] = useState('')
   const [customerAddress, setCustomerAddress] = useState('')
   const [customerVat, setCustomerVat] = useState('')
-  const [dueDate, setDueDate] = useState('')
   const [currency, setCurrency] = useState('ZAR')
   const [generating, setGenerating] = useState(false)
 
@@ -104,6 +117,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       vatType: 'zero' as const,
     },
   ])
+
+  const [salesCode, setSalesCode] = useState('200')
 
   const updateLine = (id: string, field: keyof InvoiceLineItem, value: any) => {
     setLineItems((prev) => prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)))
@@ -194,7 +209,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       doc.setFontSize(9)
       doc.text('Invoice Date', invLabelX, ry)
       doc.setFont('helvetica', 'normal')
-      doc.text(invoiceDate, invValueX, ry)
+      doc.text(formatDisplayDate(invoiceDate), invValueX, ry)
       doc.text('Waterford Carriers (Pty)', coInfoX, ry)
       ry += 5
 
@@ -240,10 +255,12 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       y = Math.max(custY + 5 + addrLines.length * 4.5 + (customerVat ? 8 : 0), ry) + 8
 
       // LINE ITEMS TABLE
+      const salesCodeLabel = SALES_CODES.find(s => s.code === salesCode)?.label || 'Sales'
       const tableData = lineItems.map((item) => {
         const lineTotal = item.quantity * item.unitPrice
         return [
           item.description,
+          `${salesCode} - ${salesCodeLabel}`,
           String(item.quantity ? formatNum(item.quantity) : ''),
           formatNum(item.unitPrice),
           VAT_LABELS[item.vatType] || '',
@@ -253,7 +270,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
 
       autoTable(doc, {
         startY: y,
-        head: [['Description', 'Quantity', 'Unit Price', 'VAT', `Amount ${currency}`]],
+        head: [['Description', 'Sales Code', 'Quantity', 'Unit Price', 'VAT', `Amount ${currency}`]],
         body: tableData,
         theme: 'plain',
         styles: {
@@ -274,11 +291,12 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           borderColor: [255, 255, 255],
         },
         columnStyles: {
-          0: { cellWidth: 58, halign: 'left' },
-          1: { cellWidth: 22, halign: 'right' },
-          2: { cellWidth: 25, halign: 'right' },
-          3: { cellWidth: 38, halign: 'left', overflow: 'linebreak' },
-          4: { cellWidth: 30, halign: 'right' },
+          0: { cellWidth: 45, halign: 'left' },
+          1: { cellWidth: 35, halign: 'left', overflow: 'linebreak' },
+          2: { cellWidth: 18, halign: 'right' },
+          3: { cellWidth: 22, halign: 'right' },
+          4: { cellWidth: 30, halign: 'left', overflow: 'linebreak' },
+          5: { cellWidth: 28, halign: 'right' },
         },
         didDrawCell: (data) => {
           const { doc: d } = data
@@ -340,12 +358,11 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       const pageH = doc.internal.pageSize.getHeight()
       const footerStartY = pageH - 55
 
-      doc.setFontSize(10)
-      doc.setFont('helvetica', 'bold')
-      doc.setTextColor(0, 0, 0)
-      doc.text(`Due Date: ${dueDate || 'On Receipt'}`, ml, footerStartY)
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(0, 0, 0)
 
-      doc.setFont('helvetica', 'normal')
+    doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
       doc.text('Bank accounts:', ml, footerStartY + 7)
       doc.text('South African Rand (ZAR)', ml, footerStartY + 12)
@@ -409,6 +426,21 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           amountDue,
           invoiceUrl,
           currency,
+          salesCode,
+          invoiceData: {
+            invoiceDate,
+            invoiceNumber: invNumber,
+            customerName,
+            customerAddress,
+            customerVat,
+            referenceNumber,
+            salesCode,
+            lineItems,
+            subtotal,
+            totalVat,
+            totalZar,
+            amountDue,
+          },
         }),
       })
 
@@ -462,7 +494,12 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Date</label>
-              <Input value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
+              <input
+                type="date"
+                value={invoiceDate}
+                onChange={(e) => setInvoiceDate(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Number</label>
@@ -485,6 +522,21 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
               <Input value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} placeholder="e.g. PO Number or custom reference" />
             </div>
             <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Sales Code</label>
+              <Select value={salesCode} onValueChange={setSalesCode}>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SALES_CODES.map((sc) => (
+                    <SelectItem key={sc.code} value={sc.code}>
+                      {sc.code} - {sc.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Client (optional)</label>
               <Select value={selectedClientId} onValueChange={handleClientSelect}>
                 <SelectTrigger>
@@ -503,15 +555,33 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer Address</label>
-              <Input value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} placeholder="PO Box, City, Country" />
+              <textarea
+                value={customerAddress}
+                onChange={(e) => setCustomerAddress(e.target.value)}
+                placeholder="PO Box, City, Country"
+                rows={2}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const next = (e.target as HTMLElement).closest('.grid')?.querySelector<HTMLElement>('textarea, input'); if (next) next.focus() } }}
+                className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-none"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer VAT Number</label>
               <Input value={customerVat} onChange={(e) => setCustomerVat(e.target.value)} />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Due Date</label>
-              <Input value={dueDate} onChange={(e) => setDueDate(e.target.value)} placeholder="On Receipt" />
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Sales Code</label>
+              <Select value={salesCode} onValueChange={setSalesCode}>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SALES_CODES.map((sc) => (
+                    <SelectItem key={sc.code} value={sc.code}>
+                      {sc.code} - {sc.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

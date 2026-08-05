@@ -45,6 +45,7 @@ export async function POST(request: Request) {
       amount_due: body.amountDue || 0,
       invoice_url: body.invoiceUrl || null,
       currency: body.currency || 'ZAR',
+      invoice_data: body.invoiceData || null,
     }
 
     const { data, error } = await supabase

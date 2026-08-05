@@ -26,6 +26,15 @@ type InvoiceLineItem = {
   vatType: 'zero' | 'standard' | 'exempt'
 }
 
+const SALES_CODES = [
+  { code: '200', label: 'Sales' },
+  { code: '201', label: 'Sales - Subcontractors' },
+  { code: '202', label: 'Sales - Other' },
+  { code: '203', label: 'Sales - Repo, Handling & Document Fees' },
+  { code: '206', label: 'Sales - Warehousing & Rental' },
+  { code: '260', label: 'Other Revenue' },
+]
+
 const VAT_RATES: Record<string, number> = {
   zero: 0,
   standard: 0.15,
@@ -49,6 +58,13 @@ const formatCurrency = (value: number, currencyCode: AuditCurrencyCode = 'ZAR') 
 const formatNum = (value: number) =>
   new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
 
+const formatDisplayDate = (isoDate: string) => {
+  if (!isoDate) return ''
+  const [y, m, d] = isoDate.split('-')
+  const date = new Date(Number(y), Number(m) - 1, Number(d))
+  return date.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })
+}
+
 type Props = {
   open: boolean
   onClose: () => void
@@ -57,6 +73,7 @@ type Props = {
   invoiceCurrency: AuditCurrencyCode
   splitRows: any[]
   calcSplitTotal: (row: any) => number
+  onInvoiced?: (rate: number, currency: string) => void
 }
 
 export default function GenerateInvoiceModal({
@@ -67,6 +84,7 @@ export default function GenerateInvoiceModal({
   invoiceCurrency,
   splitRows,
   calcSplitTotal,
+  onInvoiced,
 }: Props) {
   const getClientName = () => {
     if (record?.selectedclient || record?.selected_client) return record.selectedclient || record.selected_client
@@ -80,22 +98,44 @@ export default function GenerateInvoiceModal({
     }
   }
 
-  const today = new Date().toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })
   const orderNum = record?.ordernumber || record?.trip_id || ''
 
-  const [invoiceDate, setInvoiceDate] = useState(today)
+  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().split('T')[0])
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [customerName, setCustomerName] = useState(getClientName())
   const [customerAddress, setCustomerAddress] = useState('')
   const [customerVat, setCustomerVat] = useState('')
-  const [dueDate, setDueDate] = useState('')
-  const [notes, setNotes] = useState('')
   const [generating, setGenerating] = useState(false)
-  const [referenceNumber, setReferenceNumber] = useState('')
+  const [referenceNumber, setReferenceNumber] = useState(orderNum)
   const [uploading, setUploading] = useState(false)
   const [uploadedDocs, setUploadedDocs] = useState<any[]>([])
   const [uploadError, setUploadError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const [clients, setClients] = useState<any[]>([])
+  const [selectedClientId, setSelectedClientId] = useState('')
+
+  useEffect(() => {
+    async function fetchClients() {
+      try {
+        const res = await fetch('/api/eps-client-list', { cache: 'no-store' })
+        const result = await res.json()
+        if (result.data) setClients(result.data)
+      } catch {}
+    }
+    fetchClients()
+  }, [])
+
+  const handleClientSelect = (clientId: string) => {
+    setSelectedClientId(clientId)
+    const client = clients.find((c) => String(c.id) === clientId)
+    if (client) {
+      setCustomerName(client.name || '')
+      const addrParts = [client.address, client.city, client.country].filter(Boolean)
+      setCustomerAddress(addrParts.join(', '))
+      setCustomerVat(client.vat_number || client.tax_number || '')
+    }
+  }
 
   useEffect(() => {
     if (!open || !record?.id) return
@@ -113,6 +153,19 @@ export default function GenerateInvoiceModal({
       }
     }
     fetchDocs()
+
+    // Load existing invoice_data if already invoiced
+    if (record.invoice_data && record.is_invoiced) {
+      const d = record.invoice_data
+      if (d.invoiceDate) setInvoiceDate(d.invoiceDate)
+      if (d.invoiceNumber) setInvoiceNumber(d.invoiceNumber)
+      if (d.customerName) setCustomerName(d.customerName)
+      if (d.customerAddress) setCustomerAddress(d.customerAddress)
+      if (d.customerVat) setCustomerVat(d.customerVat)
+      if (d.referenceNumber) setReferenceNumber(d.referenceNumber)
+      if (d.salesCode) setSalesCode(d.salesCode)
+      if (d.lineItems?.length) setLineItems(d.lineItems)
+    }
   }, [open, record?.id])
 
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>(() => {
@@ -121,7 +174,7 @@ export default function GenerateInvoiceModal({
         id: `line-${i}`,
         description: `${row.driverName || 'Line Item'} - ${row.categoryLabel || row.categoryKey || ''}`.trim(),
         quantity: 1,
-        unitPrice: calcSplitTotal(row),
+        unitPrice: i === 0 ? invoiceRate : calcSplitTotal(row),
         vatType: 'zero' as const,
       }))
     }
@@ -135,6 +188,8 @@ export default function GenerateInvoiceModal({
       },
     ]
   })
+
+  const [salesCode, setSalesCode] = useState('200')
 
   const updateLine = (id: string, field: keyof InvoiceLineItem, value: any) => {
     setLineItems((prev) => prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)))
@@ -225,6 +280,20 @@ export default function GenerateInvoiceModal({
           invoiceNumber: invoiceNumber || '',
           tripId: record.trip_id || '',
           ordernumber: record.ordernumber || '',
+          invoiceData: {
+            invoiceDate,
+            invoiceNumber: invoiceNumber || '',
+            customerName,
+            customerAddress,
+            customerVat,
+            referenceNumber: referenceNumber || '',
+            salesCode,
+            lineItems,
+            subtotal,
+            totalVat,
+            totalZar,
+            amountDue,
+          },
         }),
       })
     } catch (err) {
@@ -234,6 +303,7 @@ export default function GenerateInvoiceModal({
 
   const generatePdf = async () => {
     setGenerating(true)
+    try {
 
     // Fetch invoice number now (only on actual generation)
     let invNumber = invoiceNumber
@@ -302,7 +372,7 @@ export default function GenerateInvoiceModal({
     doc.setFontSize(9)
     doc.text('Invoice Date', invLabelX, ry)
     doc.setFont('helvetica', 'normal')
-    doc.text(invoiceDate, invValueX, ry)
+    doc.text(formatDisplayDate(invoiceDate), invValueX, ry)
     doc.text('Waterford Carriers (Pty)', coInfoX, ry)
     ry += 5
 
@@ -330,18 +400,9 @@ export default function GenerateInvoiceModal({
     doc.text('Industries West', coInfoX, ry)
     ry += 5
 
-    // Row 4: Order Number (bigger) + Company line 4
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(12)
-    doc.text('Order Number', invLabelX, ry)
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(14)
-    doc.text(orderNum || 'N/A', invValueX, ry)
-    doc.setFontSize(9)
     doc.text('Germiston, 1401', coInfoX, ry)
     ry += 5
 
-    doc.setFontSize(9)
     doc.text('SOUTH AFRICA', coInfoX, ry)
     ry += 5
 
@@ -361,10 +422,12 @@ export default function GenerateInvoiceModal({
     y = Math.max(custY + 5 + addrLines.length * 4.5 + (customerVat ? 8 : 0), ry) + 8
 
     // ── LINE ITEMS TABLE ───────────────────────────────────────────
+    const salesCodeLabel = SALES_CODES.find(s => s.code === salesCode)?.label || 'Sales'
     const tableData = lineItems.map((item) => {
       const lineTotal = item.quantity * item.unitPrice
       return [
         item.description,
+        `${salesCode} - ${salesCodeLabel}`,
         String(item.quantity ? formatNum(item.quantity) : ''),
         formatNum(item.unitPrice),
         VAT_LABELS[item.vatType] || '',
@@ -374,7 +437,7 @@ export default function GenerateInvoiceModal({
 
     autoTable(doc, {
       startY: y,
-      head: [['Description', 'Quantity', 'Unit Price', 'VAT', 'Amount ZAR']],
+      head: [['Description', 'Sales Code', 'Quantity', 'Unit Price', 'VAT', 'Amount ZAR']],
       body: tableData,
       theme: 'plain',
       styles: {
@@ -395,11 +458,12 @@ export default function GenerateInvoiceModal({
         borderColor: [255, 255, 255],
       },
       columnStyles: {
-        0: { cellWidth: 58, halign: 'left' },
-        1: { cellWidth: 22, halign: 'right' },
-        2: { cellWidth: 25, halign: 'right' },
-        3: { cellWidth: 38, halign: 'left', overflow: 'linebreak' },
-        4: { cellWidth: 30, halign: 'right' },
+        0: { cellWidth: 45, halign: 'left' },
+        1: { cellWidth: 35, halign: 'left', overflow: 'linebreak' },
+        2: { cellWidth: 18, halign: 'right' },
+        3: { cellWidth: 22, halign: 'right' },
+        4: { cellWidth: 30, halign: 'left', overflow: 'linebreak' },
+        5: { cellWidth: 28, halign: 'right' },
       },
       didDrawCell: (data) => {
         const { doc: d } = data
@@ -464,7 +528,6 @@ export default function GenerateInvoiceModal({
     doc.setFontSize(10)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(0, 0, 0)
-    doc.text(`Due Date: ${dueDate || 'On Receipt'}`, ml, footerStartY)
 
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
@@ -548,7 +611,14 @@ export default function GenerateInvoiceModal({
     }
 
     toast.success('Invoice generated and stored')
-    setGenerating(false)
+    } catch (err) {
+      console.error('Invoice generation error:', err)
+      toast.error('Failed to generate invoice')
+    } finally {
+      setGenerating(false)
+      onInvoiced?.(invoiceRate, invoiceCurrency)
+      onClose()
+    }
   }
 
   if (!open) return null
@@ -572,27 +642,67 @@ export default function GenerateInvoiceModal({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Date</label>
-              <Input value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
+              <input
+                type="date"
+                value={invoiceDate}
+                onChange={(e) => setInvoiceDate(e.target.value)}
+                disabled={!!record?.is_invoiced}
+                className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-100 disabled:text-slate-500"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Number</label>
-              <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="Auto-generated on generate" />
+              <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="Auto-generated on generate" disabled={!!record?.is_invoiced} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Client</label>
+              <Select value={selectedClientId} onValueChange={handleClientSelect} disabled={!!record?.is_invoiced}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Select client to auto-fill" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer Name</label>
-              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} disabled={!!record?.is_invoiced} />
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer Address</label>
-              <Input value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} placeholder="PO Box, City, Country" />
+              <textarea
+                value={customerAddress}
+                onChange={(e) => setCustomerAddress(e.target.value)}
+                placeholder="PO Box, City, Country"
+                rows={2}
+                disabled={!!record?.is_invoiced}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const next = (e.target as HTMLElement).closest('.grid')?.querySelector<HTMLElement>('textarea, input'); if (next) next.focus() } }}
+                className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-none disabled:bg-slate-100 disabled:text-slate-500"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer VAT Number</label>
-              <Input value={customerVat} onChange={(e) => setCustomerVat(e.target.value)} />
+              <Input value={customerVat} onChange={(e) => setCustomerVat(e.target.value)} disabled={!!record?.is_invoiced} />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Due Date</label>
-              <Input value={dueDate} onChange={(e) => setDueDate(e.target.value)} placeholder="On Receipt" />
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Sales Code</label>
+              <Select value={salesCode} onValueChange={setSalesCode} disabled={!!record?.is_invoiced}>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SALES_CODES.map((sc) => (
+                    <SelectItem key={sc.code} value={sc.code}>
+                      {sc.code} - {sc.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -603,6 +713,7 @@ export default function GenerateInvoiceModal({
               value={referenceNumber}
               onChange={(e) => setReferenceNumber(e.target.value)}
               placeholder="e.g. WC17060, PO Number, or custom reference"
+              disabled={!!record?.is_invoiced}
             />
           </div>
 
@@ -610,9 +721,11 @@ export default function GenerateInvoiceModal({
           <div>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">Line Items</h3>
-              <Button variant="outline" size="sm" onClick={addLine}>
-                <Plus className="mr-1 h-3 w-3" /> Add Line
-              </Button>
+              {!record?.is_invoiced && (
+                <Button variant="outline" size="sm" onClick={addLine}>
+                  <Plus className="mr-1 h-3 w-3" /> Add Line
+                </Button>
+              )}
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -631,11 +744,14 @@ export default function GenerateInvoiceModal({
                   {lineItems.map((item) => (
                     <tr key={item.id}>
                       <td className="px-4 py-2">
-                        <Input
+                        <textarea
                           value={item.description}
                           onChange={(e) => updateLine(item.id, 'description', e.target.value)}
                           placeholder="Description"
-                          className="h-9 border-0 bg-transparent text-sm"
+                          rows={2}
+                          disabled={!!record?.is_invoiced}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const row = (e.target as HTMLElement).closest('tr'); const next = row?.querySelector<HTMLElement>('input[type="number"]'); if (next) next.focus() } }}
+                          className="flex w-full rounded-md border border-slate-300 bg-transparent px-2 py-1 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-y min-h-[40px] disabled:bg-slate-50 disabled:text-slate-500"
                         />
                       </td>
                       <td className="px-4 py-2">
@@ -644,6 +760,7 @@ export default function GenerateInvoiceModal({
                           value={item.quantity}
                           onChange={(e) => updateLine(item.id, 'quantity', Number(e.target.value) || 0)}
                           className="h-9 w-20 text-right"
+                          disabled={!!record?.is_invoiced}
                         />
                       </td>
                       <td className="px-4 py-2">
@@ -656,12 +773,14 @@ export default function GenerateInvoiceModal({
                             updateLine(item.id, 'unitPrice', Number(val) || 0)
                           }}
                           className="h-9 w-32 text-right"
+                          disabled={!!record?.is_invoiced}
                         />
                       </td>
                       <td className="px-4 py-2">
                         <Select
                           value={item.vatType}
                           onValueChange={(val: 'zero' | 'standard' | 'exempt') => updateLine(item.id, 'vatType', val)}
+                          disabled={!!record?.is_invoiced}
                         >
                           <SelectTrigger className="h-9 w-32">
                             <SelectValue />
@@ -677,7 +796,7 @@ export default function GenerateInvoiceModal({
                         {formatCurrency(item.quantity * item.unitPrice, invoiceCurrency)}
                       </td>
                       <td className="px-4 py-2">
-                        {lineItems.length > 1 && (
+                        {!record?.is_invoiced && lineItems.length > 1 && (
                           <button onClick={() => removeLine(item.id)} className="text-slate-400 hover:text-red-500">
                             <Trash2 className="h-4 w-4" />
                           </button>

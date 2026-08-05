@@ -110,7 +110,7 @@ export default function AuditTripDetailPage() {
         const { data: auditRecord, error: auditError } = await supabase
           .from('audit')
           .select('*')
-          .eq('id', Number(params.id))
+          .eq('trip_id', params.id)
           .single()
 
         if (auditError) throw auditError
@@ -160,6 +160,11 @@ export default function AuditTripDetailPage() {
     financeEntries: any[]
   }) => {
     if (!record?.id) throw new Error('No audit record selected')
+
+    // Server-side check: block invoice field changes if already invoiced
+    if (record.is_invoiced) {
+      throw new Error('This trip has already been invoiced. Invoice fields cannot be modified.')
+    }
 
     const financeSummary = buildActualCostSummary(payload.financeEntries)
 
@@ -225,6 +230,7 @@ export default function AuditTripDetailPage() {
         onSaveAudit={saveAudit}
         onExport={() => toast.info('Export flow can be wired next.')}
         onFinalAudit={() => toast.info('Final audit action can be wired next.')}
+        onRecordUpdate={(updates) => setRecord({ ...record, ...updates })}
       />
     </>
   )

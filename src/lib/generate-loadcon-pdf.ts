@@ -56,11 +56,11 @@ export function buildLoadconHTML(data: LoadconPdfData): string {
 
   const barcode = (value: string) => {
     const bars = value.split('').map(c =>
-      `<div style="width:${c.charCodeAt(0) % 2 === 0 ? 3 : 2}px;background:#000;height:40px"></div>`
+      `<div style="width:${c.charCodeAt(0) % 2 === 0 ? 3 : 2}px;background:#000;height:50px"></div>`
     ).join('')
     return `<div style="text-align:right">
-      <div style="display:flex;gap:1px;justify-content:flex-end">${bars}</div>
-      <div style="text-align:right;font-size:10px;font-family:monospace;margin-top:2px">${value}</div>
+      <div style="display:flex;gap:1px;justify-content:flex-end;align-items:flex-end">${bars}</div>
+      <div style="text-align:right;font-size:22px;font-weight:bold;font-family:monospace;margin-top:2px">${value}</div>
     </div>`
   }
 
@@ -88,7 +88,7 @@ export function buildLoadconHTML(data: LoadconPdfData): string {
     <table style="width:100%;border-collapse:collapse;font-size:11px">
       <tbody>
         ${row('Customer Name:', data.customerName)}
-        ${row('Booking Ref:', data.bookingRef, true)}
+        ${row('Booking Ref:', '')}
         ${row('Customer Reference:', data.customerReference)}
         ${row('Collection Address:', data.collectionAddress)}
         ${row('Loading Point Company:', data.loadingPointCompany)}
@@ -195,9 +195,9 @@ export function generateLoadconPdf(data: LoadconPdfData): Blob {
   doc.text('carriers', margin + 2, y + 13)
 
   // Barcode placeholder (order number)
-  doc.setFontSize(10)
+  doc.setFontSize(22)
   doc.setFont('courier', 'bold')
-  doc.text(data.orderNumber || 'WC000000', pageWidth - margin, y + 8, { align: 'right' })
+  doc.text(data.orderNumber || 'WC000000', pageWidth - margin, y + 10, { align: 'right' })
 
   // Barcode lines
   const barcodeX = pageWidth - margin - 60
@@ -205,7 +205,7 @@ export function generateLoadconPdf(data: LoadconPdfData): Blob {
     const char = (data.orderNumber || 'WC000000')[i]
     const w = char.charCodeAt(0) % 2 === 0 ? 3 : 2
     doc.setFillColor(0, 0, 0)
-    doc.rect(barcodeX + i * 5, y, w, 6, 'F')
+    doc.rect(barcodeX + i * 5, y, w, 8, 'F')
   }
 
   y += 18
@@ -222,7 +222,7 @@ export function generateLoadconPdf(data: LoadconPdfData): Blob {
   doc.setLineWidth(0.5)
 
   drawRow('Customer Name:', data.customerName)
-  drawRow('Booking Ref:', data.bookingRef, true)
+  drawRow('Booking Ref:', '')
   drawRow('Customer Reference:', data.customerReference)
   drawRow('Collection Address:', data.collectionAddress)
   drawRow('Delivery:', data.delivery)

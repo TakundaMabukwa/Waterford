@@ -551,7 +551,7 @@ export default function AuditPage() {
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex justify-end gap-1">
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => router.push(`/audit/${record.id}`)}>
+                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => router.push(`/audit/${record.trip_id}`)}>
                           View
                         </Button>
                         <SecureButton
@@ -560,7 +560,7 @@ export default function AuditPage() {
                           size="sm"
                           variant="outline"
                           className="h-7 px-2 text-xs"
-                          onClick={() => router.push(`/audit/${record.id}?tab=route`)}
+                          onClick={() => router.push(`/audit/${record.trip_id}?tab=route`)}
                         >
                           <Route className="h-3 w-3" />
                         </SecureButton>

@@ -208,6 +208,7 @@ type Props = {
     handoverLogs: AuditHandoverLog[]
     financeEntries: AuditFinanceEntry[]
   }) => Promise<void> | void
+  onRecordUpdate?: (updates: Partial<any>) => void
 }
 
 export default function AuditTripWorkspace({
@@ -222,6 +223,7 @@ export default function AuditTripWorkspace({
   onExport,
   onFinalAudit,
   onSaveAudit,
+  onRecordUpdate,
 }: Props) {
   const [activeTab, setActiveTab] = useState<'summary' | 'split' | 'finance' | 'route' | 'handover'>(initialTab)
   const [splitRows, setSplitRows] = useState<AuditSplitRow[]>(initialSplits)
@@ -1291,6 +1293,7 @@ export default function AuditTripWorkspace({
           invoiceCurrency={invoiceCurrency}
           splitRows={visibleSplitRows}
           calcSplitTotal={calcSplitTotal}
+          onInvoiced={(rate, currency) => onRecordUpdate?.({ is_invoiced: true, invoice_rate: rate, invoice_currency: currency })}
         />
       )}
     </div>
