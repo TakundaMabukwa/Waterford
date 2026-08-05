@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Download, FileText, Paperclip, Route, Truck, Plus } from 'lucide-react'
+import { Download, FileText, Paperclip, Route, Truck, Plus, AlertTriangle } from 'lucide-react'
 // @ts-ignore
 import ExcelJS from 'exceljs'
 import SundryInvoiceModal from '@/components/audit/SundryInvoiceModal'
@@ -48,6 +48,8 @@ export default function AuditPage() {
 
   const [records, setRecords] = useState<any[]>([])
   const [filteredRecords, setFilteredRecords] = useState<any[]>([])
+  const [incompleteRecords, setIncompleteRecords] = useState<any[]>([])
+  const [incompleteLoading, setIncompleteLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('all')
   const [invoicedFilter, setInvoicedFilter] = useState<'all' | 'invoiced' | 'not_invoiced'>('all')
@@ -57,7 +59,7 @@ export default function AuditPage() {
   const [tripDocuments, setTripDocuments] = useState<any[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState<'trips' | 'sundry'>('trips')
+  const [activeTab, setActiveTab] = useState<'trips' | 'sundry' | 'incomplete'>('trips')
   const [sundryInvoices, setSundryInvoices] = useState<any[]>([])
   const [sundryLoading, setSundryLoading] = useState(false)
   const [showSundryModal, setShowSundryModal] = useState(false)
@@ -122,7 +124,32 @@ export default function AuditPage() {
   }, [activeTab])
 
   useEffect(() => {
+    if (activeTab !== 'incomplete') return
+    const fetchIncomplete = async () => {
+      setIncompleteLoading(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('from', appliedDateFrom)
+        params.set('to', appliedDateTo)
+        const res = await fetch(`/api/audit/trips?${params.toString()}`)
+        const result = await res.json()
+        const allTrips = result.data || []
+        const incomplete = allTrips.filter((r: any) =>
+          r.status !== 'delivered' && r.status !== 'completed' && r.status !== 'breakdown'
+        )
+        setIncompleteRecords(incomplete)
+      } catch (err) {
+        console.error('Error fetching incomplete trips:', err)
+      } finally {
+        setIncompleteLoading(false)
+      }
+    }
+    fetchIncomplete()
+  }, [activeTab, appliedDateFrom, appliedDateTo])
+
+  useEffect(() => {
     let next = records
+    
     if (statusFilter !== 'all') {
       next = next.filter((record) => record.status === statusFilter)
     } else {
@@ -147,6 +174,17 @@ export default function AuditPage() {
 
     setFilteredRecords(next)
   }, [records, statusFilter, invoicedFilter, searchTerm])
+
+  const filteredIncompleteRecords = useMemo(() => {
+    if (!searchTerm) return incompleteRecords
+    const query = searchTerm.toLowerCase()
+    return incompleteRecords.filter(
+      (record) =>
+        record.ordernumber?.toLowerCase().includes(query) ||
+        record.origin?.toLowerCase().includes(query) ||
+        record.destination?.toLowerCase().includes(query)
+    )
+  }, [incompleteRecords, searchTerm])
 
   const summary = useMemo(() => {
     const totalTrips = filteredRecords.length
@@ -422,9 +460,17 @@ export default function AuditPage() {
         >
           Sundry Invoices
         </button>
+        <button
+          onClick={() => setActiveTab('incomplete')}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'incomplete' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Incomplete Trips
+        </button>
       </div>
 
-      {activeTab === 'trips' ? (
+      {activeTab === 'trips' && (
       <Card>
         <CardContent className="pt-6">
           <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center">
@@ -580,7 +626,9 @@ export default function AuditPage() {
           ) : null}
         </CardContent>
       </Card>
-      ) : (
+      )}
+
+      {activeTab === 'sundry' && (
       <Card>
         <CardContent className="pt-6">
           <div className="mb-4 flex items-center justify-between">
@@ -636,6 +684,117 @@ export default function AuditPage() {
                 </tbody>
               </table>
             </div>
+          )}
+        </CardContent>
+      </Card>
+      )}
+
+      {activeTab === 'incomplete' && (
+      <Card>
+        <CardContent className="pt-6">
+          {incompleteLoading ? (
+            <div className="py-8 text-center text-sm text-slate-500">Loading incomplete trips...</div>
+          ) : (
+          <>
+          <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center">
+            <Input
+              placeholder="Search by trip, order, origin, or destination..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="md:max-w-sm"
+            />
+            <div className="ml-auto flex items-center gap-2">
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="w-40"
+              />
+              <span className="text-sm text-slate-500">to</span>
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="w-40"
+              />
+              <Button onClick={handleSearch} className="bg-[#001e42] text-white hover:bg-[#0b2955]">
+                Search
+              </Button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full border-collapse text-left">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Trip</th>
+                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Client</th>
+                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
+                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Route</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredIncompleteRecords.map((record) => (
+                  <tr key={record.id} className="border-t hover:bg-slate-50">
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-slate-900">{record.ordernumber || '—'}</div>
+                    </td>
+                    <td className="px-3 py-2 text-sm text-slate-700">{getClientName(record)}</td>
+                    <td className="px-3 py-2 text-center">
+                      <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] px-2 py-0.5">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        {record.status || 'incomplete'}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-sm text-slate-700">
+                      <div className="max-w-xs">
+                        <div className="truncate">{record.origin || 'N/A'}</div>
+                        <div className="truncate text-xs text-slate-500">→ {record.destination || 'N/A'}</div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {record.is_invoiced ? (
+                        <div className="flex items-center justify-center gap-1.5">
+                          <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Invoiced</Badge>
+                          {record.invoice_url && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                              onClick={() => window.open(record.invoice_url, '_blank')}
+                              title="Download Invoice"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] px-2 py-0.5 text-slate-400">Pending</Badge>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        disabled={record.is_invoiced}
+                        onClick={() => router.push(`/audit/${record.trip_id}`)}
+                      >
+                        View
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {filteredIncompleteRecords.length === 0 && (
+            <div className="py-8 text-center text-sm text-slate-500">No incomplete trips found.</div>
+          )}
+          </>
           )}
         </CardContent>
       </Card>

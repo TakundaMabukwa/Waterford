@@ -266,9 +266,9 @@ export default function GenerateInvoiceModal({
   }
 
   const markAuditInvoiced = async (invoiceUrl?: string) => {
-    if (!record?.id) return
+    const auditId = record?.id || 'null'
     try {
-      await fetch(`/api/audit/${record.id}/mark-invoiced`, {
+      await fetch(`/api/audit/${auditId}/mark-invoiced`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -568,6 +568,41 @@ export default function GenerateInvoiceModal({
     }
 
     await markAuditInvoiced(invoiceUrl || undefined)
+
+    // Regenerate loadcon with finance details
+    try {
+      const { generateLoadconPdf, uploadLoadconPdf, updateTripLoadconUrl } = await import('@/lib/generate-loadcon-pdf')
+      const { data: { user } } = await supabase.auth.getUser()
+      const userEmail = user?.email || user?.user_metadata?.first_name || ''
+      
+      const loadconData = {
+        orderNumber: record.ordernumber || '',
+        loadType: record.load_type || 'Cross Border',
+        loadDate: new Date().toLocaleDateString('en-ZA'),
+        customerName: record.selectedclient || '',
+        collectionAddress: [record.loading_point_company, record.loading_point_city].filter(Boolean).join(', ') || '',
+        delivery: [record.offloading_point_company, record.offloading_point_city].filter(Boolean).join(', ') || '',
+        collectedBy: record.vehicle_registration ? `${record.vehicle_registration} - ${record.driver_name || ''}` : '',
+        deliveredBy: record.vehicle_registration ? `${record.vehicle_registration} - ${record.driver_name || ''}` : '',
+        notes: record.notes || '',
+        completedBy: '',
+        createdBy: '',
+        createdTimestamp: new Date().toLocaleString('en-ZA'),
+        rate: invoiceCurrency === 'ZAR' ? `ZAR ${invoiceRate}` : `USD ${invoiceRate}`,
+        bookingRef: record.ordernumber ? `${record.ordernumber} - ${record.selectedclient || ''}` : '',
+        invoiceNo: invNumber || invoiceNumber,
+        financeDate: formatDisplayDate(invoiceDate),
+        capturedBy: userEmail,
+      }
+      
+      const pdfBlob = generateLoadconPdf(loadconData)
+      const pdfUrl = await uploadLoadconPdf(record.trip_id, pdfBlob)
+      if (pdfUrl) {
+        await updateTripLoadconUrl(record.trip_id, pdfUrl)
+      }
+    } catch (loadconError) {
+      console.error('Error regenerating loadcon:', loadconError)
+    }
 
     // Bundle invoice PDF + all attached documents
     try {

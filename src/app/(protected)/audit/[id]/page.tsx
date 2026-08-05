@@ -107,27 +107,69 @@ export default function AuditTripDetailPage() {
     const load = async () => {
       try {
         setLoading(true)
+
+        // Try audit table first
         const { data: auditRecord, error: auditError } = await supabase
           .from('audit')
           .select('*')
           .eq('trip_id', params.id)
           .single()
 
-        if (auditError) throw auditError
-
         let tripData = null
-        if (auditRecord?.trip_id) {
-          const { data: trip } = await supabase
-            .from('trips')
-            .select('id, trip_id, approximate_fuel_cost, approximated_vehicle_cost, approximated_driver_cost, total_vehicle_cost, estimated_distance, pickuplocations, dropofflocations, fuel_price_per_liter, rate, actual_start_time, actual_end_time, accepted_at, vehicleassignments, handed_vehicleassignments, origin, destination, cargo, selectedclient, clientdetails, fuel_used_liters, fuel_filled_liters, fuel_operating_hours, fuel_liters_per_hour, fuel_liters_per_km, fuel_cost_total, fuel_window_start_at, fuel_window_end_at, fuel_source, fuel_breakdown')
-            .eq('trip_id', auditRecord.trip_id)
-            .maybeSingle()
+        const { data: trip } = await supabase
+          .from('trips')
+          .select('id, trip_id, ordernumber, rate, status, origin, destination, cargo, selectedclient, clientdetails, vehicleassignments, approximate_fuel_cost, approximated_vehicle_cost, approximated_driver_cost, total_vehicle_cost, estimated_distance, pickuplocations, dropofflocations, fuel_price_per_liter, actual_start_time, actual_end_time, accepted_at, handed_vehicleassignments, fuel_used_liters, fuel_filled_liters, fuel_operating_hours, fuel_liters_per_hour, fuel_liters_per_km, fuel_cost_total, fuel_window_start_at, fuel_window_end_at, fuel_source, fuel_breakdown, loadcon_url, notes, statusnotes, loading_point_company, loading_point_city, offloading_point_company, offloading_point_city, clients_notes, fc_notes, notification_group, note_images, is_invoiced, invoice_url, invoice_rate, invoice_currency, invoice_number, invoice_data, reference_number')
+          .eq('trip_id', params.id)
+          .maybeSingle()
 
-          tripData = trip
+        tripData = trip
+
+        // If no audit record exists (incomplete trip), build a virtual one from trip data
+        if (auditError || !auditRecord) {
+          if (!tripData) {
+            throw new Error('Trip not found')
+          }
+
+          const virtualAudit = {
+            id: null,
+            trip_id: tripData.trip_id,
+            ordernumber: tripData.ordernumber,
+            rate: tripData.rate,
+            status: tripData.status,
+            origin: tripData.origin,
+            destination: tripData.destination,
+            cargo: tripData.cargo,
+            selectedclient: tripData.selectedclient,
+            clientdetails: tripData.clientdetails,
+            vehicleassignments: tripData.vehicleassignments,
+            is_invoiced: tripData.is_invoiced || false,
+            invoice_url: tripData.invoice_url || null,
+            invoice_rate: tripData.invoice_rate || null,
+            invoice_currency: tripData.invoice_currency || null,
+            invoice_data: tripData.invoice_data || null,
+            reference_number: tripData.reference_number || null,
+            actual_fuel_cost: null,
+            actual_vehicle_cost: null,
+            actual_driver_cost: null,
+            actual_total_cost: null,
+            created_at: tripData.created_at,
+            updated_at: tripData.updated_at,
+            loading_point_company: tripData.loading_point_company,
+            loading_point_city: tripData.loading_point_city,
+            offloading_point_company: tripData.offloading_point_company,
+            offloading_point_city: tripData.offloading_point_city,
+            client_notes: tripData.clients_notes,
+            fc_notes: tripData.fc_notes,
+            notification_group: tripData.notification_group,
+            note_images: tripData.note_images,
+          }
+
+          const merged = mergeAuditWithTrip(virtualAudit, tripData)
+          setRecord(merged)
+        } else {
+          const merged = mergeAuditWithTrip(auditRecord, tripData)
+          setRecord(merged)
         }
-
-        const merged = mergeAuditWithTrip(auditRecord, tripData)
-        setRecord(merged)
 
         if (tripData?.id) {
           setRouteLoading(true)
@@ -159,9 +201,6 @@ export default function AuditTripDetailPage() {
     handoverLogs: any[]
     financeEntries: any[]
   }) => {
-    if (!record?.id) throw new Error('No audit record selected')
-
-    // Server-side check: block invoice field changes if already invoiced
     if (record.is_invoiced) {
       throw new Error('This trip has already been invoiced. Invoice fields cannot be modified.')
     }
@@ -169,6 +208,16 @@ export default function AuditTripDetailPage() {
     const financeSummary = buildActualCostSummary(payload.financeEntries)
 
     const auditPayload = {
+      trip_id: record.trip_id,
+      ordernumber: record.ordernumber,
+      rate: record.rate,
+      status: record.status,
+      origin: record.origin,
+      destination: record.destination,
+      cargo: record.cargo,
+      selectedclient: record.selectedclient,
+      clientdetails: record.clientdetails,
+      vehicleassignments: record.vehicleassignments,
       amount_to_split: payload.amountToSplit,
       actual_rate: payload.actualRate,
       actual_currency: payload.actualCurrency,
@@ -183,12 +232,22 @@ export default function AuditTripDetailPage() {
       actual_fuel_cost: financeSummary.actualFuelCost,
       actual_vehicle_cost: financeSummary.actualVehicleCost,
       actual_driver_cost: financeSummary.actualDriverCost,
+      actual_total_cost: financeSummary.total,
       split_updated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
 
-    const { error } = await supabase.from('audit').update(auditPayload).eq('id', record.id)
-    if (error) throw error
+    if (record.id) {
+      // Update existing audit record
+      const { error } = await supabase.from('audit').update(auditPayload).eq('id', record.id)
+      if (error) throw error
+    } else {
+      // Insert new audit record (incomplete trip being invoiced for first time)
+      const { data, error } = await supabase.from('audit').insert(auditPayload).select('id').single()
+      if (error) throw error
+      // Update record.id so future saves work
+      auditPayload.id = data.id
+    }
 
     const nextRecord = {
       ...record,

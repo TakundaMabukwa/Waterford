@@ -14,8 +14,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from('trips')
-      .select('id, trip_id, ordernumber, rate, status, origin, destination, cargo, selectedclient, clientdetails, vehicleassignments, loadcon_url, created_at, updated_at, actual_start_time, actual_end_time, approximate_fuel_cost, approximated_vehicle_cost, approximated_driver_cost, total_vehicle_cost, estimated_distance, fuel_used_liters, fuel_liters_per_km, fuel_cost_total, driver, vehicle')
-      .in('status', ['completed', 'delivered'])
+      .select('id, trip_id, ordernumber, rate, status, origin, destination, cargo, selectedclient, clientdetails, vehicleassignments, loadcon_url, created_at, updated_at, actual_start_time, actual_end_time, approximate_fuel_cost, approximated_vehicle_cost, approximated_driver_cost, total_vehicle_cost, estimated_distance, fuel_used_liters, fuel_liters_per_km, fuel_cost_total, driver, vehicle, loading_point_company, loading_point_city, offloading_point_company, offloading_point_city, is_invoiced, invoice_url')
       .order('updated_at', { ascending: false })
 
     if (dateFrom) query = query.gte('updated_at', dateFrom + 'T00:00:00')
@@ -50,11 +49,16 @@ export async function GET(request: NextRequest) {
           Number(audit.actual_fuel_cost || 0) +
           Number(audit.actual_vehicle_cost || 0) +
           Number(audit.actual_driver_cost || 0),
-        is_invoiced: audit.is_invoiced || false,
-        invoice_url: audit.invoice_url || null,
+        is_invoiced: audit.is_invoiced ?? trip.is_invoiced ?? false,
+        invoice_url: audit.invoice_url || trip.invoice_url || null,
         fuel_used_liters: trip.fuel_used_liters ?? 0,
         fuel_liters_per_km: trip.fuel_liters_per_km ?? 0,
         fuel_cost_total: trip.fuel_cost_total ?? 0,
+        client_name: trip.selectedclient || '',
+        loading_point_company: trip.loading_point_company || '',
+        loading_point_city: trip.loading_point_city || '',
+        offloading_point_company: trip.offloading_point_company || '',
+        offloading_point_city: trip.offloading_point_city || '',
       }
     })
 

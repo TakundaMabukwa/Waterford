@@ -337,7 +337,7 @@ export async function updateTripLoadconUrl(tripId: string, loadconUrl: string): 
   const { error } = await supabase
     .from('trips')
     .update({ loadcon_url: loadconUrl })
-    .eq('id', tripId)
+    .eq('trip_id', tripId)
 
   if (error) {
     console.error('[loadcon] Trip update error:', error)
