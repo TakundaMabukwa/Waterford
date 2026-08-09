@@ -2132,40 +2132,40 @@ export default function Dashboard() {
   }, []);
 
   // Fetch online devices from streaming server
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchOnlineDevices() {
-      try {
-        const res = await fetch("/api/video-server/eps/stream/online", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: "{}",
-          cache: "no-store",
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        if (data.success && data.data?.devices) {
-          const map = new Map<string, { deviceId: string; online: boolean }>();
-          for (const d of data.data.devices) {
-            if (!d.deviceId) continue;
-            const plate = (d.plateName || "").trim();
-            const parts = plate.split(" - ");
-            const fleetNum = (parts[0] || "").trim().toUpperCase();
-            const regNum = (parts[1] || "").trim().toUpperCase();
-            const info = { deviceId: d.deviceId, online: d.online === true };
-            if (fleetNum) map.set(fleetNum, info);
-            if (regNum) map.set(regNum, info);
-          }
-          if (!cancelled) setOnlineDevices(map);
-        }
-      } catch {
-        // silently fail — online status is non-critical
-      }
-    }
-    fetchOnlineDevices();
-    return () => { cancelled = true; };
-  }, []);
+  // useEffect(() => {
+  //   let cancelled = false;
+  //   async function fetchOnlineDevices() {
+  //     try {
+  //       const res = await fetch("/api/video-server/eps/stream/online", {
+  //         method: "POST",
+  //         headers: { "Content-Type": "application/json" },
+  //         body: "{}",
+  //         cache: "no-store",
+  //         signal: AbortSignal.timeout(15000),
+  //       });
+  //       if (!res.ok || cancelled) return;
+  //       const data = await res.json();
+  //       if (data.success && data.data?.devices) {
+  //         const map = new Map<string, { deviceId: string; online: boolean }>();
+  //         for (const d of data.data.devices) {
+  //           if (!d.deviceId) continue;
+  //           const plate = (d.plateName || "").trim();
+  //           const parts = plate.split(" - ");
+  //           const fleetNum = (parts[0] || "").trim().toUpperCase();
+  //           const regNum = (parts[1] || "").trim().toUpperCase();
+  //           const info = { deviceId: d.deviceId, online: d.online === true };
+  //           if (fleetNum) map.set(fleetNum, info);
+  //           if (regNum) map.set(regNum, info);
+  //         }
+  //         if (!cancelled) setOnlineDevices(map);
+  //       }
+  //     } catch {
+  //       // silently fail — online status is non-critical
+  //     }
+  //   }
+  //   fetchOnlineDevices();
+  //   return () => { cancelled = true; };
+  // }, []);
 
   // Fetch trips for alerts
   useEffect(() => {

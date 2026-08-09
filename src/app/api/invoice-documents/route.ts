@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 export async function GET(request: Request) {
@@ -31,84 +31,42 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const formData = await request.formData()
-    const file = formData.get('file') as File
-    const auditId = formData.get('audit_id') as string
-    const tripId = formData.get('trip_id') as string
-    const sundryInvoiceId = formData.get('sundry_invoice_id') as string
-    const ordernumber = formData.get('ordernumber') as string
-    const invoiceNumber = formData.get('invoice_number') as string
-    const uploadedBy = formData.get('uploaded_by') as string
+    const body = await request.json()
+    const { audit_id, trip_id, sundry_invoice_id, ordernumber, invoice_number, uploaded_by, document: docInfo } = body
 
-    if (!file) {
-      return NextResponse.json({ error: 'file is required' }, { status: 400 })
+    if (!docInfo) {
+      return NextResponse.json({ error: 'document info is required' }, { status: 400 })
     }
-    if (!auditId && !sundryInvoiceId) {
+    if (!audit_id && !sundry_invoice_id) {
       return NextResponse.json({ error: 'audit_id or sundry_invoice_id is required' }, { status: 400 })
     }
-
-    // Validate file type
-    const allowedTypes = [
-      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/tiff',
-      'application/pdf',
-      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      'text/plain', 'text/csv',
-    ]
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json({ error: `File type "${file.type}" is not allowed` }, { status: 400 })
-    }
-
-    // Max 20MB
-    if (file.size > 20 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File size must be under 20MB' }, { status: 400 })
-    }
-
-    const ext = file.name.split('.').pop() || 'bin'
-    const folderId = sundryInvoiceId || tripId || 'unknown'
-    const filePath = `invoice-docs/${folderId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-
-    // Upload to storage
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const { error: uploadError } = await supabase.storage
-      .from('invoice-documents')
-      .upload(filePath, buffer, { contentType: file.type, upsert: false })
-
-    if (uploadError) {
-      console.error('Upload error:', uploadError)
-      return NextResponse.json({ error: `Upload failed: ${uploadError.message}` }, { status: 500 })
-    }
-
-    const { data: urlData } = supabase.storage.from('invoice-documents').getPublicUrl(filePath)
-    const publicUrl = urlData?.publicUrl || ''
 
     // Build document entry
     const docEntry = {
       id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      file_name: file.name,
-      file_path: filePath,
-      file_url: publicUrl,
-      file_type: file.type,
-      file_size: file.size,
+      file_name: docInfo.fileName || '',
+      file_path: docInfo.filePath || '',
+      file_url: docInfo.fileUrl || '',
+      file_type: docInfo.fileType || '',
+      file_size: docInfo.fileSize || 0,
       uploaded_at: new Date().toISOString(),
-      uploaded_by: uploadedBy || '',
+      uploaded_by: uploaded_by || '',
     }
 
     // Upsert into invoice_documents — append to documents jsonb array
     let existing = null
-    if (auditId) {
+    if (audit_id) {
       const { data } = await supabase
         .from('invoice_documents')
         .select('id, documents')
-        .eq('audit_id', Number(auditId))
+        .eq('audit_id', Number(audit_id))
         .single()
       existing = data
-    } else if (sundryInvoiceId) {
+    } else if (sundry_invoice_id) {
       const { data } = await supabase
         .from('invoice_documents')
         .select('id, documents')
-        .eq('sundry_invoice_id', Number(sundryInvoiceId))
+        .eq('sundry_invoice_id', Number(sundry_invoice_id))
         .single()
       existing = data
     }
@@ -126,16 +84,16 @@ export async function POST(request: Request) {
     } else {
       const insertRow: any = {
         ordernumber: ordernumber || '',
-        invoice_number: invoiceNumber || '',
+        invoice_number: invoice_number || '',
         documents: [docEntry],
-        uploaded_by: uploadedBy || '',
+        uploaded_by: uploaded_by || '',
       }
-      if (auditId) {
-        insertRow.audit_id = Number(auditId)
-        insertRow.trip_id = tripId || ''
+      if (audit_id) {
+        insertRow.audit_id = Number(audit_id)
+        insertRow.trip_id = trip_id || ''
       }
-      if (sundryInvoiceId) {
-        insertRow.sundry_invoice_id = Number(sundryInvoiceId)
+      if (sundry_invoice_id) {
+        insertRow.sundry_invoice_id = Number(sundry_invoice_id)
       }
       const { error: insertError } = await supabase
         .from('invoice_documents')

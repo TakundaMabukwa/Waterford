@@ -28,7 +28,7 @@ export async function CreateUser(formData: FormData) {
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     
     if (!supabaseUrl || !serviceKey) {
         console.error('Missing Supabase env vars:', { url: !!supabaseUrl, key: !!serviceKey });

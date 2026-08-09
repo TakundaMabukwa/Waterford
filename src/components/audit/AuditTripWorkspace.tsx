@@ -610,7 +610,7 @@ export default function AuditTripWorkspace({
           </div>
         </section>
 
-        <nav className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 p-1.5">
+        <nav className="sticky top-0 z-10 mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 p-1.5">
           <WorkspaceTabButton active={activeTab === 'summary'} index="01" label="SUMMARY" onClick={() => setActiveTab('summary')} />
           <WorkspaceTabButton active={activeTab === 'split'} index="02" label="SPLIT" onClick={() => setActiveTab('split')} />
           <WorkspaceTabButton active={activeTab === 'finance'} index="03" label="FINANCES" onClick={() => setActiveTab('finance')} />

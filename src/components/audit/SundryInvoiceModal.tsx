@@ -9,19 +9,17 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/client'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = createClient()
 
 type InvoiceLineItem = {
   id: string
   description: string
   quantity: number
+  tonnage: number
   unitPrice: number
-  vatType: 'zero' | 'standard' | 'exempt'
+  vatType: 'zero' | 'standard' | 'exempt' | 'zero_export'
 }
 
 const SALES_CODES = [
@@ -37,12 +35,14 @@ const VAT_RATES: Record<string, number> = {
   zero: 0,
   standard: 0.15,
   exempt: 0,
+  zero_export: 0,
 }
 
 const VAT_LABELS: Record<string, string> = {
   zero: 'Zero Rate',
   standard: '15% VAT',
   exempt: 'Exempt',
+  zero_export: 'Zero Rate (Excl. Goods Exported)',
 }
 
 const formatCurrency = (value: number, currencyCode: string = 'ZAR') =>
@@ -113,6 +113,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       id: 'line-1',
       description: '',
       quantity: 1,
+      tonnage: 0,
       unitPrice: 0,
       vatType: 'zero' as const,
     },
@@ -131,6 +132,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
         id: `line-${Date.now()}`,
         description: '',
         quantity: 1,
+        tonnage: 0,
         unitPrice: 0,
         vatType: 'zero' as const,
       },
@@ -387,19 +389,22 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       const fileName = `${invNumber}.pdf`
       doc.save(fileName)
 
-      // Upload to Supabase storage
+      // Upload PDF directly to Supabase storage via browser client
       const pdfBlob = doc.output('blob')
       const filePath = `invoices/${fileName}`
-      const { error: uploadError } = await supabase.storage
-        .from('invoices')
-        .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true })
-
       let invoiceUrl = null
-      if (!uploadError) {
-        const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(filePath)
-        invoiceUrl = urlData?.publicUrl || null
-      } else {
-        console.error('Upload error:', uploadError)
+      try {
+        const { error: uploadError } = await supabase.storage
+          .from('invoices')
+          .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true })
+        if (!uploadError) {
+          const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(filePath)
+          invoiceUrl = urlData?.publicUrl || null
+        } else {
+          console.error('PDF upload error:', uploadError)
+        }
+      } catch (uploadErr) {
+        console.error('Upload error:', uploadErr)
       }
 
       // Save to sundry_invoices table
@@ -453,13 +458,41 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       if (result.data?.id && pendingFiles.length > 0) {
         for (const file of pendingFiles) {
           try {
-            const formData = new FormData()
-            formData.append('file', file)
-            formData.append('sundry_invoice_id', String(result.data.id))
-            formData.append('invoice_number', invNumber)
-            formData.append('uploaded_by', '')
-            await fetch('/api/invoice-documents', { method: 'POST', body: formData })
-          } catch {}
+            const filePath = `invoice-docs/sundry/${result.data.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+
+            // Upload directly to Supabase storage via browser client
+            const { error: uploadError } = await supabase.storage
+              .from('invoice-documents')
+              .upload(filePath, file, { contentType: file.type, upsert: false })
+
+            if (uploadError) {
+              console.error('Storage upload error:', uploadError)
+              continue
+            }
+
+            const { data: urlData } = supabase.storage.from('invoice-documents').getPublicUrl(filePath)
+            const publicUrl = urlData?.publicUrl || ''
+
+            // Save metadata only to API
+            await fetch('/api/invoice-documents', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sundry_invoice_id: result.data.id,
+                invoice_number: invNumber,
+                uploaded_by: '',
+                document: {
+                  fileName: file.name,
+                  filePath,
+                  fileUrl: publicUrl,
+                  fileType: file.type,
+                  fileSize: file.size,
+                },
+              }),
+            })
+          } catch (e) {
+            console.error('Document upload error:', e)
+          }
         }
       }
 
@@ -560,8 +593,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                 onChange={(e) => setCustomerAddress(e.target.value)}
                 placeholder="PO Box, City, Country"
                 rows={2}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const next = (e.target as HTMLElement).closest('.grid')?.querySelector<HTMLElement>('textarea, input'); if (next) next.focus() } }}
-                className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-none"
+                className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-y"
               />
             </div>
             <div>
@@ -600,6 +632,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                   <tr>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-20">Qty</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-20">Tonnage</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Unit Price</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">VAT</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Amount</th>
@@ -610,11 +643,12 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                   {lineItems.map((item) => (
                     <tr key={item.id}>
                       <td className="px-4 py-2">
-                        <Input
+                        <textarea
                           value={item.description}
                           onChange={(e) => updateLine(item.id, 'description', e.target.value)}
                           placeholder="What is being invoiced"
-                          className="h-9 border-0 bg-transparent text-sm"
+                          rows={2}
+                          className="flex w-full rounded-md border border-slate-300 bg-transparent px-2 py-1 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-y min-h-[40px]"
                         />
                       </td>
                       <td className="px-4 py-2">
@@ -622,6 +656,15 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                           type="number"
                           value={item.quantity}
                           onChange={(e) => updateLine(item.id, 'quantity', Number(e.target.value) || 0)}
+                          className="h-9 w-20 text-right"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <Input
+                          type="number"
+                          value={item.tonnage || ''}
+                          onChange={(e) => updateLine(item.id, 'tonnage', Number(e.target.value) || 0)}
+                          placeholder="0"
                           className="h-9 w-20 text-right"
                         />
                       </td>
@@ -640,13 +683,14 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                       <td className="px-4 py-2">
                         <Select
                           value={item.vatType}
-                          onValueChange={(val: 'zero' | 'standard' | 'exempt') => updateLine(item.id, 'vatType', val)}
+                          onValueChange={(val: 'zero' | 'standard' | 'exempt' | 'zero_export') => updateLine(item.id, 'vatType', val)}
                         >
                           <SelectTrigger className="h-9 w-32">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="zero">Zero Rate</SelectItem>
+                            <SelectItem value="zero_export">Zero Rate (Excl. Goods Exported) (0%)</SelectItem>
                             <SelectItem value="standard">15% VAT</SelectItem>
                             <SelectItem value="exempt">Exempt</SelectItem>
                           </SelectContent>
@@ -719,7 +763,18 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
               accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
               onChange={(e) => {
                 if (e.target.files) {
-                  setPendingFiles((prev) => [...prev, ...Array.from(e.target.files!)])
+                  const maxSize = 50 * 1024 * 1024 // 50MB
+                  const validFiles = Array.from(e.target.files!).filter((file) => {
+                    if (file.size > maxSize) {
+                      setUploadError(`"${file.name}" exceeds 50MB limit (${(file.size / 1024 / 1024).toFixed(1)}MB)`)
+                      return false
+                    }
+                    return true
+                  })
+                  if (validFiles.length > 0) {
+                    setUploadError('')
+                    setPendingFiles((prev) => [...prev, ...validFiles])
+                  }
                 }
                 e.target.value = ''
               }}

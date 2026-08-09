@@ -27,7 +27,6 @@ import { toast } from "sonner"
 import { signup } from "@/lib/action/auth"
 import { CreateUser } from "@/lib/action/createUser"
 import { createClient } from "@/lib/supabase/client"
-import { createClient as createServerClient } from "@supabase/supabase-js"
 import { PagePermissionSelector } from "@/components/ui/page-permission-selector"
 import { PageActionSelector } from "@/components/ui/page-action-selector"
 import { DEFAULT_ROLE_PERMISSIONS, Permission, PAGES, ACTIONS } from "@/lib/permissions/permissions"
@@ -348,22 +347,16 @@ export default function SettingsPage() {
                 return;
             }
 
-            // Delete from auth using service role
-            const serviceSupabase = createServerClient(
-                process.env.NEXT_PUBLIC_SUPABASE_URL!,
-                process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!,
-                {
-                    auth: {
-                        autoRefreshToken: false,
-                        persistSession: false
-                    }
-                }
-            );
+            // Delete from auth via API route (service role key stays server-side)
+            const authRes = await fetch('/api/admin/delete-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId }),
+            });
+            const authData = await authRes.json();
 
-            const { error: authError } = await serviceSupabase.auth.admin.deleteUser(userId);
-            
-            if (authError) {
-                toast.error('Failed to delete user from auth: ' + authError.message);
+            if (!authRes.ok) {
+                toast.error('Failed to delete user from auth: ' + (authData.error || 'Unknown error'));
                 return;
             }
 

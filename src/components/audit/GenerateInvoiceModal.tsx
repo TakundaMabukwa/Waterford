@@ -11,19 +11,17 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AuditCurrencyCode } from '@/lib/audit-utils'
 import { toast } from 'sonner'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/client'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = createClient()
 
 type InvoiceLineItem = {
   id: string
   description: string
   quantity: number
+  tonnage: number
   unitPrice: number
-  vatType: 'zero' | 'standard' | 'exempt'
+  vatType: 'zero' | 'standard' | 'exempt' | 'zero_export'
 }
 
 const SALES_CODES = [
@@ -39,12 +37,14 @@ const VAT_RATES: Record<string, number> = {
   zero: 0,
   standard: 0.15,
   exempt: 0,
+  zero_export: 0,
 }
 
 const VAT_LABELS: Record<string, string> = {
   zero: 'Zero Rate\n(Excluding\nGoods Exported)',
   standard: '15% VAT',
   exempt: 'Exempt',
+  zero_export: 'Zero Rate\n(Excluding\nGoods Exported)',
 }
 
 const formatCurrency = (value: number, currencyCode: AuditCurrencyCode = 'ZAR') =>
@@ -174,6 +174,7 @@ export default function GenerateInvoiceModal({
         id: `line-${i}`,
         description: `${row.driverName || 'Line Item'} - ${row.categoryLabel || row.categoryKey || ''}`.trim(),
         quantity: 1,
+        tonnage: 0,
         unitPrice: i === 0 ? invoiceRate : calcSplitTotal(row),
         vatType: 'zero' as const,
       }))
@@ -183,6 +184,7 @@ export default function GenerateInvoiceModal({
         id: 'line-1',
         description: record?.cargo || 'Transport Services',
         quantity: 1,
+        tonnage: 0,
         unitPrice: invoiceRate,
         vatType: 'zero' as const,
       },
@@ -202,6 +204,7 @@ export default function GenerateInvoiceModal({
         id: `line-${Date.now()}`,
         description: '',
         quantity: 1,
+        tonnage: 0,
         unitPrice: 0,
         vatType: 'zero' as const,
       },
@@ -222,18 +225,49 @@ export default function GenerateInvoiceModal({
     if (!files || files.length === 0 || !record?.id) return
 
     setUploadError('')
+    const maxSize = 50 * 1024 * 1024 // 50MB
     for (const file of Array.from(files)) {
+      if (file.size > maxSize) {
+        setUploadError(`"${file.name}" exceeds 50MB limit (${(file.size / 1024 / 1024).toFixed(1)}MB)`)
+        continue
+      }
       setUploading(true)
       try {
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('audit_id', String(record.id))
-        formData.append('trip_id', record.trip_id || record.trip_id || '')
-        formData.append('ordernumber', record.ordernumber || '')
-        formData.append('invoice_number', invoiceNumber || '')
-        formData.append('uploaded_by', '')
+        const folderId = record.trip_id || 'unknown'
+        const filePath = `invoice-docs/${folderId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
 
-        const res = await fetch('/api/invoice-documents', { method: 'POST', body: formData })
+        // Upload directly to Supabase storage via browser client
+        const { error: uploadError } = await supabase.storage
+          .from('invoice-documents')
+          .upload(filePath, file, { contentType: file.type, upsert: false })
+
+        if (uploadError) {
+          setUploadError(`Upload failed: ${uploadError.message}`)
+          continue
+        }
+
+        const { data: urlData } = supabase.storage.from('invoice-documents').getPublicUrl(filePath)
+        const publicUrl = urlData?.publicUrl || ''
+
+        // Save metadata only to API
+        const res = await fetch('/api/invoice-documents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audit_id: record.id,
+            trip_id: record.trip_id || '',
+            ordernumber: record.ordernumber || '',
+            invoice_number: invoiceNumber || '',
+            uploaded_by: '',
+            document: {
+              fileName: file.name,
+              filePath,
+              fileUrl: publicUrl,
+              fileType: file.type,
+              fileSize: file.size,
+            },
+          }),
+        })
         const result = await res.json()
         if (!res.ok) {
           setUploadError(result.error || 'Upload failed')
@@ -552,19 +586,22 @@ export default function GenerateInvoiceModal({
 
     const fileName = `${invNumber || 'invoice'}.pdf`
 
-    // Upload PDF to Supabase storage
+    // Upload PDF directly to Supabase storage via browser client
     const pdfBlob = doc.output('blob')
     const filePath = `invoices/${fileName}`
-    const { error: uploadError } = await supabase.storage
-      .from('invoices')
-      .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true })
-
     let invoiceUrl = null
-    if (!uploadError) {
-      const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(filePath)
-      invoiceUrl = urlData?.publicUrl || null
-    } else {
-      console.error('Upload error:', uploadError)
+    try {
+      const { error: uploadError } = await supabase.storage
+        .from('invoices')
+        .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true })
+      if (!uploadError) {
+        const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(filePath)
+        invoiceUrl = urlData?.publicUrl || null
+      } else {
+        console.error('PDF upload error:', uploadError)
+      }
+    } catch (uploadErr) {
+      console.error('Upload error:', uploadErr)
     }
 
     await markAuditInvoiced(invoiceUrl || undefined)
@@ -716,8 +753,7 @@ export default function GenerateInvoiceModal({
                 placeholder="PO Box, City, Country"
                 rows={2}
                 disabled={!!record?.is_invoiced}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const next = (e.target as HTMLElement).closest('.grid')?.querySelector<HTMLElement>('textarea, input'); if (next) next.focus() } }}
-                className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-none disabled:bg-slate-100 disabled:text-slate-500"
+                className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-y disabled:bg-slate-100 disabled:text-slate-500"
               />
             </div>
             <div>
@@ -769,6 +805,7 @@ export default function GenerateInvoiceModal({
                   <tr>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-20">Qty</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-20">Tonnage</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Unit Price</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">VAT</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Amount</th>
@@ -785,7 +822,6 @@ export default function GenerateInvoiceModal({
                           placeholder="Description"
                           rows={2}
                           disabled={!!record?.is_invoiced}
-                          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const row = (e.target as HTMLElement).closest('tr'); const next = row?.querySelector<HTMLElement>('input[type="number"]'); if (next) next.focus() } }}
                           className="flex w-full rounded-md border border-slate-300 bg-transparent px-2 py-1 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-y min-h-[40px] disabled:bg-slate-50 disabled:text-slate-500"
                         />
                       </td>
@@ -794,6 +830,16 @@ export default function GenerateInvoiceModal({
                           type="number"
                           value={item.quantity}
                           onChange={(e) => updateLine(item.id, 'quantity', Number(e.target.value) || 0)}
+                          className="h-9 w-20 text-right"
+                          disabled={!!record?.is_invoiced}
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <Input
+                          type="number"
+                          value={item.tonnage || ''}
+                          onChange={(e) => updateLine(item.id, 'tonnage', Number(e.target.value) || 0)}
+                          placeholder="0"
                           className="h-9 w-20 text-right"
                           disabled={!!record?.is_invoiced}
                         />
@@ -814,7 +860,7 @@ export default function GenerateInvoiceModal({
                       <td className="px-4 py-2">
                         <Select
                           value={item.vatType}
-                          onValueChange={(val: 'zero' | 'standard' | 'exempt') => updateLine(item.id, 'vatType', val)}
+                          onValueChange={(val: 'zero' | 'standard' | 'exempt' | 'zero_export') => updateLine(item.id, 'vatType', val)}
                           disabled={!!record?.is_invoiced}
                         >
                           <SelectTrigger className="h-9 w-32">
@@ -822,6 +868,7 @@ export default function GenerateInvoiceModal({
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="zero">Zero Rate</SelectItem>
+                            <SelectItem value="zero_export">Zero Rate (Excl. Goods Exported) (0%)</SelectItem>
                             <SelectItem value="standard">15% VAT</SelectItem>
                             <SelectItem value="exempt">Exempt</SelectItem>
                           </SelectContent>
