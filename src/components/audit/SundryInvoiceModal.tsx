@@ -264,6 +264,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           item.description,
           `${salesCode} - ${salesCodeLabel}`,
           String(item.quantity ? formatNum(item.quantity) : ''),
+          String(item.tonnage ? formatNum(item.tonnage) : ''),
           formatNum(item.unitPrice),
           VAT_LABELS[item.vatType] || '',
           formatNum(lineTotal),
@@ -272,7 +273,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
 
       autoTable(doc, {
         startY: y,
-        head: [['Description', 'Sales Code', 'Quantity', 'Unit Price', 'VAT', `Amount ${currency}`]],
+        head: [['Description', 'Sales Code', 'Qty', 'Tonnage', 'Unit Price', 'VAT', `Amount ${currency}`]],
         body: tableData,
         theme: 'plain',
         styles: {
@@ -293,12 +294,13 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           borderColor: [255, 255, 255],
         },
         columnStyles: {
-          0: { cellWidth: 45, halign: 'left' },
-          1: { cellWidth: 35, halign: 'left', overflow: 'linebreak' },
-          2: { cellWidth: 18, halign: 'right' },
-          3: { cellWidth: 22, halign: 'right' },
-          4: { cellWidth: 30, halign: 'left', overflow: 'linebreak' },
-          5: { cellWidth: 28, halign: 'right' },
+          0: { cellWidth: 40, halign: 'left' },
+          1: { cellWidth: 30, halign: 'left', overflow: 'linebreak' },
+          2: { cellWidth: 14, halign: 'right' },
+          3: { cellWidth: 16, halign: 'right' },
+          4: { cellWidth: 20, halign: 'right' },
+          5: { cellWidth: 28, halign: 'left', overflow: 'linebreak' },
+          6: { cellWidth: 28, halign: 'right' },
         },
         didDrawCell: (data) => {
           const { doc: d } = data
@@ -308,7 +310,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
             d.setLineWidth(0.5)
             d.line(ml, lineY, pw - mr, lineY)
           }
-          if (data.section === 'body' && data.column.index === 4) {
+          if (data.section === 'body' && data.column.index === 5) {
             const lineY = data.cell.y + data.cell.height + 3
             d.setDrawColor(220, 220, 220)
             d.setLineWidth(0.2)
