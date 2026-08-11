@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
-import { X, FileText, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin } from 'lucide-react'
+import { X, FileText, CheckCircle, AlertTriangle, Clock, TrendingUp, Plus, Route, MapPin, Trash2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -62,6 +62,12 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
   const [reuseLoading, setReuseLoading] = useState(false)
   const [originalStopPoints, setOriginalStopPoints] = useState([])
   const [notificationGroup, setNotificationGroup] = useState(null)
+
+  const removeNotificationEmail = (idx) => {
+    if (!notificationGroup) return
+    const updatedEmails = (notificationGroup.emails || []).filter((_, i) => i !== idx)
+    setNotificationGroup({ ...notificationGroup, emails: updatedEmails })
+  }
 
   // Driver assignments state
   const [driverAssignments, setDriverAssignments] = useState([{ id: '', name: '' }])
@@ -996,14 +1002,34 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
 
           {/* Notification Group */}
           {notificationGroup && notificationGroup.name && (
-            <div className="flex items-center gap-2">
-              <Label className="text-sm font-medium text-slate-700">Notification Group:</Label>
-              <span className="inline-block rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
-                {notificationGroup.name}
-              </span>
-              {notificationGroup.emails?.length > 0 && (
-                <span className="text-xs text-slate-500">({notificationGroup.emails.length} email{notificationGroup.emails.length !== 1 ? 's' : ''})</span>
-              )}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700">Notification Group</Label>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="inline-block rounded bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
+                    {notificationGroup.name}
+                  </span>
+                </div>
+                {notificationGroup.emails?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {notificationGroup.emails.map((email, idx) => (
+                      <span key={idx} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs text-slate-600">
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                        {email}
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => removeNotificationEmail(idx)}
+                            className="ml-0.5 rounded-full p-0.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
