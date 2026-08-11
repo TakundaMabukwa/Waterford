@@ -62,11 +62,62 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
   const [reuseLoading, setReuseLoading] = useState(false)
   const [originalStopPoints, setOriginalStopPoints] = useState([])
   const [notificationGroup, setNotificationGroup] = useState(null)
+  const [newEmail, setNewEmail] = useState('')
+  const [newGroupName, setNewGroupName] = useState('')
+  const [showNewGroupInput, setShowNewGroupInput] = useState(false)
 
   const removeNotificationEmail = (idx) => {
     if (!notificationGroup) return
     const updatedEmails = (notificationGroup.emails || []).filter((_, i) => i !== idx)
     setNotificationGroup({ ...notificationGroup, emails: updatedEmails })
+  }
+
+  const addNotificationEmail = () => {
+    if (!newEmail.trim()) return
+    const email = newEmail.trim().toLowerCase()
+    const currentEmails = notificationGroup?.emails || []
+    if (currentEmails.includes(email)) { setNewEmail(''); return }
+    setNotificationGroup({
+      name: notificationGroup?.name || 'Custom',
+      emails: [...currentEmails, email],
+    })
+    setNewEmail('')
+  }
+
+  const findClientMatch = () => {
+    if (!selectedClient) return null
+    return clients.find(c => {
+      if (c.name && selectedClient.name && c.name === selectedClient.name) return true
+      if (c.client_id && selectedClient.client_id && c.client_id === selectedClient.client_id) return true
+      if (c.name && selectedClient.client_id && c.name === selectedClient.client_id) return true
+      if (c.client_id && selectedClient.name && c.client_id === selectedClient.name) return true
+      return false
+    })
+  }
+
+  const selectClientGroup = (groupName) => {
+    if (!groupName) return
+    const clientMatch = findClientMatch()
+    const group = clientMatch?.notification_groups?.find(g => g.name === groupName)
+    if (!group) return
+    const currentEmails = notificationGroup?.emails || []
+    const mergedEmails = [...new Set([...currentEmails, ...(group.emails || [])])]
+    setNotificationGroup({ name: group.name, emails: mergedEmails })
+  }
+
+  const switchNotificationGroup = (groupName) => {
+    const clientMatch = findClientMatch()
+    const group = clientMatch?.notification_groups?.find(g => g.name === groupName)
+    if (group) {
+      setNotificationGroup({ name: group.name, emails: [...(group.emails || [])] })
+    }
+  }
+
+  const createNewGroup = () => {
+    if (!newGroupName.trim()) return
+    setNotificationGroup({ name: newGroupName.trim(), emails: [] })
+    setNewGroupName('')
+    setShowNewGroupInput(false)
   }
 
   // Driver assignments state
@@ -1001,37 +1052,136 @@ export function EditTripModal({ isOpen, onClose, trip, onUpdate, readOnly = fals
           </div>
 
           {/* Notification Group */}
-          {notificationGroup && notificationGroup.name && (
-            <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Notification Group</Label>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="inline-block rounded bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
-                    {notificationGroup.name}
-                  </span>
-                </div>
-                {notificationGroup.emails?.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {notificationGroup.emails.map((email, idx) => (
-                      <span key={idx} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs text-slate-600">
-                        <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                        {email}
-                        {!readOnly && (
+          <div className="space-y-3">
+            <Label className="text-sm font-medium text-slate-700">Notification Group</Label>
+
+            {/* All available client groups */}
+            {(() => {
+              const clientMatch = findClientMatch()
+              const groups = clientMatch?.notification_groups || []
+              return (
+                <div className="space-y-2">
+                  <p className="text-[10px] text-slate-400">Client Groups</p>
+                  {groups.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {groups.map((group, idx) => {
+                        const isActive = notificationGroup?.name === group.name
+                        return (
                           <button
+                            key={idx}
                             type="button"
-                            onClick={() => removeNotificationEmail(idx)}
-                            className="ml-0.5 rounded-full p-0.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
+                            onClick={() => isActive ? null : selectClientGroup(group.name)}
+                            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                              isActive
+                                ? 'border-blue-300 bg-blue-100 text-blue-700 ring-1 ring-blue-300'
+                                : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50'
+                            }`}
                           >
-                            <X className="h-3 w-3" />
+                            {group.name}
+                            <span className="text-[10px] text-slate-400">({group.emails?.length || 0})</span>
                           </button>
-                        )}
-                      </span>
-                    ))}
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">No groups configured for this client</p>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* Create new group */}
+            {!readOnly && (
+              <div className="space-y-2">
+                {showNewGroupInput ? (
+                  <div className="flex gap-2">
+                    <Input
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createNewGroup() } }}
+                      placeholder="Group name..."
+                      className="h-9 flex-1"
+                      autoFocus
+                    />
+                    <Button type="button" variant="default" size="sm" onClick={createNewGroup} className="h-9 px-3 bg-[#001e42]">
+                      Create
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => { setShowNewGroupInput(false); setNewGroupName('') }} className="h-9 px-3">
+                      Cancel
+                    </Button>
                   </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowNewGroupInput(true)}
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs text-slate-500 hover:border-blue-300 hover:text-blue-600"
+                  >
+                    <Plus className="h-3 w-3" />
+                    New Group
+                  </button>
                 )}
               </div>
+            )}
+
+            {/* Current group header + add email */}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                {notificationGroup?.name ? (
+                  <>
+                    <span className="inline-block rounded bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
+                      {notificationGroup.name}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {notificationGroup.emails?.length || 0} email{(notificationGroup.emails?.length || 0) !== 1 ? 's' : ''}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs text-slate-400 italic">No group selected — select a client group above or create a new one</span>
+                )}
+              </div>
+
+              {/* Add email to current group */}
+              {!readOnly && (
+                <div className="flex gap-2">
+                  <Input
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addNotificationEmail() } }}
+                    placeholder={notificationGroup?.name ? `Add email to ${notificationGroup.name}...` : 'Select or create a group first...'}
+                    className="h-8 flex-1 text-xs"
+                    disabled={!notificationGroup?.name}
+                  />
+                  <Button type="button" variant="outline" size="sm" onClick={addNotificationEmail} className="h-8 px-2" disabled={!notificationGroup?.name}>
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
+
+              {/* Email list */}
+              {notificationGroup?.emails?.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {notificationGroup.emails.map((email, idx) => (
+                    <span key={idx} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs text-slate-600">
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                      {email}
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => removeNotificationEmail(idx)}
+                          className="ml-0.5 rounded-full p-0.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              ) : notificationGroup?.name ? (
+                <p className="text-[10px] text-slate-400">No emails yet — add one above</p>
+              ) : null}
             </div>
-          )}
+          </div>
 
           {/* Trip Type Selection */}
           <div className="space-y-4">
