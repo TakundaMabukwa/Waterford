@@ -414,7 +414,6 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           customerAddress,
           customerVat,
           invoiceDate,
-          dueDate,
           referenceNumber,
           lineItems: lineItems.map((item) => ({
             description: item.description,

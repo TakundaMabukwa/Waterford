@@ -1898,7 +1898,7 @@ export default function LoadPlanPage() {
       }
       console.log('Trip created successfully:', tripResult)
       const createdTrip = tripResult?.[0]
-      const newTripId = createdTrip?.id
+      const newTripId = createdTrip?.trip_id
 
       // Get sequential order number only if not reusing
       let orderNumberStr = orderNumber
@@ -1913,7 +1913,7 @@ export default function LoadPlanPage() {
         const { error: updateError } = await supabase
           .from('trips')
           .update({ ordernumber: orderNumberStr })
-          .eq('id', newTripId)
+          .eq('trip_id', newTripId)
         if (updateError) {
           console.error('Error updating trip order number:', updateError)
         }
@@ -2004,7 +2004,7 @@ export default function LoadPlanPage() {
               await supabase
                 .from('trips')
                 .update({ route: String(routeId) })
-                .eq('id', newTripId)
+                .eq('trip_id', newTripId)
             }
           }
         } catch (routeError) {

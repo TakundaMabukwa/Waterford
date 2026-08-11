@@ -84,6 +84,8 @@ const mergeAuditWithTrip = (auditRecord: any, tripData: any) => {
     accepted_at: tripData.accepted_at || auditRecord.accepted_at,
     vehicleassignments: auditRecord.vehicleassignments || tripData.vehicleassignments || [],
     handed_vehicleassignments: auditRecord.handed_vehicleassignments || tripData.handed_vehicleassignments || [],
+    pickuplocations: tripData.pickuplocations || auditRecord.pickuplocations || null,
+    dropofflocations: tripData.dropofflocations || auditRecord.dropofflocations || null,
     trip_row_id: tripData.id,
   }
 }

@@ -23,6 +23,12 @@ type InvoiceLineItem = {
   vatType: 'zero' | 'standard' | 'exempt' | 'zero_export'
 }
 
+const parseJson = (val: any): any => {
+  if (!val) return null
+  if (typeof val === 'string') { try { return JSON.parse(val) } catch { return null } }
+  return val
+}
+
 const SALES_CODES = [
   { code: '200', label: 'Sales' },
   { code: '201', label: 'Sales - Subcontractors' },
@@ -172,10 +178,16 @@ export default function GenerateInvoiceModal({
   }, [open, record?.id])
 
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>(() => {
+    const pickups = parseJson(record?.pickuplocations) || []
+    const dropoffs = parseJson(record?.dropofflocations) || []
+    const pickupName = pickups[0]?.address || pickups[0]?.location || 'Pickup'
+    const dropoffName = dropoffs[0]?.address || dropoffs[0]?.location || 'Dropoff'
+    const routeDesc = `${pickupName} to ${dropoffName}`
+
     if (splitRows.length) {
       return splitRows.map((row, i) => ({
         id: `line-${i}`,
-        description: `${row.driverName || 'Line Item'} - ${row.categoryLabel || row.categoryKey || ''}`.trim(),
+        description: routeDesc,
         quantity: '1',
         unitPrice: i === 0 ? String(invoiceRate || '') : String(calcSplitTotal(row) || ''),
         vatType: 'zero' as const,
@@ -184,7 +196,7 @@ export default function GenerateInvoiceModal({
     return [
       {
         id: 'line-1',
-        description: record?.cargo || 'Transport Services',
+        description: routeDesc,
         quantity: '1',
         unitPrice: String(invoiceRate || ''),
         vatType: 'zero' as const,
@@ -617,12 +629,6 @@ export default function GenerateInvoiceModal({
       const { data: { user } } = await supabase.auth.getUser()
       const userEmail = user?.email || user?.user_metadata?.first_name || ''
       
-      const parseJson = (val: any): any => {
-        if (!val) return null
-        if (typeof val === 'string') { try { return JSON.parse(val) } catch { return null } }
-        return val
-      }
-
       const clientDetails = parseJson(record.clientdetails || record.client_details)
       const pickupLocations = parseJson(record.pickuplocations || record.pickup_locations) || []
       const dropoffLocations = parseJson(record.dropofflocations || record.dropoff_locations) || []
