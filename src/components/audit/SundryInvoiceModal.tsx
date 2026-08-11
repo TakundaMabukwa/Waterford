@@ -16,9 +16,8 @@ const supabase = createClient()
 type InvoiceLineItem = {
   id: string
   description: string
-  quantity: number
-  tonnage: number
-  unitPrice: number
+  quantity: string
+  unitPrice: string
   vatType: 'zero' | 'standard' | 'exempt' | 'zero_export'
 }
 
@@ -112,9 +111,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
     {
       id: 'line-1',
       description: '',
-      quantity: 1,
-      tonnage: 0,
-      unitPrice: 0,
+      quantity: '1',
+      unitPrice: '',
       vatType: 'zero' as const,
     },
   ])
@@ -131,9 +129,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       {
         id: `line-${Date.now()}`,
         description: '',
-        quantity: 1,
-        tonnage: 0,
-        unitPrice: 0,
+        quantity: '1',
+        unitPrice: '',
         vatType: 'zero' as const,
       },
     ])
@@ -143,8 +140,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
     setLineItems((prev) => prev.filter((item) => item.id !== id))
   }
 
-  const subtotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
-  const totalVat = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice * VAT_RATES[item.vatType], 0)
+  const subtotal = lineItems.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0)
+  const totalVat = lineItems.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0) * VAT_RATES[item.vatType], 0)
   const totalZar = subtotal + totalVat
   const amountDue = totalZar
 
@@ -259,13 +256,12 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       // LINE ITEMS TABLE
       const salesCodeLabel = SALES_CODES.find(s => s.code === salesCode)?.label || 'Sales'
       const tableData = lineItems.map((item) => {
-        const lineTotal = item.quantity * item.unitPrice
+        const lineTotal = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)
         return [
           item.description,
           `${salesCode} - ${salesCodeLabel}`,
-          String(item.quantity ? formatNum(item.quantity) : ''),
-          String(item.tonnage ? formatNum(item.tonnage) : ''),
-          formatNum(item.unitPrice),
+          String(item.quantity ? formatNum(Number(item.quantity)) : ''),
+          formatNum(Number(item.unitPrice) || 0),
           VAT_LABELS[item.vatType] || '',
           formatNum(lineTotal),
         ]
@@ -273,7 +269,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
 
       autoTable(doc, {
         startY: y,
-        head: [['Description', 'Sales Code', 'Qty', 'Tonnage', 'Unit Price', 'VAT', `Amount ${currency}`]],
+        head: [['Description', 'Sales Code', 'Quantity', 'Unit Price', 'VAT', `Amount ${currency}`]],
         body: tableData,
         theme: 'plain',
         styles: {
@@ -294,13 +290,12 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           borderColor: [255, 255, 255],
         },
         columnStyles: {
-          0: { cellWidth: 40, halign: 'left' },
-          1: { cellWidth: 30, halign: 'left', overflow: 'linebreak' },
-          2: { cellWidth: 14, halign: 'right' },
-          3: { cellWidth: 16, halign: 'right' },
-          4: { cellWidth: 20, halign: 'right' },
-          5: { cellWidth: 28, halign: 'left', overflow: 'linebreak' },
-          6: { cellWidth: 28, halign: 'right' },
+          0: { cellWidth: 45, halign: 'left' },
+          1: { cellWidth: 35, halign: 'left', overflow: 'linebreak' },
+          2: { cellWidth: 18, halign: 'right' },
+          3: { cellWidth: 22, halign: 'right' },
+          4: { cellWidth: 30, halign: 'left', overflow: 'linebreak' },
+          5: { cellWidth: 28, halign: 'right' },
         },
         didDrawCell: (data) => {
           const { doc: d } = data
@@ -310,7 +305,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
             d.setLineWidth(0.5)
             d.line(ml, lineY, pw - mr, lineY)
           }
-          if (data.section === 'body' && data.column.index === 5) {
+          if (data.section === 'body' && data.column.index === 4) {
             const lineY = data.cell.y + data.cell.height + 3
             d.setDrawColor(220, 220, 220)
             d.setLineWidth(0.2)
@@ -423,8 +418,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           referenceNumber,
           lineItems: lineItems.map((item) => ({
             description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
+            quantity: Number(item.quantity) || 0,
+            unitPrice: Number(item.unitPrice) || 0,
             vatType: item.vatType,
           })),
           subtotal,
@@ -634,7 +629,6 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                   <tr>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-20">Qty</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-20">Tonnage</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Unit Price</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">VAT</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Amount</th>
@@ -654,32 +648,21 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                         />
                       </td>
                       <td className="px-4 py-2">
-                        <Input
-                          type="number"
-                          value={item.quantity}
-                          onChange={(e) => updateLine(item.id, 'quantity', Number(e.target.value) || 0)}
-                          className="h-9 w-20 text-right"
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <Input
-                          type="number"
-                          value={item.tonnage || ''}
-                          onChange={(e) => updateLine(item.id, 'tonnage', Number(e.target.value) || 0)}
-                          placeholder="0"
-                          className="h-9 w-20 text-right"
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <Input
+                        <input
                           type="text"
                           inputMode="decimal"
-                          value={item.unitPrice || ''}
-                          onChange={(e) => {
-                            const val = e.target.value.replace(/[^0-9.-]/g, '')
-                            updateLine(item.id, 'unitPrice', Number(val) || 0)
-                          }}
-                          className="h-9 w-32 text-right"
+                          value={item.quantity}
+                          onChange={(e) => updateLine(item.id, 'quantity', e.target.value)}
+                          className="h-9 w-20 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={item.unitPrice}
+                          onChange={(e) => updateLine(item.id, 'unitPrice', e.target.value)}
+                          className="h-9 w-32 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
                         />
                       </td>
                       <td className="px-4 py-2">
@@ -699,7 +682,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                         </Select>
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-slate-900">
-                        {formatCurrency(item.quantity * item.unitPrice, currency)}
+                        {formatCurrency((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), currency)}
                       </td>
                       <td className="px-4 py-2">
                         {lineItems.length > 1 && (

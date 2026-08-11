@@ -51,13 +51,16 @@ const numberFmt = (value: number | null | undefined, suffix = '') =>
 
 const formatEditableNumber = (value: number | null | undefined) => {
   const numericValue = Number(value || 0)
-  return numericValue === 0 ? '' : String(value)
+  if (numericValue === 0) return ''
+  // Preserve decimal places the user typed (up to 2)
+  if (numericValue % 1 !== 0) return numericValue.toFixed(2)
+  return String(value)
 }
 
 const parseEditableNumber = (value: string) => {
-  const sanitized = value.replace(/[^0-9.-]/g, '')
+  const sanitized = value.replace(/[^0-9.]/g, '')
   if (!sanitized.trim()) return 0
-  const parsed = Number(sanitized)
+  const parsed = parseFloat(sanitized)
   return Number.isFinite(parsed) ? parsed : 0
 }
 
@@ -231,7 +234,7 @@ export default function AuditTripWorkspace({
   const [amountToSplit, setAmountToSplit] = useState(toNumber(record?.actual_rate ?? 0))
   const [actualRate, setActualRate] = useState(toNumber(record?.actual_rate ?? 0))
   const [actualCurrency, setActualCurrency] = useState<AuditCurrencyCode>(normalizeCurrency(record?.actual_currency ?? 'ZAR'))
-  const [invoiceRate, setInvoiceRate] = useState(toNumber(record?.invoice_rate ?? record?.rate ?? 0))
+  const [invoiceRateStr, setInvoiceRateStr] = useState(String(record?.invoice_rate ?? record?.rate ?? ''))
   const [invoiceCurrency, setInvoiceCurrency] = useState<AuditCurrencyCode>(normalizeCurrency(record?.invoice_currency ?? record?.actual_currency ?? 'ZAR'))
   const [fxRate, setFxRate] = useState<number | null>(null)
   const [fxDate, setFxDate] = useState<string | null>(null)
@@ -259,9 +262,11 @@ export default function AuditTripWorkspace({
     setActualRate(toNumber(record?.actual_rate ?? 0))
     setAmountToSplit(nextInvoiceRate)
     setActualCurrency(normalizeCurrency(record?.actual_currency ?? 'ZAR'))
-    setInvoiceRate(nextInvoiceRate)
+    setInvoiceRateStr(String(record?.invoice_rate ?? record?.rate ?? ''))
     setInvoiceCurrency(normalizeCurrency(record?.invoice_currency ?? record?.actual_currency ?? 'ZAR'))
   }, [record])
+
+  const invoiceRate = Number(invoiceRateStr) || 0
 
   useEffect(() => {
     let cancelled = false
@@ -654,17 +659,16 @@ export default function AuditTripWorkspace({
               <div className="rounded-lg border border-slate-200 p-4 sm:p-5 xl:col-span-3">
                 <div className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Invoice Rate</div>
                 <div className="space-y-2">
-                  <Input
+                  <input
                     type="text"
                     inputMode="decimal"
-                    value={formatEditableNumber(invoiceRate)}
+                    value={invoiceRateStr}
                     onChange={(e) => {
-                      const next = parseEditableNumber(e.target.value)
-                      setInvoiceRate(next)
-                      setAmountToSplit(next)
+                      setInvoiceRateStr(e.target.value)
+                      setAmountToSplit(Number(e.target.value) || 0)
                     }}
                     disabled={!!record?.is_invoiced}
-                    className="h-11 text-base font-bold sm:text-lg"
+                    className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-base font-bold shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] sm:text-lg disabled:bg-slate-100 disabled:text-slate-500"
                   />
                   <Select value={invoiceCurrency} onValueChange={(value: AuditCurrencyCode) => setInvoiceCurrency(value)} disabled={!!record?.is_invoiced}>
                     <SelectTrigger className="h-11 font-semibold">
@@ -711,7 +715,7 @@ export default function AuditTripWorkspace({
                   <Button
                     onClick={() => setShowInvoiceModal(true)}
                     className="h-full w-full bg-[#001e42] text-white hover:bg-[#0b2955]"
-                    disabled={!invoiceRate || !!record?.is_invoiced}
+                    disabled={!!record?.is_invoiced}
                   >
                     <FileText className="mr-2 h-4 w-4" />
                     Generate Invoice

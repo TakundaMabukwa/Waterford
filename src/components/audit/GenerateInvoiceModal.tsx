@@ -18,9 +18,8 @@ const supabase = createClient()
 type InvoiceLineItem = {
   id: string
   description: string
-  quantity: number
-  tonnage: number
-  unitPrice: number
+  quantity: string
+  unitPrice: string
   vatType: 'zero' | 'standard' | 'exempt' | 'zero_export'
 }
 
@@ -164,7 +163,11 @@ export default function GenerateInvoiceModal({
       if (d.customerVat) setCustomerVat(d.customerVat)
       if (d.referenceNumber) setReferenceNumber(d.referenceNumber)
       if (d.salesCode) setSalesCode(d.salesCode)
-      if (d.lineItems?.length) setLineItems(d.lineItems)
+      if (d.lineItems?.length) setLineItems(d.lineItems.map((item: any) => ({
+        ...item,
+        quantity: String(item.quantity ?? ''),
+        unitPrice: String(item.unitPrice ?? ''),
+      })))
     }
   }, [open, record?.id])
 
@@ -173,9 +176,8 @@ export default function GenerateInvoiceModal({
       return splitRows.map((row, i) => ({
         id: `line-${i}`,
         description: `${row.driverName || 'Line Item'} - ${row.categoryLabel || row.categoryKey || ''}`.trim(),
-        quantity: 1,
-        tonnage: 0,
-        unitPrice: i === 0 ? invoiceRate : calcSplitTotal(row),
+        quantity: '1',
+        unitPrice: i === 0 ? String(invoiceRate || '') : String(calcSplitTotal(row) || ''),
         vatType: 'zero' as const,
       }))
     }
@@ -183,9 +185,8 @@ export default function GenerateInvoiceModal({
       {
         id: 'line-1',
         description: record?.cargo || 'Transport Services',
-        quantity: 1,
-        tonnage: 0,
-        unitPrice: invoiceRate,
+        quantity: '1',
+        unitPrice: String(invoiceRate || ''),
         vatType: 'zero' as const,
       },
     ]
@@ -203,9 +204,8 @@ export default function GenerateInvoiceModal({
       {
         id: `line-${Date.now()}`,
         description: '',
-        quantity: 1,
-        tonnage: 0,
-        unitPrice: 0,
+        quantity: '1',
+        unitPrice: '',
         vatType: 'zero' as const,
       },
     ])
@@ -215,8 +215,8 @@ export default function GenerateInvoiceModal({
     setLineItems((prev) => prev.filter((item) => item.id !== id))
   }
 
-  const subtotal = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
-  const totalVat = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice * VAT_RATES[item.vatType], 0)
+  const subtotal = lineItems.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0)
+  const totalVat = lineItems.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0) * VAT_RATES[item.vatType], 0)
   const totalZar = subtotal + totalVat
   const amountDue = totalZar
 
@@ -322,7 +322,11 @@ export default function GenerateInvoiceModal({
             customerVat,
             referenceNumber: referenceNumber || '',
             salesCode,
-            lineItems,
+            lineItems: lineItems.map(item => ({
+              ...item,
+              quantity: Number(item.quantity) || 0,
+              unitPrice: Number(item.unitPrice) || 0,
+            })),
             subtotal,
             totalVat,
             totalZar,
@@ -458,13 +462,12 @@ export default function GenerateInvoiceModal({
     // ── LINE ITEMS TABLE ───────────────────────────────────────────
     const salesCodeLabel = SALES_CODES.find(s => s.code === salesCode)?.label || 'Sales'
     const tableData = lineItems.map((item) => {
-      const lineTotal = item.quantity * item.unitPrice
+      const lineTotal = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)
       return [
         item.description,
         `${salesCode} - ${salesCodeLabel}`,
-        String(item.quantity ? formatNum(item.quantity) : ''),
-        String(item.tonnage ? formatNum(item.tonnage) : ''),
-        formatNum(item.unitPrice),
+        String(item.quantity ? formatNum(Number(item.quantity)) : ''),
+        formatNum(Number(item.unitPrice) || 0),
         VAT_LABELS[item.vatType] || '',
         formatNum(lineTotal),
       ]
@@ -472,7 +475,7 @@ export default function GenerateInvoiceModal({
 
     autoTable(doc, {
       startY: y,
-      head: [['Description', 'Sales Code', 'Qty', 'Tonnage', 'Unit Price', 'VAT', 'Amount ZAR']],
+      head: [['Description', 'Sales Code', 'Quantity', 'Unit Price', 'VAT', 'Amount ZAR']],
       body: tableData,
       theme: 'plain',
       styles: {
@@ -493,13 +496,12 @@ export default function GenerateInvoiceModal({
         borderColor: [255, 255, 255],
       },
       columnStyles: {
-        0: { cellWidth: 40, halign: 'left' },
-        1: { cellWidth: 30, halign: 'left', overflow: 'linebreak' },
-        2: { cellWidth: 14, halign: 'right' },
-        3: { cellWidth: 16, halign: 'right' },
-        4: { cellWidth: 20, halign: 'right' },
-        5: { cellWidth: 28, halign: 'left', overflow: 'linebreak' },
-        6: { cellWidth: 28, halign: 'right' },
+        0: { cellWidth: 45, halign: 'left' },
+        1: { cellWidth: 35, halign: 'left', overflow: 'linebreak' },
+        2: { cellWidth: 18, halign: 'right' },
+        3: { cellWidth: 22, halign: 'right' },
+        4: { cellWidth: 30, halign: 'left', overflow: 'linebreak' },
+        5: { cellWidth: 28, halign: 'right' },
       },
       didDrawCell: (data) => {
         const { doc: d } = data
@@ -509,7 +511,7 @@ export default function GenerateInvoiceModal({
           d.setLineWidth(0.5)
           d.line(ml, lineY, pw - mr, lineY)
         }
-        if (data.section === 'body' && data.column.index === 5) {
+        if (data.section === 'body' && data.column.index === 4) {
           const lineY = data.cell.y + data.cell.height + 3
           d.setDrawColor(220, 220, 220)
           d.setLineWidth(0.2)
@@ -609,33 +611,59 @@ export default function GenerateInvoiceModal({
     await markAuditInvoiced(invoiceUrl || undefined)
 
     // Regenerate loadcon with finance details
+    let loadconBlob: Blob | null = null
     try {
       const { generateLoadconPdf, uploadLoadconPdf, updateTripLoadconUrl } = await import('@/lib/generate-loadcon-pdf')
       const { data: { user } } = await supabase.auth.getUser()
       const userEmail = user?.email || user?.user_metadata?.first_name || ''
       
+      const parseJson = (val: any): any => {
+        if (!val) return null
+        if (typeof val === 'string') { try { return JSON.parse(val) } catch { return null } }
+        return val
+      }
+
+      const clientDetails = parseJson(record.clientdetails || record.client_details)
+      const pickupLocations = parseJson(record.pickuplocations || record.pickup_locations) || []
+      const dropoffLocations = parseJson(record.dropofflocations || record.dropoff_locations) || []
+      const vehicleAssignments = parseJson(record.vehicleassignments || record.vehicle_assignments) || []
+
+      const firstAssignment = vehicleAssignments[0] || {}
+      const driverName = firstAssignment.drivers?.[0] ? `${firstAssignment.drivers[0].first_name || ''} ${firstAssignment.drivers[0].surname || ''}`.trim() : ''
+      const vehicleReg = firstAssignment.vehicle?.name || ''
+      const collectedByStr = vehicleReg && driverName ? `${vehicleReg} - ${driverName}` : driverName || vehicleReg || ''
+
+      const collectionAddress = pickupLocations[0]?.address || record.origin || ''
+      const deliveryAddress = dropoffLocations[0]?.address || record.destination || ''
+
+      const createdByName = record.created_by || ''
+      const createdAtStr = record.created_at ? new Date(record.created_at).toLocaleString('en-ZA', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+
       const loadconData = {
         orderNumber: record.ordernumber || '',
         loadType: record.load_type || 'Cross Border',
-        loadDate: new Date().toLocaleDateString('en-ZA'),
-        customerName: record.selectedclient || '',
-        collectionAddress: [record.loading_point_company, record.loading_point_city].filter(Boolean).join(', ') || '',
-        delivery: [record.offloading_point_company, record.offloading_point_city].filter(Boolean).join(', ') || '',
-        collectedBy: record.vehicle_registration ? `${record.vehicle_registration} - ${record.driver_name || ''}` : '',
-        deliveredBy: record.vehicle_registration ? `${record.vehicle_registration} - ${record.driver_name || ''}` : '',
-        notes: record.notes || '',
-        completedBy: '',
-        createdBy: '',
-        createdTimestamp: new Date().toLocaleString('en-ZA'),
-        rate: invoiceCurrency === 'ZAR' ? `ZAR ${invoiceRate}` : `USD ${invoiceRate}`,
-        bookingRef: record.ordernumber ? `${record.ordernumber} - ${record.selectedclient || ''}` : '',
+        loadDate: record.startdate || new Date().toISOString().split('T')[0],
+        customerName: clientDetails?.name || record.selectedclient || record.selected_client || '',
+        customerReference: record.reference_number || '',
+        collectionAddress: collectionAddress,
+        delivery: deliveryAddress,
+        collectedBy: collectedByStr,
+        deliveredBy: collectedByStr,
+        zone: '',
+        emptyTN: '',
+        notes: record.notes || record.statusnotes || '',
+        completedBy: record.updated_by || '',
+        createdBy: createdByName && createdAtStr ? `${createdByName} - ${createdAtStr}` : createdByName,
+        createdTimestamp: createdAtStr,
+        rate: invoiceCurrency === 'ZAR' ? `ZAR ${formatNum(totalZar)}` : `USD ${formatNum(totalZar)}`,
+        bookingRef: '',
         invoiceNo: invNumber || invoiceNumber,
         financeDate: formatDisplayDate(invoiceDate),
         capturedBy: userEmail,
       }
       
-      const pdfBlob = generateLoadconPdf(loadconData)
-      const pdfUrl = await uploadLoadconPdf(record.trip_id, pdfBlob)
+      loadconBlob = generateLoadconPdf(loadconData)
+      const pdfUrl = await uploadLoadconPdf(record.trip_id, loadconBlob)
       if (pdfUrl) {
         await updateTripLoadconUrl(record.trip_id, pdfUrl)
       }
@@ -643,10 +671,13 @@ export default function GenerateInvoiceModal({
       console.error('Error regenerating loadcon:', loadconError)
     }
 
-    // Bundle invoice PDF + all attached documents
+    // Bundle invoice PDF + loadcon PDF + all attached documents
     try {
       const zip = new JSZip()
       zip.file(fileName, pdfBlob)
+      if (loadconBlob) {
+        zip.file(`${record.ordernumber || 'trip'}-loadcon.pdf`, loadconBlob)
+      }
 
       // Fetch existing documents for this audit
       if (record?.id) {
@@ -807,7 +838,6 @@ export default function GenerateInvoiceModal({
                   <tr>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-20">Qty</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-20">Tonnage</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Unit Price</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">VAT</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Amount</th>
@@ -828,34 +858,22 @@ export default function GenerateInvoiceModal({
                         />
                       </td>
                       <td className="px-4 py-2">
-                        <Input
-                          type="number"
-                          value={item.quantity}
-                          onChange={(e) => updateLine(item.id, 'quantity', Number(e.target.value) || 0)}
-                          className="h-9 w-20 text-right"
-                          disabled={!!record?.is_invoiced}
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <Input
-                          type="number"
-                          value={item.tonnage || ''}
-                          onChange={(e) => updateLine(item.id, 'tonnage', Number(e.target.value) || 0)}
-                          placeholder="0"
-                          className="h-9 w-20 text-right"
-                          disabled={!!record?.is_invoiced}
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <Input
+                        <input
                           type="text"
                           inputMode="decimal"
-                          value={item.unitPrice || ''}
-                          onChange={(e) => {
-                            const val = e.target.value.replace(/[^0-9.-]/g, '')
-                            updateLine(item.id, 'unitPrice', Number(val) || 0)
-                          }}
-                          className="h-9 w-32 text-right"
+                          value={item.quantity}
+                          onChange={(e) => updateLine(item.id, 'quantity', e.target.value)}
+                          className="h-9 w-20 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
+                          disabled={!!record?.is_invoiced}
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={item.unitPrice}
+                          onChange={(e) => updateLine(item.id, 'unitPrice', e.target.value)}
+                          className="h-9 w-32 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
                           disabled={!!record?.is_invoiced}
                         />
                       </td>
@@ -877,7 +895,7 @@ export default function GenerateInvoiceModal({
                         </Select>
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-slate-900">
-                        {formatCurrency(item.quantity * item.unitPrice, invoiceCurrency)}
+                        {formatCurrency((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), invoiceCurrency)}
                       </td>
                       <td className="px-4 py-2">
                         {!record?.is_invoiced && lineItems.length > 1 && (

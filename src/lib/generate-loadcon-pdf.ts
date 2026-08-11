@@ -222,7 +222,7 @@ export function generateLoadconPdf(data: LoadconPdfData): Blob {
   doc.setLineWidth(0.5)
 
   drawRow('Customer Name:', data.customerName)
-  drawRow('Booking Ref:', '')
+  drawRow('Booking Ref:', data.bookingRef, true)
   drawRow('Customer Reference:', data.customerReference)
   drawRow('Collection Address:', data.collectionAddress)
   drawRow('Delivery:', data.delivery)
