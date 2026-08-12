@@ -112,7 +112,6 @@ export default function GenerateInvoiceModal({
   const isDollarClient = rawClientName.startsWith('($)')
   const cleanClientName = isDollarClient ? rawClientName.replace(/^\(\$?\)\s*/, '').trim() : rawClientName
   const detectedCurrency: AuditCurrencyCode = isDollarClient ? 'USD' : invoiceCurrency
-  }
 
   const orderNum = record?.ordernumber || record?.trip_id || ''
 
@@ -727,21 +726,20 @@ export default function GenerateInvoiceModal({
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(zipUrl)
-    } catch {
-      // Fallback: just download the PDF
-      doc.save(fileName)
+    } catch (zipErr) {
+      console.error('ZIP bundling error:', zipErr)
     }
 
     toast.success('Invoice generated and stored')
-    } catch (err) {
-      console.error('Invoice generation error:', err)
-      toast.error('Failed to generate invoice')
-    } finally {
-      setGenerating(false)
-      onInvoiced?.(invoiceRate, detectedCurrency)
-      onClose()
-    }
+  } catch (err) {
+    console.error('Invoice generation error:', err)
+    toast.error('Failed to generate invoice')
+  } finally {
+    setGenerating(false)
+    onInvoiced?.(invoiceRate, detectedCurrency)
+    onClose()
   }
+}
 
   if (!open) return null
 
