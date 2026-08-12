@@ -109,9 +109,8 @@ export default function GenerateInvoiceModal({
   }
 
   const rawClientName = getClientName()
-  const isDollarClient = rawClientName.startsWith('($)')
-  const cleanClientName = isDollarClient ? rawClientName.replace(/^\(\$?\)\s*/, '').trim() : rawClientName
-  const detectedCurrency: AuditCurrencyCode = isDollarClient ? 'USD' : invoiceCurrency
+  const isDollarClient = rawClientName.startsWith('($)') || rawClientName.startsWith('$')
+  const cleanClientName = isDollarClient ? rawClientName.replace(/^\(\$?\)\s*/, '').replace(/^\$\s*/, '').trim() : rawClientName
 
   const orderNum = record?.ordernumber || record?.trip_id || ''
 
@@ -121,6 +120,10 @@ export default function GenerateInvoiceModal({
   const [customerAddress, setCustomerAddress] = useState('')
   const [customerVat, setCustomerVat] = useState('')
   const [generating, setGenerating] = useState(false)
+
+  const nameIsDollar = customerName.startsWith('$') || customerName.startsWith('($)')
+  const detectedCurrency: AuditCurrencyCode = nameIsDollar ? 'USD' : invoiceCurrency
+  const cleanName = nameIsDollar ? customerName.replace(/^\(\$?\)\s*/, '').replace(/^\$\s*/, '').trim() : customerName
   const [referenceNumber, setReferenceNumber] = useState(orderNum)
   const [uploading, setUploading] = useState(false)
   const [uploadedDocs, setUploadedDocs] = useState<any[]>([])
@@ -339,7 +342,7 @@ export default function GenerateInvoiceModal({
           invoiceData: {
             invoiceDate,
             invoiceNumber: invoiceNumber || '',
-            customerName,
+            customerName: cleanName,
             customerAddress,
             customerVat,
             referenceNumber: referenceNumber || '',
@@ -408,7 +411,7 @@ export default function GenerateInvoiceModal({
     doc.setFontSize(10)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(0, 0, 0)
-    const nameLines = doc.splitTextToSize(customerName || 'Customer', 80)
+    const nameLines = doc.splitTextToSize(cleanName || 'Customer', 80)
     doc.text(nameLines, ml, custY)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
