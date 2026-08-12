@@ -92,22 +92,33 @@ export default function GenerateInvoiceModal({
   onInvoiced,
 }: Props) {
   const getClientName = () => {
-    if (record?.selectedclient || record?.selected_client) return record.selectedclient || record.selected_client
-    const source = record?.clientdetails || record?.client_details
-    if (!source) return ''
-    try {
-      const parsed = typeof source === 'string' ? JSON.parse(source) : source
-      return parsed?.name || ''
-    } catch {
-      return ''
+    let name = ''
+    if (record?.selectedclient || record?.selected_client) {
+      name = record.selectedclient || record.selected_client
+    } else {
+      const source = record?.clientdetails || record.client_details
+      if (!source) return ''
+      try {
+        const parsed = typeof source === 'string' ? JSON.parse(source) : source
+        name = parsed?.name || ''
+      } catch {
+        return ''
+      }
     }
+    return name
+  }
+
+  const rawClientName = getClientName()
+  const isDollarClient = rawClientName.startsWith('($)')
+  const cleanClientName = isDollarClient ? rawClientName.replace(/^\(\$?\)\s*/, '').trim() : rawClientName
+  const detectedCurrency: AuditCurrencyCode = isDollarClient ? 'USD' : invoiceCurrency
   }
 
   const orderNum = record?.ordernumber || record?.trip_id || ''
 
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().split('T')[0])
   const [invoiceNumber, setInvoiceNumber] = useState('')
-  const [customerName, setCustomerName] = useState(getClientName())
+  const [customerName, setCustomerName] = useState(cleanClientName)
   const [customerAddress, setCustomerAddress] = useState('')
   const [customerVat, setCustomerVat] = useState('')
   const [generating, setGenerating] = useState(false)
@@ -321,7 +332,7 @@ export default function GenerateInvoiceModal({
           invoiceUrl: invoiceUrl || null,
           invoiceRate: invoiceRate,
           invoiceAmount: totalZar,
-          invoiceCurrency: invoiceCurrency,
+          invoiceCurrency: detectedCurrency,
           referenceNumber: referenceNumber || null,
           invoiceNumber: invoiceNumber || '',
           tripId: record.trip_id || '',
@@ -661,7 +672,7 @@ export default function GenerateInvoiceModal({
         completedBy: record.updated_by || '',
         createdBy: createdByName && createdAtStr ? `${createdByName} - ${createdAtStr}` : createdByName,
         createdTimestamp: createdAtStr,
-        rate: invoiceCurrency === 'ZAR' ? `ZAR ${formatNum(totalZar)}` : `USD ${formatNum(totalZar)}`,
+        rate: detectedCurrency === 'ZAR' ? `ZAR ${formatNum(totalZar)}` : `USD ${formatNum(totalZar)}`,
         bookingRef: '',
         invoiceNo: invNumber || invoiceNumber,
         financeDate: formatDisplayDate(invoiceDate),
@@ -727,7 +738,7 @@ export default function GenerateInvoiceModal({
       toast.error('Failed to generate invoice')
     } finally {
       setGenerating(false)
-      onInvoiced?.(invoiceRate, invoiceCurrency)
+      onInvoiced?.(invoiceRate, detectedCurrency)
       onClose()
     }
   }
@@ -901,7 +912,7 @@ export default function GenerateInvoiceModal({
                         </Select>
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-slate-900">
-                        {formatCurrency((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), invoiceCurrency)}
+                        {formatCurrency((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), detectedCurrency)}
                       </td>
                       <td className="px-4 py-2">
                         {!record?.is_invoiced && lineItems.length > 1 && (
@@ -922,22 +933,22 @@ export default function GenerateInvoiceModal({
             <div className="w-80 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="flex justify-between text-sm">
                 <span className="text-slate-600">Subtotal</span>
-                <span className="font-medium">{formatCurrency(subtotal, invoiceCurrency)}</span>
+                <span className="font-medium">{formatCurrency(subtotal, detectedCurrency)}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">TOTAL VAT</span>
-                <span className="font-medium">{formatCurrency(totalVat, invoiceCurrency)}</span>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-500">TOTAL VAT</span>
+                <span className="font-medium">{formatCurrency(totalVat, detectedCurrency)}</span>
               </div>
-              <div className="border-t border-slate-300 pt-2">
-                <div className="flex justify-between">
-                  <span className="text-sm font-bold">TOTAL ZAR</span>
-                  <span className="text-lg font-bold">{formatCurrency(totalZar, invoiceCurrency)}</span>
+              <div className="border-t pt-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-lg font-bold">TOTAL {detectedCurrency}</span>
+                  <span className="text-lg font-bold">{formatCurrency(totalZar, detectedCurrency)}</span>
                 </div>
               </div>
-              <div className="border-t border-[#001e42] pt-2">
-                <div className="flex justify-between">
-                  <span className="text-sm font-bold text-[#001e42]">AMOUNT DUE ZAR</span>
-                  <span className="text-lg font-bold text-[#001e42]">{formatCurrency(amountDue, invoiceCurrency)}</span>
+              <div className="border-t pt-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-lg font-bold text-[#001e42]">AMOUNT DUE {detectedCurrency}</span>
+                  <span className="text-lg font-bold text-[#001e42]">{formatCurrency(amountDue, detectedCurrency)}</span>
                 </div>
               </div>
             </div>
