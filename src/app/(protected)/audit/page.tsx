@@ -1321,18 +1321,20 @@ export default function AuditPage() {
 
       {/* Finalize Preview Modal */}
       <Dialog open={showFinalizePreview} onOpenChange={setShowFinalizePreview}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Finalize Invoice</DialogTitle>
-            <DialogDescription>
-              {finalizedInvoiceUrl 
-                ? 'Invoice has been finalized successfully. You can now download the invoice.'
-                : 'Review the invoice details before finalizing. An invoice number will be generated and cannot be changed.'}
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="!max-w-[90vw] !h-[90vh] flex flex-col p-0">
+          <div className="sticky top-0 z-10 bg-white border-b px-6 py-4">
+            <DialogHeader>
+              <DialogTitle>Finalize Invoice</DialogTitle>
+              <DialogDescription>
+                {finalizedInvoiceUrl 
+                  ? 'Invoice has been finalized successfully. You can now download the invoice.'
+                  : 'Review the invoice details before finalizing. An invoice number will be generated and cannot be changed.'}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
 
           {finalizePreview && (
-            <div className="space-y-4">
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Customer</label>
@@ -1408,7 +1410,7 @@ export default function AuditPage() {
                 )}
               </div>
 
-              <div className="flex justify-end gap-2 pt-4">
+              <div className="sticky bottom-0 bg-white border-t px-6 py-4 flex justify-end gap-2">
                 {finalizedInvoiceUrl ? (
                   <>
                     <Button variant="outline" onClick={() => {
