@@ -110,6 +110,7 @@ function ClientFormContent({
         notification_period: initialRecord.notification_period?.toString() || "0",
         blocked: Boolean(initialRecord.blocked),
         notification_groups: Array.isArray(initialRecord.notification_groups) ? initialRecord.notification_groups : [],
+        invoice_email_groups: Array.isArray(initialRecord.invoice_email_groups) ? initialRecord.invoice_email_groups : [],
       })
       const parsedCoords = parsePoint(initialRecord.coords || initialRecord.location_coordinates)
       if (parsedCoords) setCenterPoint(parsedCoords)
