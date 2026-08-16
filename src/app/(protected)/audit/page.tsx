@@ -1384,10 +1384,9 @@ export default function AuditPage() {
             setShowEditModal(false)
             setEditDraftId(null)
             setEditDraftData(null)
-            // Refresh drafts
-            if (activeTab === 'drafts') {
-              fetch('/api/invoices?draft=true').then(r => r.json()).then(result => setDraftInvoices(result.data || []))
-            }
+            // Refresh both drafts and invoices lists
+            fetch('/api/invoices?draft=true').then(r => r.json()).then(result => setDraftInvoices(result.data || []))
+            fetch('/api/invoices?finalized=true').then(r => r.json()).then(result => setFinalizedInvoices(result.data || []))
           }}
           record={editDraftData}
           invoiceRate={toNumber(editDraftData.invoice_rate || editDraftData.total_amount)}
