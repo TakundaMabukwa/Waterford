@@ -78,6 +78,9 @@ export default function AuditPage() {
   const [finalizePreview, setFinalizePreview] = useState<any>(null)
   const [showFinalizePreview, setShowFinalizePreview] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
+  const [finalizeDocs, setFinalizeDocs] = useState<any[]>([])
+  const [finalizeDocsLoading, setFinalizeDocsLoading] = useState(false)
+  const [finalizedInvoiceUrl, setFinalizedInvoiceUrl] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date()
     d.setMonth(d.getMonth() - 1, 1)
@@ -372,7 +375,24 @@ export default function AuditPage() {
       return
     }
     setFinalizePreview(draft)
+    setFinalizedInvoiceUrl(null)
     setShowFinalizePreview(true)
+
+    // Fetch attached documents for this trip
+    if (draft.trip_id) {
+      setFinalizeDocsLoading(true)
+      try {
+        const res = await fetch(`/api/invoice-documents?trip_id=${draft.trip_id}`)
+        const result = await res.json()
+        setFinalizeDocs(result.data?.documents || [])
+      } catch {
+        setFinalizeDocs([])
+      } finally {
+        setFinalizeDocsLoading(false)
+      }
+    } else {
+      setFinalizeDocs([])
+    }
   }
 
   const confirmFinalize = async () => {
@@ -385,9 +405,7 @@ export default function AuditPage() {
         throw new Error(err.error || 'Failed to finalize')
       }
       const result = await res.json()
-      alert(`Invoice ${result.invoiceNumber} finalized!`)
-      setShowFinalizePreview(false)
-      setFinalizePreview(null)
+      setFinalizedInvoiceUrl(result.data?.invoice_url || null)
       // Refresh drafts
       const draftRes = await fetch('/api/invoices?draft=true')
       const draftResult = await draftRes.json()
@@ -1073,6 +1091,11 @@ export default function AuditPage() {
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex justify-end gap-1">
+                          {inv.invoice_url && (
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                              <Download className="h-3 w-3" />
+                            </Button>
+                          )}
                           <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleEditDraft(inv)}>
                             Edit
                           </Button>
@@ -1279,7 +1302,9 @@ export default function AuditPage() {
           <DialogHeader>
             <DialogTitle>Finalize Invoice</DialogTitle>
             <DialogDescription>
-              Review the invoice details before finalizing. An invoice number will be generated and cannot be changed.
+              {finalizedInvoiceUrl 
+                ? 'Invoice has been finalized successfully. You can now download the invoice.'
+                : 'Review the invoice details before finalizing. An invoice number will be generated and cannot be changed.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -1336,21 +1361,65 @@ export default function AuditPage() {
                 </div>
               )}
 
+              {/* Attached Documents */}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Attached Documents</label>
+                {finalizeDocsLoading ? (
+                  <p className="mt-1 text-sm text-slate-500">Loading documents...</p>
+                ) : finalizeDocs.length === 0 ? (
+                  <p className="mt-1 text-sm text-slate-500">No documents attached to this trip.</p>
+                ) : (
+                  <div className="mt-1 space-y-1">
+                    {finalizeDocs.map((doc: any, idx: number) => (
+                      <div key={idx} className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                        <FileText className="h-4 w-4 text-slate-400" />
+                        <span className="flex-1 truncate text-sm text-slate-700">{doc.file_name || doc.fileName || 'Document'}</span>
+                        {doc.file_url && (
+                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => window.open(doc.file_url, '_blank')}>
+                            <Download className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => setShowFinalizePreview(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  className="bg-[#001e42] text-white hover:bg-[#0b2955]"
-                  onClick={confirmFinalize}
-                  disabled={finalizing}
-                >
-                  {finalizing ? (
-                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Finalizing...</>
-                  ) : (
-                    'Confirm & Generate Invoice'
-                  )}
-                </Button>
+                {finalizedInvoiceUrl ? (
+                  <>
+                    <Button variant="outline" onClick={() => {
+                      setShowFinalizePreview(false)
+                      setFinalizePreview(null)
+                      setFinalizedInvoiceUrl(null)
+                    }}>
+                      Close
+                    </Button>
+                    <Button
+                      className="bg-emerald-700 text-white hover:bg-emerald-800"
+                      onClick={() => window.open(finalizedInvoiceUrl, '_blank')}
+                    >
+                      <Download className="mr-2 h-4 w-4" /> Download Invoice
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="outline" onClick={() => setShowFinalizePreview(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      className="bg-[#001e42] text-white hover:bg-[#0b2955]"
+                      onClick={confirmFinalize}
+                      disabled={finalizing}
+                    >
+                      {finalizing ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Finalizing...</>
+                      ) : (
+                        'Confirm & Generate Invoice'
+                      )}
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           )}
