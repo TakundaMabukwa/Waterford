@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
       customer_address: body.customerAddress || '',
       customer_vat: body.customerVat || '',
       invoice_date: body.invoiceDate || '',
+      due_date: body.dueDate || '',
       line_items: body.lineItems || [],
       subtotal: body.subtotal || 0,
       vat_amount: body.vatAmount || 0,

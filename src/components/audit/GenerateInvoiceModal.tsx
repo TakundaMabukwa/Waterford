@@ -123,6 +123,11 @@ export default function GenerateInvoiceModal({
   const orderNum = record?.ordernumber || record?.trip_id || ''
 
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [dueDate, setDueDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 30)
+    return d.toISOString().split('T')[0]
+  })
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [customerName, setCustomerName] = useState(cleanClientName)
   const [customerAddress, setCustomerAddress] = useState('')
@@ -184,6 +189,7 @@ export default function GenerateInvoiceModal({
     if (record.invoice_data && record.is_invoiced) {
       const d = record.invoice_data
       if (d.invoiceDate) setInvoiceDate(d.invoiceDate)
+      if (d.dueDate) setDueDate(d.dueDate)
       if (d.invoiceNumber) setInvoiceNumber(d.invoiceNumber)
       if (d.customerName) setCustomerName(d.customerName)
       if (d.customerAddress) setCustomerAddress(d.customerAddress)
@@ -204,6 +210,7 @@ export default function GenerateInvoiceModal({
 
     const d = draftData
     if (d.invoice_date) setInvoiceDate(d.invoice_date)
+    if (d.due_date) setDueDate(d.due_date)
     if (d.invoice_number) setInvoiceNumber(d.invoice_number)
     if (d.customer_name) setCustomerName(d.customer_name)
     if (d.customer_address) setCustomerAddress(d.customer_address)
@@ -386,6 +393,7 @@ export default function GenerateInvoiceModal({
           ordernumber: record.ordernumber || '',
           invoiceData: {
             invoiceDate,
+            dueDate,
             invoiceNumber: invoiceNumber || '',
             customerName: cleanName,
             customerAddress,
@@ -424,6 +432,7 @@ export default function GenerateInvoiceModal({
           customerAddress,
           customerVat,
           invoiceDate,
+          dueDate,
           lineItems: lineItems.map(item => ({
             ...item,
             quantity: Number(item.quantity) || 0,
@@ -438,6 +447,7 @@ export default function GenerateInvoiceModal({
           salesCode,
           invoiceData: {
             invoiceDate,
+            dueDate,
             invoiceNumber: '',
             customerName: cleanName,
             customerAddress,
@@ -478,6 +488,7 @@ export default function GenerateInvoiceModal({
           customerAddress,
           customerVat,
           invoiceDate,
+          dueDate,
           lineItems: lineItems.map(item => ({
             ...item,
             quantity: Number(item.quantity) || 0,
@@ -492,6 +503,7 @@ export default function GenerateInvoiceModal({
           salesCode,
           invoiceData: {
             invoiceDate,
+            dueDate,
             invoiceNumber: invoiceNumber || '',
             customerName: cleanName,
             customerAddress,
@@ -538,26 +550,35 @@ export default function GenerateInvoiceModal({
     let y = 15
 
     // ── WATERFORD LOGO (top right) ─────────────────────────────────
-    doc.setFontSize(24)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(0, 30, 66)
-    doc.text('WATERFORD', pw - mr, y + 8, { align: 'right' })
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(232, 153, 63)
-    doc.text('carriers', pw - mr, y + 14, { align: 'right' })
-
-    y += 22
+    try {
+      const img = await fetch('/waterford logo.png')
+      const imgBlob = await img.blob()
+      const imgDataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.readAsDataURL(imgBlob)
+      })
+      doc.addImage(imgDataUrl, 'PNG', pw - mr - 45, y, 45, 18)
+    } catch {
+      doc.setFontSize(24)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(0, 30, 66)
+      doc.text('WATERFORD', pw - mr, y + 8, { align: 'right' })
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(232, 153, 63)
+      doc.text('carriers', pw - mr, y + 14, { align: 'right' })
+    }
 
     // ── TAX INVOICE (left) ─────────────────────────────────────────
-    doc.setFontSize(24)
+    doc.setFontSize(22)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(0, 0, 0)
-    doc.text('TAX INVOICE', ml, y)
-    y += 12
+    doc.text('TAX INVOICE', ml, y + 10)
+    y += 25
 
     // ── LEFT: Customer details ─────────────────────────────────────
-    const custY = y + 2
+    const custY = y
     doc.setFontSize(10)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(0, 0, 0)
@@ -573,54 +594,59 @@ export default function GenerateInvoiceModal({
       doc.text(`VAT Number: ${customerVat}`, ml, custY + nameLines.length * 4.5 + 2 + addrLines.length * 4.5 + 2)
     }
 
-    // ── RIGHT: Invoice details + Company info ──────────────────────
-    const invLabelX = 100
-    const invValueX = 132
-    const coInfoX = 165
-    const refMaxW = coInfoX - invValueX - 2
-    let ry = custY - 5
+    // ── RIGHT: Invoice details ─────────────────────────────────────
+    // Labels on left column, values on right column, stacked vertically
+    const labelX = 105
+    const valueX = 145
+    const maxLabelW = 35
+    const maxValueW = 45
+    let ry = custY
 
-    // Row 1: Invoice Date + Company line 1
+    // Invoice Date
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(9)
-    doc.text('Invoice Date', invLabelX, ry)
+    doc.text('Invoice Date', labelX, ry)
     doc.setFont('helvetica', 'normal')
-    doc.text(formatDisplayDate(invoiceDate), invValueX, ry)
-    doc.text('Waterford Carriers (Pty)', coInfoX, ry)
-    ry += 5
+    const invDateLines = doc.splitTextToSize(formatDisplayDate(invoiceDate), maxValueW)
+    doc.text(invDateLines, valueX, ry)
+    ry += Math.max(invDateLines.length * 4.5, 6)
 
-    // Row 2: Invoice Number + Company line 2
+    // Due Date
     doc.setFont('helvetica', 'bold')
-    doc.text('Invoice Number', invLabelX, ry)
+    doc.text('Due Date', labelX, ry)
     doc.setFont('helvetica', 'normal')
-    doc.text(invNumber, invValueX, ry)
-    doc.text('Ltd', coInfoX, ry)
-    ry += 5
+    const dueDateLines = doc.splitTextToSize(formatDisplayDate(dueDate), maxValueW)
+    doc.text(dueDateLines, valueX, ry)
+    ry += Math.max(dueDateLines.length * 4.5, 6)
 
-    // Row 3: Reference (may wrap) + Company line 3
+    // Invoice Number
     doc.setFont('helvetica', 'bold')
-    doc.text('Reference', invLabelX, ry)
+    doc.text('Invoice Number', labelX, ry)
     doc.setFont('helvetica', 'normal')
-    const refFullText = referenceNumber || 'N/A'
-    const refWrapped = doc.splitTextToSize(refFullText, refMaxW)
-    doc.text(refWrapped[0], invValueX, ry)
-    doc.text('96 Cavaleros Drive', coInfoX, ry)
-    ry += 5
+    const invNumLines = doc.splitTextToSize(invNumber || '', maxValueW)
+    doc.text(invNumLines, valueX, ry)
+    ry += Math.max(invNumLines.length * 4.5, 6)
 
-    if (refWrapped.length > 1) {
-      doc.text(refWrapped[1], invValueX, ry)
-    }
-    doc.text('Industries West', coInfoX, ry)
-    ry += 5
+    // Reference
+    doc.setFont('helvetica', 'bold')
+    doc.text('Reference', labelX, ry)
+    doc.setFont('helvetica', 'normal')
+    const refLines = doc.splitTextToSize(referenceNumber || 'N/A', maxValueW)
+    doc.text(refLines, valueX, ry)
+    ry += Math.max(refLines.length * 4.5, 6)
 
-    doc.text('Germiston, 1401', coInfoX, ry)
-    ry += 5
-
-    doc.text('SOUTH AFRICA', coInfoX, ry)
-    ry += 5
-
-    doc.text('Tel: +27 (10) 300 8398', coInfoX, ry)
-    ry += 5
+    // ── Company info (far right) ───────────────────────────────────
+    const coX = 165
+    let cy = custY
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.text('Waterford Carriers (Pty)', coX, cy); cy += 4
+    doc.text('Ltd', coX, cy); cy += 4
+    doc.text('96 Cavaleros Drive', coX, cy); cy += 4
+    doc.text('Industries West', coX, cy); cy += 4
+    doc.text('Germiston, 1401', coX, cy); cy += 4
+    doc.text('SOUTH AFRICA', coX, cy); cy += 4
+    doc.text('Tel: +27 (10) 300 8398', coX, cy); cy += 4
 
     doc.text('Co Reg: 2020/601042/07', coInfoX, ry)
     ry += 7
@@ -941,6 +967,16 @@ export default function GenerateInvoiceModal({
                 type="date"
                 value={invoiceDate}
                 onChange={(e) => setInvoiceDate(e.target.value)}
+                disabled={!!record?.is_invoiced}
+                className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-100 disabled:text-slate-500"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Due Date</label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
                 disabled={!!record?.is_invoiced}
                 className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-100 disabled:text-slate-500"
               />

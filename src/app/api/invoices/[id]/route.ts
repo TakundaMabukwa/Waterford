@@ -18,6 +18,7 @@ export async function PATCH(
       customer_address: body.customerAddress,
       customer_vat: body.customerVat,
       invoice_date: body.invoiceDate,
+      due_date: body.dueDate,
       line_items: body.lineItems,
       subtotal: body.subtotal,
       vat_amount: body.vatAmount,
