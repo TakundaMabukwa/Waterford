@@ -1336,28 +1336,48 @@ export default function AuditPage() {
           </div>
 
           {finalizePreview && (
-            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+              {/* Base Info */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Customer</label>
-                  <p className="text-sm text-slate-900">{finalizePreview.customer_name || '-'}</p>
-                </div>
-                <div>
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Date</label>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Date</label>
                   <p className="text-sm text-slate-900">{finalizePreview.invoice_date || '-'}</p>
                 </div>
                 <div>
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Amount</label>
-                  <p className="text-sm font-medium text-slate-900">
-                    {finalizePreview.currency === 'USD' ? '$' : 'R'}{toNumber(finalizePreview.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
-                  </p>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Due Date</label>
+                  <p className="text-sm text-slate-900">{finalizePreview.due_date || '-'}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Number</label>
+                  <p className="text-sm text-slate-900">{finalizePreview.invoice_number || 'To be generated'}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Customer Name</label>
+                  <p className="text-sm text-slate-900">{finalizePreview.customer_name || '-'}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Customer Address</label>
+                  <p className="text-sm text-slate-900">{finalizePreview.customer_address || '-'}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Customer VAT</label>
+                  <p className="text-sm text-slate-900">{finalizePreview.customer_vat || '-'}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Reference Number</label>
+                  <p className="text-sm text-slate-900">{finalizePreview.reference_number || '-'}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Sales Code</label>
+                  <p className="text-sm text-slate-900">{finalizePreview.sales_code || '-'}</p>
                 </div>
                 <div>
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Currency</label>
-                  <p className="text-sm text-slate-900">{finalizePreview.currency}</p>
+                  <p className="text-sm text-slate-900">{finalizePreview.currency || 'ZAR'}</p>
                 </div>
               </div>
 
+              {/* Line Items */}
               {finalizePreview.line_items?.length > 0 && (
                 <div>
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Line Items</label>
@@ -1368,6 +1388,7 @@ export default function AuditPage() {
                           <th className="px-3 py-2 text-left text-xs font-semibold">Description</th>
                           <th className="px-3 py-2 text-right text-xs font-semibold">Qty</th>
                           <th className="px-3 py-2 text-right text-xs font-semibold">Unit Price</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold">VAT Type</th>
                           <th className="px-3 py-2 text-right text-xs font-semibold">Amount</th>
                         </tr>
                       </thead>
@@ -1377,6 +1398,7 @@ export default function AuditPage() {
                             <td className="px-3 py-2">{item.description}</td>
                             <td className="px-3 py-2 text-right">{item.quantity}</td>
                             <td className="px-3 py-2 text-right">{item.unitPrice}</td>
+                            <td className="px-3 py-2 text-right">{item.vatType || 'zero'}</td>
                             <td className="px-3 py-2 text-right font-medium">
                               {finalizePreview.currency === 'USD' ? '$' : 'R'}{((item.quantity || 0) * (item.unitPrice || 0)).toFixed(2)}
                             </td>
@@ -1387,6 +1409,40 @@ export default function AuditPage() {
                   </div>
                 </div>
               )}
+
+              {/* Summary */}
+              <div className="flex justify-end">
+                <div className="w-80 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-600">Subtotal</span>
+                    <span className="font-medium">
+                      {finalizePreview.currency === 'USD' ? '$' : 'R'}{toNumber(finalizePreview.subtotal).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-500">TOTAL VAT</span>
+                    <span className="font-medium">
+                      {finalizePreview.currency === 'USD' ? '$' : 'R'}{toNumber(finalizePreview.vat_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="border-t pt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-lg font-bold">TOTAL {finalizePreview.currency || 'ZAR'}</span>
+                      <span className="text-lg font-bold">
+                        {finalizePreview.currency === 'USD' ? '$' : 'R'}{toNumber(finalizePreview.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="border-t pt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-lg font-bold text-[#001e42]">AMOUNT DUE {finalizePreview.currency || 'ZAR'}</span>
+                      <span className="text-lg font-bold text-[#001e42]">
+                        {finalizePreview.currency === 'USD' ? '$' : 'R'}{toNumber(finalizePreview.amount_due).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               {/* Attached Documents */}
               <div>
