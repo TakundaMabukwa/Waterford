@@ -1395,17 +1395,26 @@ export default function AuditPage() {
                   <p className="mt-1 text-sm text-slate-500">No documents attached to this trip.</p>
                 ) : (
                   <div className="mt-1 space-y-1">
-                    {finalizeDocs.map((doc: any, idx: number) => (
-                      <div key={idx} className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                        <FileText className="h-4 w-4 text-slate-400" />
-                        <span className="flex-1 truncate text-sm text-slate-700">{doc.file_name || doc.fileName || 'Document'}</span>
-                        {doc.file_url && (
-                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => window.open(doc.file_url, '_blank')}>
-                            <Download className="h-3 w-3" />
-                          </Button>
-                        )}
-                      </div>
-                    ))}
+                    {finalizeDocs.map((doc: any, idx: number) => {
+                      const docUrl = doc.file_url || (doc.file_path ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/invoice-documents/${doc.file_path}` : null)
+                      return (
+                        <div key={idx} className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                          <FileText className="h-4 w-4 text-slate-400" />
+                          <span className="flex-1 truncate text-sm text-slate-700">{doc.file_name || doc.fileName || 'Document'}</span>
+                          {docUrl && (
+                            <a
+                              href={docUrl}
+                              download={doc.file_name || doc.fileName || 'document'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center h-6 w-6 rounded hover:bg-slate-200"
+                            >
+                              <Download className="h-3 w-3" />
+                            </a>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </div>
