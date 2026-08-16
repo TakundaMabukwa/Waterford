@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from('trips')
-      .select('id, trip_id, ordernumber, rate, status, origin, destination, cargo, selectedclient, clientdetails, vehicleassignments, loadcon_url, created_at, updated_at, actual_start_time, actual_end_time, approximate_fuel_cost, approximated_vehicle_cost, approximated_driver_cost, total_vehicle_cost, estimated_distance, fuel_used_liters, fuel_liters_per_km, fuel_cost_total, driver, vehicle, loading_point_company, loading_point_city, offloading_point_company, offloading_point_city, is_invoiced, invoice_url')
+      .select('id, trip_id, ordernumber, rate, status, origin, destination, cargo, selectedclient, clientdetails, vehicleassignments, loadcon_url, created_at, updated_at, actual_start_time, actual_end_time, approximate_fuel_cost, approximated_vehicle_cost, approximated_driver_cost, total_vehicle_cost, estimated_distance, fuel_used_liters, fuel_liters_per_km, fuel_cost_total, driver, vehicle, loading_point_company, loading_point_city, offloading_point_company, offloading_point_city, is_invoiced, invoice_url, invoice_number')
       .order('updated_at', { ascending: false })
 
     if (dateFrom) query = query.gte('updated_at', dateFrom + 'T00:00:00')
@@ -25,17 +25,30 @@ export async function GET(request: NextRequest) {
 
     const tripIds = (trips || []).map((t: any) => t.trip_id).filter(Boolean)
 
+    // Fetch invoice records to exclude trips that have drafts/invoices
+    let invoiceTripIds = new Set<string>()
+    if (tripIds.length > 0) {
+      const { data: invoiceData } = await supabase
+        .from('invoices')
+        .select('trip_id')
+        .in('trip_id', tripIds)
+      ;(invoiceData || []).forEach((inv: any) => {
+        if (inv.trip_id) invoiceTripIds.add(inv.trip_id)
+      })
+    }
+
     let auditMap: Record<string, any> = {}
     if (tripIds.length > 0) {
       const { data: auditData } = await supabase
         .from('audit')
-        .select('trip_id, is_invoiced, invoice_url, actual_fuel_cost, actual_vehicle_cost, actual_driver_cost, actual_rate')
+        .select('trip_id, is_invoiced, invoice_url, invoice_number, actual_fuel_cost, actual_vehicle_cost, actual_driver_cost, actual_rate')
         .in('trip_id', tripIds)
       ;(auditData || []).forEach((a: any) => { auditMap[a.trip_id] = a })
     }
 
     const enriched = (trips || []).map((trip: any) => {
       const audit = auditMap[trip.trip_id] || {}
+      const hasInvoice = invoiceTripIds.has(trip.trip_id)
       return {
         ...trip,
         trip_row_id: trip.id,
@@ -49,8 +62,10 @@ export async function GET(request: NextRequest) {
           Number(audit.actual_fuel_cost || 0) +
           Number(audit.actual_vehicle_cost || 0) +
           Number(audit.actual_driver_cost || 0),
-        is_invoiced: audit.is_invoiced ?? trip.is_invoiced ?? false,
+        is_invoiced: audit.is_invoiced || trip.is_invoiced || false,
+        has_invoice_draft: hasInvoice,
         invoice_url: audit.invoice_url || trip.invoice_url || null,
+        invoice_number: audit.invoice_number || trip.invoice_number || null,
         fuel_used_liters: trip.fuel_used_liters ?? 0,
         fuel_liters_per_km: trip.fuel_liters_per_km ?? 0,
         fuel_cost_total: trip.fuel_cost_total ?? 0,

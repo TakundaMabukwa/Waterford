@@ -4,10 +4,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Download, FileText, Paperclip, Route, Truck, Plus, AlertTriangle } from 'lucide-react'
+import { Download, FileText, Paperclip, Route, Truck, Plus, AlertTriangle, Loader2 } from 'lucide-react'
 // @ts-ignore
 import ExcelJS from 'exceljs'
 import SundryInvoiceModal from '@/components/audit/SundryInvoiceModal'
+import GenerateInvoiceModal from '@/components/audit/GenerateInvoiceModal'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -59,10 +60,24 @@ export default function AuditPage() {
   const [tripDocuments, setTripDocuments] = useState<any[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState<'trips' | 'sundry' | 'incomplete'>('trips')
+  const [activeTab, setActiveTab] = useState<'trips' | 'sundry' | 'incomplete' | 'drafts' | 'invoices'>('trips')
   const [sundryInvoices, setSundryInvoices] = useState<any[]>([])
   const [sundryLoading, setSundryLoading] = useState(false)
   const [showSundryModal, setShowSundryModal] = useState(false)
+  const [draftInvoices, setDraftInvoices] = useState<any[]>([])
+  const [draftLoading, setDraftLoading] = useState(false)
+  const [finalizedInvoices, setFinalizedInvoices] = useState<any[]>([])
+  const [invoicesLoading, setInvoicesLoading] = useState(false)
+  const [lockMonth, setLockMonth] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [editDraftId, setEditDraftId] = useState<number | null>(null)
+  const [editDraftData, setEditDraftData] = useState<any>(null)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [finalizePreview, setFinalizePreview] = useState<any>(null)
+  const [showFinalizePreview, setShowFinalizePreview] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date()
     d.setMonth(d.getMonth() - 1, 1)
@@ -106,8 +121,27 @@ export default function AuditPage() {
     loadRecords()
   }, [supabase, appliedDateFrom, appliedDateTo])
 
+  // For invoiced tab, also fetch ALL invoiced trips (no date filter)
   useEffect(() => {
-    if (activeTab !== 'sundry') return
+    if (activeTab !== 'invoiced') return
+    const fetchAllInvoiced = async () => {
+      try {
+        const res = await fetch('/api/audit/trips')
+        const result = await res.json()
+        if (result.data) {
+          setRecords(prev => {
+            const existingIds = new Set(prev.map((r: any) => r.id))
+            const newRecords = result.data.filter((r: any) => !existingIds.has(r.id))
+            return [...prev, ...newRecords]
+          })
+        }
+      } catch {}
+    }
+    fetchAllInvoiced()
+  }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== 'sundry' && activeTab !== 'invoiced') return
     const fetchSundry = async () => {
       setSundryLoading(true)
       try {
@@ -148,6 +182,45 @@ export default function AuditPage() {
   }, [activeTab, appliedDateFrom, appliedDateTo])
 
   useEffect(() => {
+    if (activeTab !== 'drafts') return
+    const fetchDrafts = async () => {
+      setDraftLoading(true)
+      try {
+        const res = await fetch('/api/invoices?draft=true')
+        const result = await res.json()
+        setDraftInvoices(result.data || [])
+      } catch (err) {
+        console.error('Error fetching drafts:', err)
+      } finally {
+        setDraftLoading(false)
+      }
+    }
+    fetchDrafts()
+  }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== 'invoices') return
+    const fetchInvoices = async () => {
+      setInvoicesLoading(true)
+      try {
+        const [invRes, sundryRes] = await Promise.all([
+          fetch('/api/invoices?finalized=true'),
+          fetch('/api/sundry-invoices'),
+        ])
+        const invResult = await invRes.json()
+        const sundryResult = await sundryRes.json()
+        setFinalizedInvoices(invResult.data || [])
+        setSundryInvoices(sundryResult.data || [])
+      } catch (err) {
+        console.error('Error fetching invoices:', err)
+      } finally {
+        setInvoicesLoading(false)
+      }
+    }
+    fetchInvoices()
+  }, [activeTab])
+
+  useEffect(() => {
     let next = records
     
     if (statusFilter !== 'all') {
@@ -156,10 +229,9 @@ export default function AuditPage() {
       next = next.filter((record) => record.status === 'delivered' || record.status === 'completed')
     }
 
-    if (invoicedFilter === 'invoiced') {
-      next = next.filter((record) => record.is_invoiced)
-    } else if (invoicedFilter === 'not_invoiced') {
-      next = next.filter((record) => !record.is_invoiced)
+    // Trips tab: only show NOT invoiced and no invoice draft
+    if (activeTab === 'trips') {
+      next = next.filter((record) => !record.is_invoiced && !record.has_invoice_draft)
     }
 
     if (searchTerm) {
@@ -173,7 +245,7 @@ export default function AuditPage() {
     }
 
     setFilteredRecords(next)
-  }, [records, statusFilter, invoicedFilter, searchTerm])
+  }, [records, statusFilter, invoicedFilter, searchTerm, activeTab])
 
   const filteredIncompleteRecords = useMemo(() => {
     if (!searchTerm) return incompleteRecords
@@ -286,6 +358,45 @@ export default function AuditPage() {
       }
     } catch {}
     return record.vehicle || '-'
+  }
+
+  const handleEditDraft = (draft: any) => {
+    setEditDraftId(draft.id)
+    setEditDraftData(draft)
+    setShowEditModal(true)
+  }
+
+  const handleFinalizeDraft = async (draft: any) => {
+    if (draft.is_locked) {
+      alert('This invoice is locked and cannot be finalized.')
+      return
+    }
+    setFinalizePreview(draft)
+    setShowFinalizePreview(true)
+  }
+
+  const confirmFinalize = async () => {
+    if (!finalizePreview) return
+    setFinalizing(true)
+    try {
+      const res = await fetch(`/api/invoices/${finalizePreview.id}/finalize`, { method: 'POST' })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to finalize')
+      }
+      const result = await res.json()
+      alert(`Invoice ${result.invoiceNumber} finalized!`)
+      setShowFinalizePreview(false)
+      setFinalizePreview(null)
+      // Refresh drafts
+      const draftRes = await fetch('/api/invoices?draft=true')
+      const draftResult = await draftRes.json()
+      setDraftInvoices(draftResult.data || [])
+    } catch (err: any) {
+      alert(err.message)
+    } finally {
+      setFinalizing(false)
+    }
   }
 
   const exportTrips = async () => {
@@ -468,6 +579,22 @@ export default function AuditPage() {
         >
           Incomplete Trips
         </button>
+        <button
+          onClick={() => setActiveTab('drafts')}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'drafts' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Drafts
+        </button>
+        <button
+          onClick={() => setActiveTab('invoices')}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'invoices' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Invoices
+        </button>
       </div>
 
       {activeTab === 'trips' && (
@@ -490,32 +617,6 @@ export default function AuditPage() {
                 <SelectItem value="completed">Completed</SelectItem>
               </SelectContent>
             </Select>
-            <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-              <button
-                onClick={() => setInvoicedFilter('all')}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  invoicedFilter === 'all' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setInvoicedFilter('not_invoiced')}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  invoicedFilter === 'not_invoiced' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Not Invoiced
-              </button>
-              <button
-                onClick={() => setInvoicedFilter('invoiced')}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  invoicedFilter === 'invoiced' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Invoiced
-              </button>
-            </div>
             <div className="ml-auto flex items-center gap-2">
               <Input
                 type="date"
@@ -800,12 +901,461 @@ export default function AuditPage() {
       </Card>
       )}
 
+      {activeTab === 'invoiced' && (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-lg font-bold text-[#001e42]">All Invoiced</h3>
+          </div>
+
+          {/* Invoiced Trip Invoices */}
+          <div className="mb-6">
+            <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Trip Invoices</h4>
+            {loading ? (
+              <div className="py-8 text-center text-sm text-slate-500">Loading...</div>
+            ) : (
+              (() => {
+                const invoicedTrips = records.filter((r: any) => r.is_invoiced && (r.status === 'delivered' || r.status === 'completed'))
+                const searched = searchTerm
+                  ? invoicedTrips.filter((r: any) => {
+                      const q = searchTerm.toLowerCase()
+                      return r.ordernumber?.toLowerCase().includes(q) || r.origin?.toLowerCase().includes(q) || r.destination?.toLowerCase().includes(q)
+                    })
+                  : invoicedTrips
+                if (searched.length === 0) return <div className="py-4 text-center text-sm text-slate-500">No invoiced trips found.</div>
+                return (
+                  <div className="overflow-x-auto rounded-lg border">
+                    <table className="w-full border-collapse text-left">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Trip</th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Client</th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Cargo</th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Route</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Planned</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actual</th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
+                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice</th>
+                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {searched.map((record) => (
+                          <tr key={record.id} className="border-t hover:bg-slate-50">
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-slate-900">{record.ordernumber || '—'}</div>
+                            </td>
+                            <td className="px-3 py-2 text-sm text-slate-700">{getClientName(record)}</td>
+                            <td className="px-3 py-2 text-sm text-slate-700">{record.cargo || '—'}</td>
+                            <td className="px-3 py-2 text-sm text-slate-700">
+                              <div className="max-w-xs">
+                                <div className="truncate">{record.origin || 'N/A'}</div>
+                                <div className="truncate text-xs text-slate-500">→ {record.destination || 'N/A'}</div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-right text-sm text-slate-700">{currency(toNumber(record.planned_total_cost))}</td>
+                            <td className="px-3 py-2 text-right text-sm text-slate-700">{currency(toNumber(record.actual_total_cost))}</td>
+                            <td className="px-3 py-2 text-sm text-slate-700 font-medium">{record.invoice_number || '—'}</td>
+                            <td className="px-3 py-2 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Invoiced</Badge>
+                                {record.invoice_url && (
+                                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50" onClick={() => window.open(record.invoice_url, '_blank')} title="Download Invoice">
+                                    <FileText className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => router.push(`/audit/${record.trip_id}`)}>
+                                View
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              })()
+            )}
+          </div>
+
+          {/* Invoiced Sundry Invoices */}
+          <div>
+            <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Sundry Invoices</h4>
+            {sundryLoading ? (
+              <div className="py-8 text-center text-sm text-slate-500">Loading sundry invoices...</div>
+            ) : sundryInvoices.length === 0 ? (
+              <div className="py-4 text-center text-sm text-slate-500">No sundry invoices found.</div>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border">
+                <table className="w-full border-collapse text-left">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
+                      <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
+                      <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount Due</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sundryInvoices.map((inv: any) => (
+                      <tr key={inv.id} className="border-t hover:bg-slate-50">
+                        <td className="px-3 py-2">
+                          <div className="font-medium text-slate-900">{inv.invoice_number}</div>
+                        </td>
+                        <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
+                        <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
+                        <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
+                          {currency(toNumber(inv.amount_due))}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          {inv.invoice_url && (
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                              <FileText className="mr-1 h-3 w-3" /> Download
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+      )}
+
+      {activeTab === 'drafts' && (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-lg font-bold text-[#001e42]">Invoice Drafts</h3>
+          </div>
+
+          {draftLoading ? (
+            <div className="py-8 text-center text-sm text-slate-500">Loading drafts...</div>
+          ) : draftInvoices.length === 0 ? (
+            <div className="py-8 text-center text-sm text-slate-500">No drafts found.</div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full border-collapse text-left">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Order</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {draftInvoices.map((inv: any) => (
+                    <tr key={inv.id} className="border-t hover:bg-slate-50">
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-slate-900">{inv.ordernumber || inv.trip_id || '—'}</div>
+                      </td>
+                      <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
+                      <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
+                      <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
+                        {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-2 py-0.5">Draft</Badge>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleEditDraft(inv)}>
+                            Edit
+                          </Button>
+                          <Button size="sm" className="h-7 px-2 text-xs bg-[#001e42] text-white hover:bg-[#0b2955]" onClick={() => handleFinalizeDraft(inv)}>
+                            Finalize
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      )}
+
+      {activeTab === 'invoices' && (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-lg font-bold text-[#001e42]">Finalized Invoices</h3>
+            <div className="flex items-center gap-2">
+              <Input
+                type="month"
+                value={lockMonth}
+                onChange={(e) => setLockMonth(e.target.value)}
+                className="w-40"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  if (!lockMonth) return
+                  if (!confirm(`Lock all invoices for ${lockMonth}? This cannot be undone.`)) return
+                  try {
+                    const res = await fetch('/api/invoices/lock', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ month: lockMonth }),
+                    })
+                    if (!res.ok) {
+                      const err = await res.json()
+                      throw new Error(err.error || 'Failed to lock')
+                    }
+                    const result = await res.json()
+                    alert(`Locked ${result.lockedCount} invoices for ${lockMonth}`)
+                    // Refresh invoices
+                    const invRes = await fetch('/api/invoices?finalized=true')
+                    const invResult = await invRes.json()
+                    setFinalizedInvoices(invResult.data || [])
+                  } catch (err: any) {
+                    alert(err.message)
+                  }
+                }}
+              >
+                Lock Month
+              </Button>
+            </div>
+          </div>
+
+          {invoicesLoading ? (
+            <div className="py-8 text-center text-sm text-slate-500">Loading invoices...</div>
+          ) : finalizedInvoices.length === 0 && sundryInvoices.length === 0 ? (
+            <div className="py-8 text-center text-sm text-slate-500">No invoices found.</div>
+          ) : (
+            <div className="space-y-6">
+              {/* Trip Invoices */}
+              {finalizedInvoices.length > 0 && (
+                <div>
+                  <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Trip Invoices</h4>
+                  <div className="overflow-x-auto rounded-lg border">
+                    <table className="w-full border-collapse text-left">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Order</th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
+                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
+                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {finalizedInvoices.map((inv: any) => (
+                          <tr key={inv.id} className="border-t hover:bg-slate-50">
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
+                            </td>
+                            <td className="px-3 py-2 text-sm text-slate-700">{inv.ordernumber || inv.trip_id || '-'}</td>
+                            <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
+                            <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
+                            <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
+                              {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {inv.is_locked ? (
+                                <Badge className="bg-red-100 text-red-800 border-red-200 text-[10px] px-2 py-0.5">Locked</Badge>
+                              ) : (
+                                <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Finalized</Badge>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {inv.invoice_url && (
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                                  <FileText className="mr-1 h-3 w-3" /> View
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Sundry Invoices */}
+              {sundryInvoices.length > 0 && (
+                <div>
+                  <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Sundry Invoices</h4>
+                  <div className="overflow-x-auto rounded-lg border">
+                    <table className="w-full border-collapse text-left">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sundryInvoices.map((inv: any) => (
+                          <tr key={inv.id} className="border-t hover:bg-slate-50">
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-slate-900">{inv.invoice_number}</div>
+                            </td>
+                            <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
+                            <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
+                            <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
+                              {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.amount_due).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {inv.invoice_url && (
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                                  <FileText className="mr-1 h-3 w-3" /> View
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      )}
+
       <SundryInvoiceModal open={showSundryModal} onClose={() => {
         setShowSundryModal(false)
         if (activeTab === 'sundry') {
           fetch('/api/sundry-invoices').then(r => r.json()).then(result => setSundryInvoices(result.data || []))
         }
       }} />
+
+      {/* Edit Draft Modal */}
+      {showEditModal && editDraftData && (
+        <GenerateInvoiceModal
+          open={showEditModal}
+          onClose={() => {
+            setShowEditModal(false)
+            setEditDraftId(null)
+            setEditDraftData(null)
+            // Refresh drafts
+            if (activeTab === 'drafts') {
+              fetch('/api/invoices?draft=true').then(r => r.json()).then(result => setDraftInvoices(result.data || []))
+            }
+          }}
+          record={editDraftData}
+          invoiceRate={toNumber(editDraftData.invoice_rate || editDraftData.total_amount)}
+          invoiceCurrency={editDraftData.currency || 'ZAR'}
+          splitRows={[]}
+          calcSplitTotal={() => 0}
+          mode="edit"
+          draftId={editDraftId || undefined}
+          draftData={editDraftData}
+        />
+      )}
+
+      {/* Finalize Preview Modal */}
+      <Dialog open={showFinalizePreview} onOpenChange={setShowFinalizePreview}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Finalize Invoice</DialogTitle>
+            <DialogDescription>
+              Review the invoice details before finalizing. An invoice number will be generated and cannot be changed.
+            </DialogDescription>
+          </DialogHeader>
+
+          {finalizePreview && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Customer</label>
+                  <p className="text-sm text-slate-900">{finalizePreview.customer_name || '-'}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Date</label>
+                  <p className="text-sm text-slate-900">{finalizePreview.invoice_date || '-'}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Amount</label>
+                  <p className="text-sm font-medium text-slate-900">
+                    {finalizePreview.currency === 'USD' ? '$' : 'R'}{toNumber(finalizePreview.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Currency</label>
+                  <p className="text-sm text-slate-900">{finalizePreview.currency}</p>
+                </div>
+              </div>
+
+              {finalizePreview.line_items?.length > 0 && (
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Line Items</label>
+                  <div className="mt-1 overflow-x-auto rounded border">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-semibold">Description</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold">Qty</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold">Unit Price</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {finalizePreview.line_items.map((item: any, idx: number) => (
+                          <tr key={idx} className="border-t">
+                            <td className="px-3 py-2">{item.description}</td>
+                            <td className="px-3 py-2 text-right">{item.quantity}</td>
+                            <td className="px-3 py-2 text-right">{item.unitPrice}</td>
+                            <td className="px-3 py-2 text-right font-medium">
+                              {finalizePreview.currency === 'USD' ? '$' : 'R'}{((item.quantity || 0) * (item.unitPrice || 0)).toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button variant="outline" onClick={() => setShowFinalizePreview(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-[#001e42] text-white hover:bg-[#0b2955]"
+                  onClick={confirmFinalize}
+                  disabled={finalizing}
+                >
+                  {finalizing ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Finalizing...</>
+                  ) : (
+                    'Confirm & Generate Invoice'
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={documentsOpen} onOpenChange={setDocumentsOpen}>
         <DialogContent className="max-w-3xl">

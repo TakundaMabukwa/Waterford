@@ -70,6 +70,8 @@ const formatDisplayDate = (isoDate: string) => {
   return date.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 
+type InvoiceMode = 'draft' | 'edit' | 'finalize'
+
 type Props = {
   open: boolean
   onClose: () => void
@@ -79,6 +81,9 @@ type Props = {
   splitRows: any[]
   calcSplitTotal: (row: any) => number
   onInvoiced?: (rate: number, currency: string) => void
+  mode?: InvoiceMode
+  draftId?: number
+  draftData?: any
 }
 
 export default function GenerateInvoiceModal({
@@ -90,6 +95,9 @@ export default function GenerateInvoiceModal({
   splitRows,
   calcSplitTotal,
   onInvoiced,
+  mode = 'draft',
+  draftId,
+  draftData,
 }: Props) {
   const getClientName = () => {
     let name = ''
@@ -189,6 +197,27 @@ export default function GenerateInvoiceModal({
       })))
     }
   }, [open, record?.id])
+
+  // Load draft data when in edit mode
+  useEffect(() => {
+    if (!open || mode !== 'edit' || !draftData) return
+
+    const d = draftData
+    if (d.invoice_date) setInvoiceDate(d.invoice_date)
+    if (d.invoice_number) setInvoiceNumber(d.invoice_number)
+    if (d.customer_name) setCustomerName(d.customer_name)
+    if (d.customer_address) setCustomerAddress(d.customer_address)
+    if (d.customer_vat) setCustomerVat(d.customer_vat)
+    if (d.reference_number) setReferenceNumber(d.reference_number)
+    if (d.sales_code) setSalesCode(d.sales_code)
+    if (d.line_items?.length) {
+      setLineItems(d.line_items.map((item: any) => ({
+        ...item,
+        quantity: String(item.quantity ?? ''),
+        unitPrice: String(item.unitPrice ?? ''),
+      })))
+    }
+  }, [open, mode, draftData])
 
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>(() => {
     const pickups = parseJson(record?.pickuplocations) || []
@@ -368,7 +397,115 @@ export default function GenerateInvoiceModal({
     setGenerating(true)
     try {
 
-    // Fetch invoice number now (only on actual generation)
+    // In draft mode, save to invoices table without generating PDF
+    if (mode === 'draft') {
+      const res = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tripId: record?.trip_id || null,
+          customerName: cleanName,
+          customerAddress,
+          customerVat,
+          invoiceDate,
+          lineItems: lineItems.map(item => ({
+            ...item,
+            quantity: Number(item.quantity) || 0,
+            unitPrice: Number(item.unitPrice) || 0,
+          })),
+          subtotal,
+          vatAmount: totalVat,
+          totalAmount: totalZar,
+          amountDue,
+          currency: detectedCurrency,
+          referenceNumber: referenceNumber || null,
+          salesCode,
+          invoiceData: {
+            invoiceDate,
+            invoiceNumber: '',
+            customerName: cleanName,
+            customerAddress,
+            customerVat,
+            referenceNumber: referenceNumber || '',
+            salesCode,
+            lineItems: lineItems.map(item => ({
+              ...item,
+              quantity: Number(item.quantity) || 0,
+              unitPrice: Number(item.unitPrice) || 0,
+            })),
+            subtotal,
+            totalVat,
+            totalZar,
+            amountDue,
+          },
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to create draft')
+      }
+
+      toast.success('Invoice draft created')
+      onInvoiced?.(invoiceRate, detectedCurrency)
+      onClose()
+      return
+    }
+
+    // In edit mode, update the existing draft
+    if (mode === 'edit' && draftId) {
+      const res = await fetch(`/api/invoices/${draftId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName: cleanName,
+          customerAddress,
+          customerVat,
+          invoiceDate,
+          lineItems: lineItems.map(item => ({
+            ...item,
+            quantity: Number(item.quantity) || 0,
+            unitPrice: Number(item.unitPrice) || 0,
+          })),
+          subtotal,
+          vatAmount: totalVat,
+          totalAmount: totalZar,
+          amountDue,
+          currency: detectedCurrency,
+          referenceNumber: referenceNumber || null,
+          salesCode,
+          invoiceData: {
+            invoiceDate,
+            invoiceNumber: invoiceNumber || '',
+            customerName: cleanName,
+            customerAddress,
+            customerVat,
+            referenceNumber: referenceNumber || '',
+            salesCode,
+            lineItems: lineItems.map(item => ({
+              ...item,
+              quantity: Number(item.quantity) || 0,
+              unitPrice: Number(item.unitPrice) || 0,
+            })),
+            subtotal,
+            totalVat,
+            totalZar,
+            amountDue,
+          },
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to update draft')
+      }
+
+      toast.success('Draft updated')
+      onClose()
+      return
+    }
+
+    // In finalize mode, generate invoice number and PDF
     let invNumber = invoiceNumber
     if (!invNumber) {
       try {
@@ -752,8 +889,14 @@ export default function GenerateInvoiceModal({
       <div className="relative z-10 mx-4 max-h-[95vh] w-full max-w-[95vw] overflow-y-auto rounded-2xl bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <div>
-            <h2 className="text-lg font-extrabold text-[#001e42]">Generate Invoice</h2>
-            <p className="text-xs text-slate-500">Fill in the details and generate a tax invoice PDF</p>
+            <h2 className="text-lg font-extrabold text-[#001e42]">
+              {mode === 'edit' ? 'Edit Draft Invoice' : 'Generate Invoice'}
+            </h2>
+            <p className="text-xs text-slate-500">
+              {mode === 'draft' ? 'Fill in the details and create an invoice draft' : 
+               mode === 'edit' ? 'Update the draft invoice details' : 
+               'Finalize the invoice and generate PDF'}
+            </p>
           </div>
           <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
             <X className="h-5 w-5" />
@@ -1018,9 +1161,9 @@ export default function GenerateInvoiceModal({
           <Button variant="outline" onClick={onClose} disabled={generating}>Cancel</Button>
           <Button onClick={generatePdf} className="bg-[#001e42] text-white hover:bg-[#0b2955]" disabled={generating}>
             {generating ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {mode === 'draft' ? 'Creating...' : mode === 'edit' ? 'Saving...' : 'Generating...'}</>
             ) : (
-              <><Download className="mr-2 h-4 w-4" /> Generate Invoice & Download</>
+              <><Download className="mr-2 h-4 w-4" /> {mode === 'draft' ? 'Create Draft' : mode === 'edit' ? 'Save Changes' : 'Generate Invoice & Download'}</>
             )}
           </Button>
         </div>

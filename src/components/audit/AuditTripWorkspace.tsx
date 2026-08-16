@@ -1298,6 +1298,7 @@ export default function AuditTripWorkspace({
           splitRows={visibleSplitRows}
           calcSplitTotal={calcSplitTotal}
           onInvoiced={(rate, currency) => onRecordUpdate?.({ is_invoiced: true, invoice_rate: rate, invoice_currency: currency })}
+          mode="draft"
         />
       )}
     </div>
