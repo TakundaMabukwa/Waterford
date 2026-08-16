@@ -198,9 +198,9 @@ export default function GenerateInvoiceModal({
     }
   }, [open, record?.id])
 
-  // Load draft data when in edit mode
+  // Load draft data when in edit or finalize mode
   useEffect(() => {
-    if (!open || mode !== 'edit' || !draftData) return
+    if (!open || (mode !== 'edit' && mode !== 'finalize') || !draftData) return
 
     const d = draftData
     if (d.invoice_date) setInvoiceDate(d.invoice_date)

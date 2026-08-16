@@ -75,6 +75,7 @@ export default function AuditPage() {
   const [editDraftId, setEditDraftId] = useState<number | null>(null)
   const [editDraftData, setEditDraftData] = useState<any>(null)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [editModalMode, setEditModalMode] = useState<'edit' | 'finalize'>('edit')
   const [finalizePreview, setFinalizePreview] = useState<any>(null)
   const [showFinalizePreview, setShowFinalizePreview] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
@@ -411,10 +412,11 @@ export default function AuditPage() {
       setFinalizePreview(updatedDraft)
       setFinalizedInvoiceUrl(null)
       
-      // Close the finalize dialog and open GenerateInvoiceModal to generate PDF
+      // Close the finalize dialog and open GenerateInvoiceModal in finalize mode to generate PDF
       setShowFinalizePreview(false)
       setEditDraftId(finalizePreview.id)
       setEditDraftData(updatedDraft)
+      setEditModalMode('finalize')
       setShowEditModal(true)
       
       // Refresh drafts
@@ -1313,7 +1315,7 @@ export default function AuditPage() {
           invoiceCurrency={editDraftData.currency || 'ZAR'}
           splitRows={[]}
           calcSplitTotal={() => 0}
-          mode="edit"
+          mode={editModalMode}
           draftId={editDraftId || undefined}
           draftData={editDraftData}
         />
