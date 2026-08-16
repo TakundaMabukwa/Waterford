@@ -2,6 +2,45 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 // *****************************
+// get trip by id or trip_id
+// *****************************
+export async function GET(request, context) {
+  const supabase = await createClient()
+  const { id } = await context.params
+
+  if (!id) {
+    return NextResponse.json({ error: 'Missing trip ID' }, { status: 400 })
+  }
+
+  try {
+    // Try trip_id (text) first, then numeric id
+    let { data: trip, error } = await supabase
+      .from('trips')
+      .select('*')
+      .eq('trip_id', id)
+      .single()
+
+    if (error || !trip) {
+      const result = await supabase
+        .from('trips')
+        .select('*')
+        .eq('id', id)
+        .single()
+      trip = result.data
+      error = result.error
+    }
+
+    if (error || !trip) {
+      return NextResponse.json({ error: 'Trip not found' }, { status: 404 })
+    }
+
+    return NextResponse.json({ data: trip })
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to fetch trip' }, { status: 500 })
+  }
+}
+
+// *****************************
 // update trip
 // *****************************
 export async function PUT(request, context) {

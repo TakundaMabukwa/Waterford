@@ -648,7 +648,10 @@ export default function GenerateInvoiceModal({
     doc.text('SOUTH AFRICA', coX, cy); cy += 4
     doc.text('Tel: +27 (10) 300 8398', coX, cy); cy += 4
 
-    doc.text('Co Reg: 2020/601042/07', coInfoX, ry)
+    // Move ry past the company info section
+    ry = Math.max(ry, cy)
+
+    doc.text('Co Reg: 2020/601042/07', coX, ry)
     ry += 7
 
     // VAT Number row
