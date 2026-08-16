@@ -219,6 +219,22 @@ export default function GenerateInvoiceModal({
     }
   }, [open, mode, draftData])
 
+  // Fetch trip data when in finalize mode (record is invoice draft, not trip)
+  const [tripData, setTripData] = useState<any>(null)
+  useEffect(() => {
+    if (!open || mode !== 'finalize' || !draftData?.trip_id) return
+    const fetchTrip = async () => {
+      try {
+        const res = await fetch(`/api/trips/${draftData.trip_id}`)
+        const result = await res.json()
+        if (result.data) setTripData(result.data)
+      } catch (err) {
+        console.error('Failed to fetch trip data:', err)
+      }
+    }
+    fetchTrip()
+  }, [open, mode, draftData?.trip_id])
+
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>(() => {
     const pickups = parseJson(record?.pickuplocations) || []
     const dropoffs = parseJson(record?.dropofflocations) || []
@@ -789,36 +805,38 @@ export default function GenerateInvoiceModal({
       const { data: { user } } = await supabase.auth.getUser()
       const userEmail = user?.email || user?.user_metadata?.first_name || ''
       
-      const clientDetails = parseJson(record.clientdetails || record.client_details)
-      const pickupLocations = parseJson(record.pickuplocations || record.pickup_locations) || []
-      const dropoffLocations = parseJson(record.dropofflocations || record.dropoff_locations) || []
-      const vehicleAssignments = parseJson(record.vehicleassignments || record.vehicle_assignments) || []
+      // Use trip data if available (finalize mode), otherwise use record
+      const source = tripData || record
+      const clientDetails = parseJson(source.clientdetails || source.client_details)
+      const pickupLocations = parseJson(source.pickuplocations || source.pickup_locations) || []
+      const dropoffLocations = parseJson(source.dropofflocations || source.dropoff_locations) || []
+      const vehicleAssignments = parseJson(source.vehicleassignments || source.vehicle_assignments) || []
 
       const firstAssignment = vehicleAssignments[0] || {}
       const driverName = firstAssignment.drivers?.[0] ? `${firstAssignment.drivers[0].first_name || ''} ${firstAssignment.drivers[0].surname || ''}`.trim() : ''
       const vehicleReg = firstAssignment.vehicle?.name || ''
       const collectedByStr = vehicleReg && driverName ? `${vehicleReg} - ${driverName}` : driverName || vehicleReg || ''
 
-      const collectionAddress = pickupLocations[0]?.address || record.origin || ''
-      const deliveryAddress = dropoffLocations[0]?.address || record.destination || ''
+      const collectionAddress = pickupLocations[0]?.address || source.origin || ''
+      const deliveryAddress = dropoffLocations[0]?.address || source.destination || ''
 
-      const createdByName = record.created_by || ''
-      const createdAtStr = record.created_at ? new Date(record.created_at).toLocaleString('en-ZA', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+      const createdByName = source.created_by || ''
+      const createdAtStr = source.created_at ? new Date(source.created_at).toLocaleString('en-ZA', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
 
       const loadconData = {
-        orderNumber: record.ordernumber || '',
-        loadType: record.load_type || 'Cross Border',
-        loadDate: record.startdate || new Date().toISOString().split('T')[0],
-        customerName: clientDetails?.name || record.selectedclient || record.selected_client || '',
-        customerReference: record.reference_number || '',
+        orderNumber: source.ordernumber || '',
+        loadType: source.load_type || 'Cross Border',
+        loadDate: source.startdate || new Date().toISOString().split('T')[0],
+        customerName: clientDetails?.name || source.selectedclient || source.selected_client || '',
+        customerReference: source.reference_number || '',
         collectionAddress: collectionAddress,
         delivery: deliveryAddress,
         collectedBy: collectedByStr,
         deliveredBy: collectedByStr,
         zone: '',
         emptyTN: '',
-        notes: record.notes || record.statusnotes || '',
-        completedBy: record.updated_by || '',
+        notes: source.notes || source.statusnotes || '',
+        completedBy: source.updated_by || '',
         createdBy: createdByName && createdAtStr ? `${createdByName} - ${createdAtStr}` : createdByName,
         createdTimestamp: createdAtStr,
         rate: detectedCurrency === 'ZAR' ? `ZAR ${formatNum(totalZar)}` : `USD ${formatNum(totalZar)}`,
@@ -829,9 +847,10 @@ export default function GenerateInvoiceModal({
       }
       
       loadconBlob = generateLoadconPdf(loadconData)
-      const pdfUrl = await uploadLoadconPdf(record.trip_id, loadconBlob)
+      const tripId = source.trip_id || record.trip_id
+      const pdfUrl = await uploadLoadconPdf(tripId, loadconBlob)
       if (pdfUrl) {
-        await updateTripLoadconUrl(record.trip_id, pdfUrl)
+        await updateTripLoadconUrl(tripId, pdfUrl)
       }
     } catch (loadconError) {
       console.error('Error regenerating loadcon:', loadconError)
