@@ -657,9 +657,9 @@ export default function GenerateInvoiceModal({
     // VAT Number row
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(9)
-    doc.text('VAT Number', invLabelX, ry)
+    doc.text('VAT Number', labelX, ry)
     doc.setFont('helvetica', 'normal')
-    doc.text('4090291693', invValueX, ry)
+    doc.text(customerVat || '', labelX + maxLabelW, ry)
 
     y = Math.max(custY + 5 + addrLines.length * 4.5 + (customerVat ? 8 : 0), ry) + 8
 

@@ -39,7 +39,7 @@ export async function GET() {
     while (true) {
       const { data, error } = await supabase
         .from('eps_client_list')
-        .select('id, name, address, city, state, country, client_id, contact_person, contact_phone, contact_email, email, phone, status, industry, credit_limit, dormant_flag, postal_code, fax_number, registration_number, registration_name, ck_number, tax_number, vat_number, operating_hours, capacity, notes, coordinates, coords, blocked, notification_period, notification_groups, created_at, updated_at')
+        .select('id, name, address, city, state, country, client_id, contact_person, contact_phone, contact_email, email, phone, status, industry, credit_limit, dormant_flag, postal_code, fax_number, registration_number, registration_name, ck_number, tax_number, vat_number, operating_hours, capacity, notes, coordinates, coords, blocked, notification_period, notification_groups, invoice_email_groups, created_at, updated_at')
         .order('name')
         .range(from, from + batchSize - 1)
       
@@ -123,6 +123,7 @@ export async function POST(request) {
       pickup_locations: Array.isArray(payload.pickup_locations) ? payload.pickup_locations : [],
       dropoff_locations: Array.isArray(payload.dropoff_locations) ? payload.dropoff_locations : [],
       notification_groups: Array.isArray(payload.notification_groups) ? payload.notification_groups : [],
+      invoice_email_groups: Array.isArray(payload.invoice_email_groups) ? payload.invoice_email_groups : [],
       updated_at: new Date().toISOString(),
     }
 
@@ -227,6 +228,7 @@ export async function PUT(request) {
       pickup_locations: payload.pickup_locations !== undefined ? (Array.isArray(payload.pickup_locations) ? payload.pickup_locations : []) : existing.pickup_locations,
       dropoff_locations: payload.dropoff_locations !== undefined ? (Array.isArray(payload.dropoff_locations) ? payload.dropoff_locations : []) : existing.dropoff_locations,
       notification_groups: payload.notification_groups !== undefined ? (Array.isArray(payload.notification_groups) ? payload.notification_groups : []) : existing.notification_groups,
+      invoice_email_groups: payload.invoice_email_groups !== undefined ? (Array.isArray(payload.invoice_email_groups) ? payload.invoice_email_groups : []) : existing.invoice_email_groups,
       updated_at: new Date().toISOString(),
     }
 

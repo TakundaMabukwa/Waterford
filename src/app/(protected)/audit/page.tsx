@@ -82,6 +82,8 @@ export default function AuditPage() {
   const [finalizeDocs, setFinalizeDocs] = useState<any[]>([])
   const [finalizeDocsLoading, setFinalizeDocsLoading] = useState(false)
   const [finalizedInvoiceUrl, setFinalizedInvoiceUrl] = useState<string | null>(null)
+  const [sendEmailGroups, setSendEmailGroups] = useState<any[]>([])
+  const [sendingEmail, setSendingEmail] = useState(false)
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date()
     d.setMonth(d.getMonth() - 1, 1)
@@ -412,6 +414,11 @@ export default function AuditPage() {
       setFinalizePreview(updatedDraft)
       setFinalizedInvoiceUrl(null)
       
+      // Initialize send email groups with all groups checked
+      if (finalizePreview.invoice_email_groups?.length > 0) {
+        setSendEmailGroups([...finalizePreview.invoice_email_groups])
+      }
+      
       // Close the finalize dialog and open GenerateInvoiceModal in finalize mode to generate PDF
       setShowFinalizePreview(false)
       setEditDraftId(finalizePreview.id)
@@ -427,6 +434,61 @@ export default function AuditPage() {
       alert(err.message)
     } finally {
       setFinalizing(false)
+    }
+  }
+
+  const sendInvoiceEmail = async (invoice: any, selectedGroups: any[]) => {
+    if (!selectedGroups.length || !invoice.invoice_url) {
+      alert('No email groups selected or no invoice PDF available.')
+      return
+    }
+    setSendingEmail(true)
+    try {
+      // Collect all selected recipients
+      const recipients = []
+      for (const group of selectedGroups) {
+        if (group.emails) {
+          recipients.push(...group.emails.filter((e: string) => e.trim()))
+        }
+      }
+      if (recipients.length === 0) {
+        alert('No valid email addresses in selected groups.')
+        return
+      }
+
+      const tripData = invoice.trip_data || {}
+      const { buildInvoiceEmailHtml } = await import('@/lib/invoice-email-template')
+      const html = buildInvoiceEmailHtml({
+        orderNumber: invoice.ordernumber || invoice.trip_id || '',
+        origin: tripData.origin || '',
+        destination: tripData.destination || '',
+        customerName: invoice.customer_name || '',
+        customerAddress: invoice.customer_address || '',
+        amount: toNumber(invoice.total_amount || invoice.amount_due).toLocaleString('en-ZA', { minimumFractionDigits: 2 }),
+        currency: invoice.currency || 'ZAR',
+        invoiceDate: invoice.invoice_date || '',
+        invoicePdfUrl: invoice.invoice_url || '',
+      })
+
+      const subject = `Invoice ${invoice.invoice_number || ''} - Waterford Carriers`
+
+      const res = await fetch('/api/send-invoice-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipients, subject, html }),
+      })
+
+      const result = await res.json()
+      if (!res.ok || !result.success) {
+        throw new Error(result.error || 'Failed to send email')
+      }
+
+      alert(`Invoice email sent to ${recipients.length} recipient(s)!`)
+    } catch (err: any) {
+      console.error('Send invoice email error:', err)
+      alert(`Failed to send email: ${err.message}`)
+    } finally {
+      setSendingEmail(false)
     }
   }
 
@@ -1230,11 +1292,28 @@ export default function AuditPage() {
                               )}
                             </td>
                             <td className="px-3 py-2 text-right">
-                              {inv.invoice_url && (
-                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
-                                  <FileText className="mr-1 h-3 w-3" /> View
-                                </Button>
-                              )}
+                              <div className="flex justify-end gap-1">
+                                {inv.invoice_url && (
+                                  <>
+                                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                                      <FileText className="mr-1 h-3 w-3" /> View
+                                    </Button>
+                                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                                      <Download className="mr-1 h-3 w-3" /> Download
+                                    </Button>
+                                    {inv.invoice_email_groups?.length > 0 && (
+                                      <Button
+                                        size="sm"
+                                        className="h-7 px-2 text-xs bg-emerald-600 text-white hover:bg-emerald-700"
+                                        disabled={sendingEmail}
+                                        onClick={() => sendInvoiceEmail(inv, inv.invoice_email_groups)}
+                                      >
+                                        <FileText className="mr-1 h-3 w-3" /> Send Invoice
+                                      </Button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1476,6 +1555,36 @@ export default function AuditPage() {
                   </div>
                 )}
               </div>
+
+              {/* Email Recipients */}
+              {!finalizedInvoiceUrl && finalizePreview.invoice_email_groups?.length > 0 && (
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Email Recipients</label>
+                  <p className="text-[10px] text-slate-400 mb-1">Select which groups should receive the invoice email.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {finalizePreview.invoice_email_groups.map((group: any, idx: number) => (
+                      <label key={idx} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors">
+                        <input
+                          type="checkbox"
+                          defaultChecked
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSendEmailGroups((prev) => [...prev, group])
+                            } else {
+                              setSendEmailGroups((prev) => prev.filter((g) => g.name !== group.name))
+                            }
+                          }}
+                        />
+                        <div>
+                          <div className="text-sm font-medium text-slate-900">{group.name}</div>
+                          <div className="text-[10px] text-slate-500">{group.emails?.length || 0} email(s)</div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="sticky bottom-0 bg-white border-t px-6 py-4 flex justify-end gap-2">
                 {finalizedInvoiceUrl ? (
