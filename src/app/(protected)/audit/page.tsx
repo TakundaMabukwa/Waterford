@@ -396,6 +396,23 @@ export default function AuditPage() {
     } else {
       setFinalizeDocs([])
     }
+
+    // Fetch client's invoice email groups
+    try {
+      const clientName = draft.customer_name || ''
+      if (clientName) {
+        const res = await fetch('/api/eps-client-list')
+        const result = await res.json()
+        const clients = result.data || []
+        const matchedClient = clients.find((c: any) => c.name === clientName)
+        if (matchedClient?.invoice_email_groups?.length) {
+          setFinalizePreview((prev: any) => ({ ...prev, invoice_email_groups: matchedClient.invoice_email_groups }))
+          setSendEmailGroups([...matchedClient.invoice_email_groups])
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch client invoice email groups:', err)
+    }
   }
 
   const confirmFinalize = async () => {
