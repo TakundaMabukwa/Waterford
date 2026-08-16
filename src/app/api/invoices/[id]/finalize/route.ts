@@ -31,15 +31,15 @@ export async function POST(
       return NextResponse.json({ error: 'Invoice is locked' }, { status: 400 })
     }
 
-    // Get next invoice number
-    const { data: numData, error: numError } = await supabase
+    // Get next invoice number - RPC returns full format like "INV20051"
+    const { data: invoiceNumber, error: numError } = await supabase
       .rpc('get_next_invoice_number')
 
-    if (numError || !numData) {
+    if (numError || !invoiceNumber) {
       return NextResponse.json({ error: 'Failed to get invoice number' }, { status: 500 })
     }
 
-    const invoiceNumber = `INV${numData}`
+    const lockMonth = draft.invoice_date ? draft.invoice_date.substring(0, 7) : null
 
     // Update the invoice with the number and mark as finalized
     const { data, error } = await supabase
@@ -47,7 +47,7 @@ export async function POST(
       .update({
         invoice_number: invoiceNumber,
         is_draft: false,
-        lock_month: draft.invoice_date ? draft.invoice_date.substring(0, 7) : null,
+        lock_month: lockMonth,
         updated_at: new Date().toISOString(),
       })
       .eq('id', Number(id))

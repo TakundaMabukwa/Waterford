@@ -508,13 +508,10 @@ export default function GenerateInvoiceModal({
     // In finalize mode, generate invoice number and PDF
     let invNumber = invoiceNumber
     if (!invNumber) {
-      try {
-        const numRes = await fetch('/api/next-invoice-number', { method: 'POST' })
-        const numData = await numRes.json()
-        invNumber = numData.invoiceNumber || `INV${orderNum || '00000'}`
-      } catch {
-        invNumber = `INV${orderNum || '00000'}`
-      }
+      const numRes = await fetch('/api/next-invoice-number', { method: 'POST' })
+      const numData = await numRes.json()
+      invNumber = numData.invoiceNumber
+      if (!invNumber) throw new Error('Failed to get invoice number')
       setInvoiceNumber(invNumber)
     }
 
@@ -771,6 +768,19 @@ export default function GenerateInvoiceModal({
     }
 
     await markAuditInvoiced(invoiceUrl || undefined)
+
+    // If in finalize mode, save invoice_url back to the invoices table
+    if (mode === 'finalize' && draftId && invoiceUrl) {
+      try {
+        await fetch(`/api/invoices/${draftId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoice_url: invoiceUrl }),
+        })
+      } catch (err) {
+        console.error('Failed to update invoice_url:', err)
+      }
+    }
 
     // Regenerate loadcon with finance details
     let loadconBlob: Blob | null = null

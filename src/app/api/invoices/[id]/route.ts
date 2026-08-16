@@ -24,6 +24,7 @@ export async function PATCH(
       total_amount: body.totalAmount,
       amount_due: body.amountDue,
       currency: body.currency,
+      invoice_url: body.invoice_url,
       invoice_data: body.invoiceData,
       reference_number: body.referenceNumber,
       sales_code: body.salesCode,

@@ -405,7 +405,18 @@ export default function AuditPage() {
         throw new Error(err.error || 'Failed to finalize')
       }
       const result = await res.json()
-      setFinalizedInvoiceUrl(result.data?.invoice_url || null)
+      
+      // Update the finalize preview with the invoice number
+      const updatedDraft = { ...finalizePreview, invoice_number: result.invoiceNumber, is_draft: false }
+      setFinalizePreview(updatedDraft)
+      setFinalizedInvoiceUrl(null)
+      
+      // Close the finalize dialog and open GenerateInvoiceModal to generate PDF
+      setShowFinalizePreview(false)
+      setEditDraftId(finalizePreview.id)
+      setEditDraftData(updatedDraft)
+      setShowEditModal(true)
+      
       // Refresh drafts
       const draftRes = await fetch('/api/invoices?draft=true')
       const draftResult = await draftRes.json()
@@ -1029,12 +1040,24 @@ export default function AuditPage() {
                         <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
                           {currency(toNumber(inv.amount_due))}
                         </td>
-                        <td className="px-3 py-2 text-right">
-                          {inv.invoice_url && (
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
-                              <FileText className="mr-1 h-3 w-3" /> Download
-                            </Button>
-                          )}
+                            <td className="px-3 py-2 text-right">
+                              {inv.invoice_url && (
+                                <div className="flex justify-end gap-1">
+                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                                    <FileText className="mr-1 h-3 w-3" /> View
+                                  </Button>
+                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => {
+                                    const a = document.createElement('a')
+                                    a.href = inv.invoice_url
+                                    a.download = `${inv.invoice_number || 'invoice'}.pdf`
+                                    document.body.appendChild(a)
+                                    a.click()
+                                    document.body.removeChild(a)
+                                  }}>
+                                    <Download className="mr-1 h-3 w-3" /> Download
+                                  </Button>
+                                </div>
+                              )}
                         </td>
                       </tr>
                     ))}
