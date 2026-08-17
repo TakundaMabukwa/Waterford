@@ -434,24 +434,54 @@ export default function AuditPage() {
         throw new Error(err.error || 'Failed to finalize')
       }
       const result = await res.json()
-      
-      const updatedDraft = { ...finalizePreview, invoice_number: result.invoiceNumber, is_draft: false }
-      setFinalizePreview(updatedDraft)
-      setFinalizedInvoiceUrl(null)
-      
-      if (finalizePreview.invoice_email_groups?.length > 0) {
-        setSendEmailGroups([...finalizePreview.invoice_email_groups])
+      const invoiceNumber = result.invoiceNumber
+
+      const { generateAndUploadInvoicePdf } = await import('@/lib/generate-invoice-pdf')
+      const { pdfUrl } = await generateAndUploadInvoicePdf({
+        invoiceNumber,
+        customerName: finalizePreview.customer_name || '',
+        customerAddress: finalizePreview.customer_address || '',
+        customerVat: finalizePreview.customer_vat || '',
+        invoiceDate: finalizePreview.invoice_date || '',
+        dueDate: finalizePreview.due_date || '',
+        referenceNumber: finalizePreview.reference_number || '',
+        salesCode: finalizePreview.sales_code || '200',
+        currency: finalizePreview.currency || 'ZAR',
+        lineItems: (finalizePreview.line_items || []).map((item: any) => ({
+          description: item.description || '',
+          quantity: Number(item.quantity) || 0,
+          unitPrice: Number(item.unitPrice) || 0,
+          vatType: item.vatType || 'zero',
+        })),
+        subtotal: Number(finalizePreview.subtotal) || 0,
+        vatAmount: Number(finalizePreview.vat_amount) || 0,
+        totalAmount: Number(finalizePreview.total_amount) || 0,
+        amountDue: Number(finalizePreview.amount_due) || 0,
+      })
+
+      if (pdfUrl) {
+        await fetch(`/api/invoices/${finalizePreview.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoice_url: pdfUrl }),
+        })
       }
-      
-      setShowFinalizePreview(false)
-      setEditDraftId(finalizePreview.id)
-      setEditDraftData(updatedDraft)
-      setEditModalMode('finalize')
-      setShowEditModal(true)
-      
-      const draftRes = await fetch('/api/invoices?draft=true')
-      const draftResult = await draftRes.json()
-      setDraftInvoices(draftResult.data || [])
+
+      const updatedInvoice = {
+        ...finalizePreview,
+        invoice_number: invoiceNumber,
+        invoice_url: pdfUrl,
+        is_draft: false,
+      }
+      setFinalizePreview(updatedInvoice)
+      setFinalizedInvoiceUrl(pdfUrl)
+
+      fetch('/api/invoices?draft=true').then(r => r.json()).then(result => setDraftInvoices(result.data || []))
+      fetch('/api/invoices?finalized=true').then(r => r.json()).then(result => setFinalizedInvoices(result.data || []))
+
+      if (sendEmailGroups.length > 0 && pdfUrl) {
+        await sendInvoiceEmail(updatedInvoice, sendEmailGroups)
+      }
     } catch (err: any) {
       alert(err.message)
     } finally {
@@ -1137,24 +1167,24 @@ export default function AuditPage() {
                         <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
                           {currency(toNumber(inv.amount_due))}
                         </td>
-                            <td className="px-3 py-2 text-right">
-                              {inv.invoice_url && (
-                                <div className="flex justify-end gap-1">
-                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
-                                    <FileText className="mr-1 h-3 w-3" /> View
-                                  </Button>
-                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => {
-                                    const a = document.createElement('a')
-                                    a.href = inv.invoice_url
-                                    a.download = `${inv.invoice_number || 'invoice'}.pdf`
-                                    document.body.appendChild(a)
-                                    a.click()
-                                    document.body.removeChild(a)
-                                  }}>
-                                    <Download className="mr-1 h-3 w-3" /> Download
-                                  </Button>
-                                </div>
-                              )}
+                        <td className="px-3 py-2 text-right">
+                          {inv.invoice_url && (
+                            <div className="flex justify-end gap-1">
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                                <FileText className="mr-1 h-3 w-3" /> View
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => {
+                                const a = document.createElement('a')
+                                a.href = inv.invoice_url
+                                a.download = `${inv.invoice_number || 'invoice'}.pdf`
+                                document.body.appendChild(a)
+                                a.click()
+                                document.body.removeChild(a)
+                              }}>
+                                <Download className="mr-1 h-3 w-3" /> Download
+                              </Button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1456,7 +1486,7 @@ export default function AuditPage() {
               <DialogTitle>Finalize Invoice</DialogTitle>
               <DialogDescription>
                 {finalizedInvoiceUrl 
-                  ? 'Invoice has been finalized successfully. You can now download the invoice.'
+                  ? 'Invoice finalized and email sent. You can download the invoice below.'
                   : 'Review the invoice details before finalizing. An invoice number will be generated and cannot be changed.'}
               </DialogDescription>
             </DialogHeader>
@@ -1605,14 +1635,18 @@ export default function AuditPage() {
               </div>
 
               {/* Email Recipients */}
-              {!finalizedInvoiceUrl && (
-                <div>
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Email Recipients</label>
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Email Recipients</label>
+                {finalizedInvoiceUrl && (
+                  <p className="text-[10px] text-emerald-600 mb-2">Email has been sent to the selected recipients.</p>
+                )}
+                {!finalizedInvoiceUrl && (
                   <p className="text-[10px] text-slate-400 mb-2">
                     {finalizePreview.invoice_email_groups?.length > 0
                       ? 'Select groups and edit recipients before sending.'
                       : 'No email groups configured for this client. You can add groups in the Clients page.'}
                   </p>
+                )}
                   {finalizePreview.invoice_email_groups?.length > 0 && (
                     <div className="space-y-3">
                       {finalizePreview.invoice_email_groups.map((group: any, gIdx: number) => (
@@ -1694,7 +1728,6 @@ export default function AuditPage() {
                     </div>
                   )}
                 </div>
-              )}
 
               <div className="sticky bottom-0 bg-white border-t px-6 py-4 flex justify-end gap-2">
                 {finalizedInvoiceUrl ? (
@@ -1706,8 +1739,18 @@ export default function AuditPage() {
                     }}>
                       Close
                     </Button>
+                    {sendEmailGroups.length > 0 && (
+                      <Button
+                        className="bg-emerald-700 text-white hover:bg-emerald-800"
+                        disabled={sendingEmail}
+                        onClick={() => sendInvoiceEmail(finalizePreview, sendEmailGroups)}
+                      >
+                        {sendingEmail ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+                        {sendingEmail ? 'Sending...' : 'Send Again'}
+                      </Button>
+                    )}
                     <Button
-                      className="bg-emerald-700 text-white hover:bg-emerald-800"
+                      className="bg-[#001e42] text-white hover:bg-[#0b2955]"
                       onClick={() => window.open(finalizedInvoiceUrl, '_blank')}
                     >
                       <Download className="mr-2 h-4 w-4" /> Download Invoice

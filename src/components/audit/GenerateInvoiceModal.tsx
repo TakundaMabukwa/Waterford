@@ -3,9 +3,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { X, Plus, Trash2, Download, Loader2, Upload, FileText, Image, FileSpreadsheet } from 'lucide-react'
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
 import JSZip from 'jszip'
+import { generateInvoicePdf, uploadInvoicePdf } from '@/lib/generate-invoice-pdf'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -43,13 +42,6 @@ const VAT_RATES: Record<string, number> = {
   standard: 0.15,
   exempt: 0,
   zero_export: 0,
-}
-
-const VAT_LABELS: Record<string, string> = {
-  zero: 'Zero Rate\n(Excluding\nGoods Exported)',
-  standard: '15% VAT',
-  exempt: 'Exempt',
-  zero_export: 'Zero Rate\n(Excluding\nGoods Exported)',
 }
 
 const formatCurrency = (value: number, currencyCode: AuditCurrencyCode = 'ZAR') =>
@@ -544,271 +536,33 @@ export default function GenerateInvoiceModal({
       setInvoiceNumber(invNumber)
     }
 
-    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
-    const pw = doc.internal.pageSize.getWidth()
-    const ml = 15
-    const mr = 15
-    let y = 15
-
-    // ── WATERFORD LOGO (top right) ─────────────────────────────────
-    try {
-      const img = await fetch('/waterford logo.png')
-      const imgBlob = await img.blob()
-      const imgDataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result as string)
-        reader.readAsDataURL(imgBlob)
-      })
-      doc.addImage(imgDataUrl, 'PNG', pw - mr - 45, y, 45, 18)
-    } catch {
-      doc.setFontSize(24)
-      doc.setFont('helvetica', 'bold')
-      doc.setTextColor(0, 30, 66)
-      doc.text('WATERFORD', pw - mr, y + 8, { align: 'right' })
-      doc.setFontSize(10)
-      doc.setFont('helvetica', 'bold')
-      doc.setTextColor(232, 153, 63)
-      doc.text('carriers', pw - mr, y + 14, { align: 'right' })
-    }
-
-    // ── TAX INVOICE (left) ─────────────────────────────────────────
-    doc.setFontSize(22)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(0, 0, 0)
-    doc.text('TAX INVOICE', ml, y + 10)
-    y += 25
-
-    // ── LEFT: Customer details ─────────────────────────────────────
-    const custY = y
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(0, 0, 0)
-    const nameLines = doc.splitTextToSize(cleanName || 'Customer', 80)
-    doc.text(nameLines, ml, custY)
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    const addrLines = customerAddress ? doc.splitTextToSize(customerAddress, 80) : []
-    if (addrLines.length) {
-      doc.text(addrLines, ml, custY + nameLines.length * 4.5 + 2)
-    }
-    if (customerVat) {
-      doc.text(`VAT Number: ${customerVat}`, ml, custY + nameLines.length * 4.5 + 2 + addrLines.length * 4.5 + 2)
-    }
-
-    // ── RIGHT: Invoice details ─────────────────────────────────────
-    // Labels on left column, values on right column, stacked vertically
-    const labelX = 105
-    const valueX = 145
-    const maxLabelW = 35
-    const maxValueW = 45
-    let ry = custY
-
-    // Invoice Date
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(9)
-    doc.text('Invoice Date', labelX, ry)
-    doc.setFont('helvetica', 'normal')
-    const invDateLines = doc.splitTextToSize(formatDisplayDate(invoiceDate), maxValueW)
-    doc.text(invDateLines, valueX, ry)
-    ry += Math.max(invDateLines.length * 4.5, 6)
-
-    // Due Date
-    doc.setFont('helvetica', 'bold')
-    doc.text('Due Date', labelX, ry)
-    doc.setFont('helvetica', 'normal')
-    const dueDateLines = doc.splitTextToSize(formatDisplayDate(dueDate), maxValueW)
-    doc.text(dueDateLines, valueX, ry)
-    ry += Math.max(dueDateLines.length * 4.5, 6)
-
-    // Invoice Number
-    doc.setFont('helvetica', 'bold')
-    doc.text('Invoice Number', labelX, ry)
-    doc.setFont('helvetica', 'normal')
-    const invNumLines = doc.splitTextToSize(invNumber || '', maxValueW)
-    doc.text(invNumLines, valueX, ry)
-    ry += Math.max(invNumLines.length * 4.5, 6)
-
-    // Reference
-    doc.setFont('helvetica', 'bold')
-    doc.text('Reference', labelX, ry)
-    doc.setFont('helvetica', 'normal')
-    const refLines = doc.splitTextToSize(referenceNumber || 'N/A', maxValueW)
-    doc.text(refLines, valueX, ry)
-    ry += Math.max(refLines.length * 4.5, 6)
-
-    // ── Company info (far right) ───────────────────────────────────
-    const coX = 165
-    let cy = custY
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    doc.text('Waterford Carriers (Pty)', coX, cy); cy += 4
-    doc.text('Ltd', coX, cy); cy += 4
-    doc.text('96 Cavaleros Drive', coX, cy); cy += 4
-    doc.text('Industries West', coX, cy); cy += 4
-    doc.text('Germiston, 1401', coX, cy); cy += 4
-    doc.text('SOUTH AFRICA', coX, cy); cy += 4
-    doc.text('Tel: +27 (10) 300 8398', coX, cy); cy += 4
-
-    // Move ry past the company info section
-    ry = Math.max(ry, cy)
-
-    doc.text('Co Reg: 2020/601042/07', coX, ry)
-    ry += 7
-
-    // VAT Number row
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(9)
-    doc.text('VAT Number', labelX, ry)
-    doc.setFont('helvetica', 'normal')
-    doc.text(customerVat || '', labelX + maxLabelW, ry)
-
-    y = Math.max(custY + 5 + addrLines.length * 4.5 + (customerVat ? 8 : 0), ry) + 8
-
-    // ── LINE ITEMS TABLE ───────────────────────────────────────────
-    const salesCodeLabel = SALES_CODES.find(s => s.code === salesCode)?.label || 'Sales'
-    const tableData = lineItems.map((item) => {
-      const lineTotal = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)
-      return [
-        item.description,
-        `${salesCode} - ${salesCodeLabel}`,
-        String(item.quantity ? formatNum(Number(item.quantity)) : ''),
-        formatNum(Number(item.unitPrice) || 0),
-        VAT_LABELS[item.vatType] || '',
-        formatNum(lineTotal),
-      ]
+    const { blob: pdfBlob, fileName } = await generateInvoicePdf({
+      invoiceNumber: invNumber,
+      customerName: cleanName,
+      customerAddress,
+      customerVat,
+      invoiceDate,
+      dueDate,
+      referenceNumber,
+      salesCode,
+      currency: detectedCurrency,
+      lineItems: lineItems.map(item => ({
+        description: item.description,
+        quantity: Number(item.quantity) || 0,
+        unitPrice: Number(item.unitPrice) || 0,
+        vatType: item.vatType,
+      })),
+      subtotal,
+      vatAmount: totalVat,
+      totalAmount: totalZar,
+      amountDue,
     })
 
-    autoTable(doc, {
-      startY: y,
-      head: [['Description', 'Sales Code', 'Quantity', 'Unit Price', 'VAT', 'Amount ZAR']],
-      body: tableData,
-      theme: 'plain',
-      styles: {
-        fontSize: 9,
-        cellPadding: { top: 5, bottom: 5, left: 2, right: 2 },
-        lineWidth: 0,
-        lineColor: [255, 255, 255],
-        overflow: 'linebreak',
-        borderColor: [255, 255, 255],
-      },
-      headStyles: {
-        textColor: [0, 0, 0],
-        fontStyle: 'bold',
-        fontSize: 9,
-        cellPadding: { top: 4, bottom: 6, left: 2, right: 2 },
-        lineWidth: 0,
-        lineColor: [255, 255, 255],
-        borderColor: [255, 255, 255],
-      },
-      columnStyles: {
-        0: { cellWidth: 45, halign: 'left' },
-        1: { cellWidth: 35, halign: 'left', overflow: 'linebreak' },
-        2: { cellWidth: 18, halign: 'right' },
-        3: { cellWidth: 22, halign: 'right' },
-        4: { cellWidth: 30, halign: 'left', overflow: 'linebreak' },
-        5: { cellWidth: 28, halign: 'right' },
-      },
-      didDrawCell: (data) => {
-        const { doc: d } = data
-        if (data.section === 'head' && data.column.index === 0) {
-          const lineY = data.cell.y + data.cell.height + 1
-          d.setDrawColor(0, 0, 0)
-          d.setLineWidth(0.5)
-          d.line(ml, lineY, pw - mr, lineY)
-        }
-        if (data.section === 'body' && data.column.index === 4) {
-          const lineY = data.cell.y + data.cell.height + 3
-          d.setDrawColor(220, 220, 220)
-          d.setLineWidth(0.2)
-          d.line(data.cell.x, lineY, data.cell.x + data.cell.width, lineY)
-        }
-      },
-    })
-
-    y = (doc as any).lastAutoTable.finalY + 10
-
-    // ── SUMMARY (right-aligned) ────────────────────────────────────
-    const sL = pw - mr - 80
-    const sV = pw - mr
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    doc.setTextColor(0, 0, 0)
-
-    doc.text('Subtotal', sL, y)
-    doc.text(formatNum(subtotal), sV, y, { align: 'right' })
-    y += 6
-
-    doc.text('TOTAL VAT', sL, y)
-    doc.text(formatNum(totalVat), sV, y, { align: 'right' })
-    y += 5
-
-    doc.setDrawColor(180, 180, 180)
-    doc.setLineWidth(0.3)
-    doc.line(sL, y, sV, y)
-    y += 5
-
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(10)
-    doc.text('TOTAL ZAR', sL, y)
-    doc.text(formatNum(totalZar), sV, y, { align: 'right' })
-    y += 6
-
-    doc.setDrawColor(0, 0, 0)
-    doc.setLineWidth(0.3)
-    doc.line(sL, y, sV, y)
-    y += 5
-
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(11)
-    doc.text('AMOUNT DUE ZAR', sL, y)
-    doc.text(formatNum(amountDue), sV, y, { align: 'right' })
-
-    // ── BANK DETAILS — pinned to bottom of page ─────────────────────
-    const pageH = doc.internal.pageSize.getHeight()
-    const footerStartY = pageH - 55
-
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(0, 0, 0)
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    doc.text('Bank accounts:', ml, footerStartY + 7)
-    doc.text('South African Rand (ZAR)', ml, footerStartY + 12)
-    doc.text('First National Bank (FNB), Branch 210554, Acc 62878278946', ml, footerStartY + 16)
-
-    doc.text('Global account (USD)', ml, footerStartY + 23)
-    doc.text('Capitec Bank, Swift CABLZAJJ, Branch 450105, Acc 5000040384', ml, footerStartY + 27)
-    doc.text('Acc type CFC Call Account', ml, footerStartY + 31)
-    doc.text('142 West Street, Sandton, Johannesburg, 2196', ml, footerStartY + 35)
-
-    // ── FOOTER ─────────────────────────────────────────────────────
-    doc.setFontSize(7)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(128, 128, 128)
-    doc.text(
-      'Company Registration No: 2020/601042/07.  Registered Office: 96 CAVALEROS DRIVE, INDUSTRIES WEST, GERMISTON, GERMISTON, GAUTENG, 1401, SOUTH AFRICA',
-      ml,
-      footerStartY + 44
-    )
-
-    const fileName = `${invNumber || 'invoice'}.pdf`
-
-    // Upload PDF directly to Supabase storage via browser client
-    const pdfBlob = doc.output('blob')
-    const filePath = `invoices/${fileName}`
     let invoiceUrl = null
     try {
-      const { error: uploadError } = await supabase.storage
-        .from('invoices')
-        .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true })
-      if (!uploadError) {
-        const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(filePath)
-        invoiceUrl = urlData?.publicUrl || null
-        finalInvoiceUrl = urlData?.publicUrl || undefined
-      } else {
-        console.error('PDF upload error:', uploadError)
+      invoiceUrl = await uploadInvoicePdf(invNumber, pdfBlob)
+      if (invoiceUrl) {
+        finalInvoiceUrl = invoiceUrl
       }
     } catch (uploadErr) {
       console.error('Upload error:', uploadErr)

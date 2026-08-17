@@ -8,16 +8,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'EMAIL_SERVICE_URL not configured' }, { status: 500 })
   }
 
-  // Auth check
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  }
-
   try {
     const body = await request.json()
     const { recipients, subject, html } = body
