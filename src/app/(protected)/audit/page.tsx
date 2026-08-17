@@ -404,10 +404,19 @@ export default function AuditPage() {
         const res = await fetch('/api/eps-client-list')
         const result = await res.json()
         const clients = result.data || []
-        const matchedClient = clients.find((c: any) => c.name === clientName)
+        // Normalize names: strip $, ($, ), whitespace, lowercase for comparison
+        const normalize = (s: string) => (s || '').replace(/^\(\$\)\s*/, '').replace(/^\$\s*/, '').replace(/[()]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+        const targetNorm = normalize(clientName)
+        const matchedClient = clients.find((c: any) => {
+          const cNameNorm = normalize(c.name)
+          const cClientIdNorm = normalize(c.client_id)
+          return cNameNorm === targetNorm || cClientIdNorm === targetNorm
+        })
         if (matchedClient?.invoice_email_groups?.length) {
           setFinalizePreview((prev: any) => ({ ...prev, invoice_email_groups: matchedClient.invoice_email_groups }))
           setSendEmailGroups([...matchedClient.invoice_email_groups])
+        } else {
+          console.warn('No client matched for invoice email groups. customer_name:', clientName, 'normalized:', targetNorm)
         }
       }
     } catch (err) {
