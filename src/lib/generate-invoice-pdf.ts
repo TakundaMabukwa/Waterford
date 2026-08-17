@@ -163,7 +163,6 @@ export async function generateInvoicePdf(
   }
 
   drawDetail('Invoice Date', formatDisplayDate(invoiceDate))
-  drawDetail('Due Date', formatDisplayDate(dueDate))
   drawDetail('Invoice Number', invoiceNumber || '')
   drawDetail('Reference', referenceNumber || 'N/A')
 
@@ -292,6 +291,7 @@ export async function generateInvoicePdf(
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(0, 0, 0)
+  doc.text(`Invoice Due Date: ${formatDisplayDate(dueDate)}`, ml, footerStartY)
   doc.text('Bank accounts:', ml, footerStartY + 7)
   doc.text('South African Rand (ZAR)', ml, footerStartY + 12)
   doc.text('First National Bank (FNB), Branch 210554, Acc 62878278946', ml, footerStartY + 16)
