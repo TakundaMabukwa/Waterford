@@ -53,6 +53,26 @@ const formatDisplayDate = (isoDate: string) => {
   return date.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 
+const wrapAddressByComma = (address: string): string[] => {
+  if (!address) return []
+  const parts = address.split(',').map(p => p.trim()).filter(Boolean)
+  const lines: string[] = []
+  for (const part of parts) {
+    const wrapped = part.split(/\s+/)
+    let current = ''
+    for (const word of wrapped) {
+      if (current && (current + ' ' + word).length > 35) {
+        lines.push(current)
+        current = word
+      } else {
+        current = current ? current + ' ' + word : word
+      }
+    }
+    if (current) lines.push(current)
+  }
+  return lines
+}
+
 export async function generateInvoicePdf(
   params: InvoicePdfParams
 ): Promise<{ blob: Blob; fileName: string }> {
@@ -115,7 +135,7 @@ export async function generateInvoicePdf(
   doc.text(nameLines, ml, custY)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  const addrLines = customerAddress ? doc.splitTextToSize(customerAddress, 80) : []
+  const addrLines = wrapAddressByComma(customerAddress)
   if (addrLines.length) {
     doc.text(addrLines, ml, custY + nameLines.length * 4.5 + 2)
   }
@@ -123,44 +143,32 @@ export async function generateInvoicePdf(
     doc.text(`VAT Number: ${customerVat}`, ml, custY + nameLines.length * 4.5 + 2 + addrLines.length * 4.5 + 2)
   }
 
-  // ── RIGHT: Invoice details ─────────────────────────────────────
-  const labelX = 105
-  const valueX = 145
-  const maxLabelW = 35
-  const maxValueW = 45
+  // ── RIGHT: Invoice details (label on top, value underneath) ────
+  const detailX = 105
+  const detailValueX = 105
+  const detailMaxW = 55
+  const detailLabelGap = 4
   let ry = custY
 
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.text('Invoice Date', labelX, ry)
-  doc.setFont('helvetica', 'normal')
-  const invDateLines = doc.splitTextToSize(formatDisplayDate(invoiceDate), maxValueW)
-  doc.text(invDateLines, valueX, ry)
-  ry += Math.max(invDateLines.length * 4.5, 6)
+  const drawDetail = (label: string, value: string) => {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.text(label, detailX, ry)
+    ry += detailLabelGap
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    const valLines = doc.splitTextToSize(value || 'N/A', detailMaxW)
+    doc.text(valLines, detailValueX, ry)
+    ry += valLines.length * 4 + 3
+  }
 
-  doc.setFont('helvetica', 'bold')
-  doc.text('Due Date', labelX, ry)
-  doc.setFont('helvetica', 'normal')
-  const dueDateLines = doc.splitTextToSize(formatDisplayDate(dueDate), maxValueW)
-  doc.text(dueDateLines, valueX, ry)
-  ry += Math.max(dueDateLines.length * 4.5, 6)
+  drawDetail('Invoice Date', formatDisplayDate(invoiceDate))
+  drawDetail('Due Date', formatDisplayDate(dueDate))
+  drawDetail('Invoice Number', invoiceNumber || '')
+  drawDetail('Reference', referenceNumber || 'N/A')
 
-  doc.setFont('helvetica', 'bold')
-  doc.text('Invoice Number', labelX, ry)
-  doc.setFont('helvetica', 'normal')
-  const invNumLines = doc.splitTextToSize(invoiceNumber || '', maxValueW)
-  doc.text(invNumLines, valueX, ry)
-  ry += Math.max(invNumLines.length * 4.5, 6)
-
-  doc.setFont('helvetica', 'bold')
-  doc.text('Reference', labelX, ry)
-  doc.setFont('helvetica', 'normal')
-  const refLines = doc.splitTextToSize(referenceNumber || 'N/A', maxValueW)
-  doc.text(refLines, valueX, ry)
-  ry += Math.max(refLines.length * 4.5, 6)
-
-  // ── Company info (far right) ───────────────────────────────────
-  const coX = 165
+  // ── Company info (right column, separate from details) ─────────
+  const coX = 160
   let cy = custY
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
@@ -171,27 +179,16 @@ export async function generateInvoicePdf(
   doc.text('Germiston, 1401', coX, cy); cy += 4
   doc.text('SOUTH AFRICA', coX, cy); cy += 4
   doc.text('Tel: +27 (10) 300 8398', coX, cy); cy += 4
-
-  ry = Math.max(ry, cy)
-
-  doc.text('Co Reg: 2020/601042/07', coX, ry)
-  ry += 7
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.text('VAT Number', labelX, ry)
-  doc.setFont('helvetica', 'normal')
-  doc.text(customerVat || '', labelX + maxLabelW, ry)
+  cy += 2
+  doc.text('Co Reg: 2020/601042/07', coX, cy)
 
   y = Math.max(custY + 5 + addrLines.length * 4.5 + (customerVat ? 8 : 0), ry) + 8
 
-  // ── LINE ITEMS TABLE ───────────────────────────────────────────
-  const salesCodeLabel = SALES_CODES.find(s => s.code === salesCode)?.label || 'Sales'
+  // ── LINE ITEMS TABLE (no Sales Code column) ────────────────────
   const tableData = lineItems.map((item) => {
     const lineTotal = (item.quantity || 0) * (item.unitPrice || 0)
     return [
       item.description,
-      `${salesCode} - ${salesCodeLabel}`,
       String(item.quantity ? formatNum(item.quantity) : ''),
       formatNum(item.unitPrice || 0),
       VAT_LABELS[item.vatType] || '',
@@ -199,9 +196,11 @@ export async function generateInvoicePdf(
     ]
   })
 
+  const amountHeader = params.currency === 'USD' ? 'Amount USD' : 'Amount ZAR'
+
   autoTable(doc, {
     startY: y,
-    head: [['Description', 'Sales Code', 'Quantity', 'Unit Price', 'VAT', 'Amount ZAR']],
+    head: [['Description', 'Quantity', 'Unit Price', 'VAT', amountHeader]],
     body: tableData,
     theme: 'plain',
     styles: {
@@ -222,12 +221,11 @@ export async function generateInvoicePdf(
       borderColor: [255, 255, 255],
     },
     columnStyles: {
-      0: { cellWidth: 45, halign: 'left' },
-      1: { cellWidth: 35, halign: 'left', overflow: 'linebreak' },
-      2: { cellWidth: 18, halign: 'right' },
-      3: { cellWidth: 22, halign: 'right' },
-      4: { cellWidth: 30, halign: 'left', overflow: 'linebreak' },
-      5: { cellWidth: 28, halign: 'right' },
+      0: { cellWidth: 55, halign: 'left' },
+      1: { cellWidth: 22, halign: 'right' },
+      2: { cellWidth: 25, halign: 'right' },
+      3: { cellWidth: 35, halign: 'left', overflow: 'linebreak' },
+      4: { cellWidth: 30, halign: 'right' },
     },
     didDrawCell: (data) => {
       const { doc: d } = data
@@ -237,7 +235,7 @@ export async function generateInvoicePdf(
         d.setLineWidth(0.5)
         d.line(ml, lineY, pw - mr, lineY)
       }
-      if (data.section === 'body' && data.column.index === 4) {
+      if (data.section === 'body' && data.column.index === 3) {
         const lineY = data.cell.y + data.cell.height + 3
         d.setDrawColor(220, 220, 220)
         d.setLineWidth(0.2)
@@ -269,9 +267,10 @@ export async function generateInvoicePdf(
   doc.line(sL, y, sV, y)
   y += 5
 
+  const totalLabel = params.currency === 'USD' ? 'TOTAL USD' : 'TOTAL ZAR'
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
-  doc.text('TOTAL ZAR', sL, y)
+  doc.text(totalLabel, sL, y)
   doc.text(formatNum(totalAmount), sV, y, { align: 'right' })
   y += 6
 
@@ -280,21 +279,19 @@ export async function generateInvoicePdf(
   doc.line(sL, y, sV, y)
   y += 5
 
+  const amountDueLabel = params.currency === 'USD' ? 'AMOUNT DUE USD' : 'AMOUNT DUE ZAR'
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
-  doc.text('AMOUNT DUE ZAR', sL, y)
+  doc.text(amountDueLabel, sL, y)
   doc.text(formatNum(amountDue), sV, y, { align: 'right' })
 
   // ── BANK DETAILS — pinned to bottom of page ─────────────────────
   const pageH = doc.internal.pageSize.getHeight()
   const footerStartY = pageH - 55
 
-  doc.setFontSize(10)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(0, 0, 0)
-
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
+  doc.setTextColor(0, 0, 0)
   doc.text('Bank accounts:', ml, footerStartY + 7)
   doc.text('South African Rand (ZAR)', ml, footerStartY + 12)
   doc.text('First National Bank (FNB), Branch 210554, Acc 62878278946', ml, footerStartY + 16)
