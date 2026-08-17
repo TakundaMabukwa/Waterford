@@ -1596,32 +1596,88 @@ export default function AuditPage() {
               {!finalizedInvoiceUrl && (
                 <div>
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Email Recipients</label>
-                  <p className="text-[10px] text-slate-400 mb-1">
+                  <p className="text-[10px] text-slate-400 mb-2">
                     {finalizePreview.invoice_email_groups?.length > 0
-                      ? 'Select which groups should receive the invoice email.'
+                      ? 'Select groups and edit recipients before sending.'
                       : 'No email groups configured for this client. You can add groups in the Clients page.'}
                   </p>
                   {finalizePreview.invoice_email_groups?.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {finalizePreview.invoice_email_groups.map((group: any, idx: number) => (
-                        <label key={idx} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors">
-                          <input
-                            type="checkbox"
-                            defaultChecked
-                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSendEmailGroups((prev) => [...prev, group])
-                              } else {
-                                setSendEmailGroups((prev) => prev.filter((g) => g.name !== group.name))
-                              }
-                            }}
-                          />
-                          <div>
-                            <div className="text-sm font-medium text-slate-900">{group.name}</div>
-                            <div className="text-[10px] text-slate-500">{group.emails?.length || 0} email(s)</div>
+                    <div className="space-y-3">
+                      {finalizePreview.invoice_email_groups.map((group: any, gIdx: number) => (
+                        <div key={gIdx} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <input
+                              type="checkbox"
+                              defaultChecked
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSendEmailGroups((prev) => [...prev, group])
+                                } else {
+                                  setSendEmailGroups((prev) => prev.filter((g) => g.name !== group.name))
+                                }
+                              }}
+                            />
+                            <span className="text-sm font-medium text-slate-900">{group.name}</span>
+                            <span className="text-[10px] text-slate-500">({group.emails?.length || 0} email{group.emails?.length !== 1 ? 's' : ''})</span>
                           </div>
-                        </label>
+                          <div className="space-y-1.5 pl-6">
+                            {(group.emails || []).map((email: string, eIdx: number) => (
+                              <div key={eIdx} className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  defaultChecked
+                                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                  onChange={(e) => {
+                                    const fullEmail = email.trim()
+                                    if (e.target.checked) {
+                                      setSendEmailGroups((prev) => {
+                                        const existing = prev.find((g) => g.name === group.name)
+                                        if (existing) {
+                                          if (!existing.emails.includes(fullEmail)) {
+                                            return prev.map((g) => g.name === group.name ? { ...g, emails: [...g.emails, fullEmail] } : g)
+                                          }
+                                          return prev
+                                        }
+                                        return [...prev, { ...group, emails: [fullEmail] }]
+                                      })
+                                    } else {
+                                      setSendEmailGroups((prev) => {
+                                        return prev.map((g) => g.name === group.name ? { ...g, emails: g.emails.filter((em: string) => em !== fullEmail) } : g).filter((g) => g.emails.length > 0)
+                                      })
+                                    }
+                                  }}
+                                />
+                                <input
+                                  type="email"
+                                  defaultValue={email}
+                                  className="flex-1 h-7 text-xs px-2 rounded border border-slate-300 bg-white"
+                                  onChange={(e) => {
+                                    const oldEmail = email.trim()
+                                    const newEmail = e.target.value.trim()
+                                    if (oldEmail === newEmail) return
+                                    // Update the group's emails in finalizePreview
+                                    setFinalizePreview((prev: any) => ({
+                                      ...prev,
+                                      invoice_email_groups: prev.invoice_email_groups.map((g: any) =>
+                                        g.name === group.name
+                                          ? { ...g, emails: g.emails.map((em: string) => em === oldEmail ? newEmail : em) }
+                                          : g
+                                      ),
+                                    }))
+                                    // Also update sendEmailGroups if this email is selected
+                                    setSendEmailGroups((prev) =>
+                                      prev.map((g) => g.name === group.name
+                                        ? { ...g, emails: g.emails.map((em: string) => em === oldEmail ? newEmail : em) }
+                                        : g
+                                      )
+                                    )
+                                  }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   )}
