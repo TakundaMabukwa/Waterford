@@ -29,24 +29,22 @@ export async function PATCH(
 
     const body = await request.json()
 
-    const updateData: any = {
-      customer_name: body.customerName,
-      customer_address: body.customerAddress,
-      customer_vat: body.customerVat,
-      invoice_date: body.invoiceDate,
-      due_date: body.dueDate,
-      line_items: body.lineItems,
-      subtotal: body.subtotal,
-      vat_amount: body.vatAmount,
-      total_amount: body.totalAmount,
-      amount_due: body.amountDue,
-      currency: body.currency,
-      invoice_url: body.invoice_url,
-      invoice_data: body.invoiceData,
-      reference_number: body.referenceNumber,
-      sales_code: body.salesCode,
-      updated_at: new Date().toISOString(),
-    }
+    const updateData: any = { updated_at: new Date().toISOString() }
+    if (body.customerName !== undefined) updateData.customer_name = body.customerName
+    if (body.customerAddress !== undefined) updateData.customer_address = body.customerAddress
+    if (body.customerVat !== undefined) updateData.customer_vat = body.customerVat
+    if (body.invoiceDate !== undefined) updateData.invoice_date = body.invoiceDate
+    if (body.dueDate !== undefined) updateData.due_date = body.dueDate
+    if (body.lineItems !== undefined) updateData.line_items = body.lineItems
+    if (body.subtotal !== undefined) updateData.subtotal = body.subtotal
+    if (body.vatAmount !== undefined) updateData.vat_amount = body.vatAmount
+    if (body.totalAmount !== undefined) updateData.total_amount = body.totalAmount
+    if (body.amountDue !== undefined) updateData.amount_due = body.amountDue
+    if (body.currency !== undefined) updateData.currency = body.currency
+    if (body.invoice_url !== undefined) updateData.invoice_url = body.invoice_url
+    if (body.invoiceData !== undefined) updateData.invoice_data = body.invoiceData
+    if (body.referenceNumber !== undefined) updateData.reference_number = body.referenceNumber
+    if (body.salesCode !== undefined) updateData.sales_code = body.salesCode
 
     const { data, error } = await supabase
       .from('invoices')

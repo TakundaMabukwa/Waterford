@@ -74,7 +74,7 @@ type InvoiceMode = 'draft' | 'edit' | 'finalize'
 
 type Props = {
   open: boolean
-  onClose: () => void
+  onClose: (finalizedInvoiceUrl?: string) => void
   record: any
   invoiceRate: number
   invoiceCurrency: AuditCurrencyCode
@@ -419,6 +419,7 @@ export default function GenerateInvoiceModal({
 
   const generatePdf = async () => {
     setGenerating(true)
+    let finalInvoiceUrl: string | undefined = undefined
     try {
 
     // In draft mode, save to invoices table without generating PDF
@@ -805,6 +806,7 @@ export default function GenerateInvoiceModal({
       if (!uploadError) {
         const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(filePath)
         invoiceUrl = urlData?.publicUrl || null
+        finalInvoiceUrl = urlData?.publicUrl || undefined
       } else {
         console.error('PDF upload error:', uploadError)
       }
@@ -935,7 +937,7 @@ export default function GenerateInvoiceModal({
   } finally {
     setGenerating(false)
     onInvoiced?.(invoiceRate, detectedCurrency)
-    onClose()
+    onClose(finalInvoiceUrl)
   }
 }
 
@@ -943,7 +945,7 @@ export default function GenerateInvoiceModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50" onClick={() => onClose()} />
       <div className="relative z-10 mx-4 max-h-[95vh] w-full max-w-[95vw] overflow-y-auto rounded-2xl bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <div>
@@ -956,7 +958,7 @@ export default function GenerateInvoiceModal({
                'Finalize the invoice and generate PDF'}
             </p>
           </div>
-          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+          <button onClick={() => onClose()} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -1226,7 +1228,7 @@ export default function GenerateInvoiceModal({
         </div>
 
         <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
-          <Button variant="outline" onClick={onClose} disabled={generating}>Cancel</Button>
+          <Button variant="outline" onClick={() => onClose()} disabled={generating}>Cancel</Button>
           <Button onClick={generatePdf} className="bg-[#001e42] text-white hover:bg-[#0b2955]" disabled={generating}>
             {generating ? (
               <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {mode === 'draft' ? 'Creating...' : mode === 'edit' ? 'Saving...' : 'Generating...'}</>

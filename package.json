@@ -8,7 +8,8 @@
     "start": "set NODE_OPTIONS=--max-old-space-size=1536 && next start",
     "lint": "next lint",
     "database:pull": "npx supabase gen types --lang=typescript --project-id jbactgkcijnkjpyqqzxv > src/lib/supabase/database.types.ts",
-    "import:eps-clients": "node scripts/import-eps-clients-xero.js"
+    "import:eps-clients": "node scripts/import-eps-clients-xero.js",
+    "generate-missing-loadcons": "node scripts/generate-missing-loadcons.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

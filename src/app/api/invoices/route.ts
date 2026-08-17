@@ -45,7 +45,27 @@ export async function GET(request: NextRequest) {
       ordernumber: inv.trip_id ? tripOrderMap[inv.trip_id] || null : null,
     }))
 
-    return NextResponse.json({ data: enriched })
+    // Enrich with invoice_email_groups from client list
+    const customerNames = [...new Set(enriched.filter((inv: any) => inv.customer_name).map((inv: any) => inv.customer_name))]
+    let clientEmailMap: Record<string, any[]> = {}
+    if (customerNames.length > 0) {
+      const { data: clients } = await supabase.from('eps_client_list').select('name, client_id, invoice_email_groups')
+      const normalize = (s: string) => (s || '').replace(/^\(\$\)\s*/, '').replace(/^\$\s*/, '').replace(/[()]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+      for (const name of customerNames) {
+        const targetNorm = normalize(name)
+        const matched = (clients || []).find((c: any) => normalize(c.name) === targetNorm || normalize(c.client_id) === targetNorm)
+        if (matched?.invoice_email_groups?.length) {
+          clientEmailMap[name] = matched.invoice_email_groups
+        }
+      }
+    }
+
+    const enrichedWithGroups = enriched.map((inv: any) => ({
+      ...inv,
+      invoice_email_groups: inv.invoice_email_groups || clientEmailMap[inv.customer_name] || [],
+    }))
+
+    return NextResponse.json({ data: enrichedWithGroups })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

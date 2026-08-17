@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Download, FileText, Paperclip, Route, Truck, Plus, AlertTriangle, Loader2 } from 'lucide-react'
+import { Download, FileText, Paperclip, Route, Truck, Plus, AlertTriangle, Loader2, Mail } from 'lucide-react'
 // @ts-ignore
 import ExcelJS from 'exceljs'
 import SundryInvoiceModal from '@/components/audit/SundryInvoiceModal'
@@ -435,24 +435,20 @@ export default function AuditPage() {
       }
       const result = await res.json()
       
-      // Update the finalize preview with the invoice number
       const updatedDraft = { ...finalizePreview, invoice_number: result.invoiceNumber, is_draft: false }
       setFinalizePreview(updatedDraft)
       setFinalizedInvoiceUrl(null)
       
-      // Initialize send email groups with all groups checked
       if (finalizePreview.invoice_email_groups?.length > 0) {
         setSendEmailGroups([...finalizePreview.invoice_email_groups])
       }
       
-      // Close the finalize dialog and open GenerateInvoiceModal in finalize mode to generate PDF
       setShowFinalizePreview(false)
       setEditDraftId(finalizePreview.id)
       setEditDraftData(updatedDraft)
       setEditModalMode('finalize')
       setShowEditModal(true)
       
-      // Refresh drafts
       const draftRes = await fetch('/api/invoices?draft=true')
       const draftResult = await draftRes.json()
       setDraftInvoices(draftResult.data || [])
@@ -470,7 +466,6 @@ export default function AuditPage() {
     }
     setSendingEmail(true)
     try {
-      // Collect all selected recipients
       const recipients = []
       for (const group of selectedGroups) {
         if (group.emails) {
@@ -482,12 +477,24 @@ export default function AuditPage() {
         return
       }
 
-      const tripData = invoice.trip_data || {}
+      let origin = ''
+      let destination = ''
+      if (invoice.trip_id) {
+        try {
+          const tripRes = await fetch(`/api/trips/${invoice.trip_id}`)
+          const tripResult = await tripRes.json()
+          if (tripResult.data) {
+            origin = tripResult.data.origin || ''
+            destination = tripResult.data.destination || ''
+          }
+        } catch { /* fallback to empty */ }
+      }
+
       const { buildInvoiceEmailHtml } = await import('@/lib/invoice-email-template')
       const html = buildInvoiceEmailHtml({
         orderNumber: invoice.ordernumber || invoice.trip_id || '',
-        origin: tripData.origin || '',
-        destination: tripData.destination || '',
+        origin,
+        destination,
         customerName: invoice.customer_name || '',
         customerAddress: invoice.customer_address || '',
         amount: toNumber(invoice.total_amount || invoice.amount_due).toLocaleString('en-ZA', { minimumFractionDigits: 2 }),
@@ -1417,13 +1424,18 @@ export default function AuditPage() {
       {showEditModal && editDraftData && (
         <GenerateInvoiceModal
           open={showEditModal}
-          onClose={() => {
+          onClose={async (finalizedInvoiceUrl?: string) => {
+            const wasFinalize = editModalMode === 'finalize'
+            const finalizedInvoice = wasFinalize && editDraftId ? { ...editDraftData, id: editDraftId, invoice_url: finalizedInvoiceUrl || editDraftData.invoice_url } : null
             setShowEditModal(false)
             setEditDraftId(null)
             setEditDraftData(null)
-            // Refresh both drafts and invoices lists
+            setEditModalMode('edit')
             fetch('/api/invoices?draft=true').then(r => r.json()).then(result => setDraftInvoices(result.data || []))
             fetch('/api/invoices?finalized=true').then(r => r.json()).then(result => setFinalizedInvoices(result.data || []))
+            if (wasFinalize && finalizedInvoice && sendEmailGroups.length > 0) {
+              await sendInvoiceEmail(finalizedInvoice, sendEmailGroups)
+            }
           }}
           record={editDraftData}
           invoiceRate={toNumber(editDraftData.invoice_rate || editDraftData.total_amount)}
