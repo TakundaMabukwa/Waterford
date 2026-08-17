@@ -1337,6 +1337,17 @@ export default function AuditPage() {
                                         <FileText className="mr-1 h-3 w-3" /> Send Invoice
                                       </Button>
                                     )}
+                                    {(!inv.invoice_email_groups || inv.invoice_email_groups.length === 0) && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 px-2 text-xs"
+                                        disabled={sendingEmail}
+                                        onClick={() => alert('No email groups configured for this client. Add groups in the Clients page.')}
+                                      >
+                                        <Mail className="mr-1 h-3 w-3" /> No Groups
+                                      </Button>
+                                    )}
                                   </>
                                 )}
                               </div>
@@ -1582,32 +1593,38 @@ export default function AuditPage() {
               </div>
 
               {/* Email Recipients */}
-              {!finalizedInvoiceUrl && finalizePreview.invoice_email_groups?.length > 0 && (
+              {!finalizedInvoiceUrl && (
                 <div>
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Email Recipients</label>
-                  <p className="text-[10px] text-slate-400 mb-1">Select which groups should receive the invoice email.</p>
-                  <div className="flex flex-wrap gap-2">
-                    {finalizePreview.invoice_email_groups.map((group: any, idx: number) => (
-                      <label key={idx} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors">
-                        <input
-                          type="checkbox"
-                          defaultChecked
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSendEmailGroups((prev) => [...prev, group])
-                            } else {
-                              setSendEmailGroups((prev) => prev.filter((g) => g.name !== group.name))
-                            }
-                          }}
-                        />
-                        <div>
-                          <div className="text-sm font-medium text-slate-900">{group.name}</div>
-                          <div className="text-[10px] text-slate-500">{group.emails?.length || 0} email(s)</div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
+                  <p className="text-[10px] text-slate-400 mb-1">
+                    {finalizePreview.invoice_email_groups?.length > 0
+                      ? 'Select which groups should receive the invoice email.'
+                      : 'No email groups configured for this client. You can add groups in the Clients page.'}
+                  </p>
+                  {finalizePreview.invoice_email_groups?.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {finalizePreview.invoice_email_groups.map((group: any, idx: number) => (
+                        <label key={idx} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors">
+                          <input
+                            type="checkbox"
+                            defaultChecked
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSendEmailGroups((prev) => [...prev, group])
+                              } else {
+                                setSendEmailGroups((prev) => prev.filter((g) => g.name !== group.name))
+                              }
+                            }}
+                          />
+                          <div>
+                            <div className="text-sm font-medium text-slate-900">{group.name}</div>
+                            <div className="text-[10px] text-slate-500">{group.emails?.length || 0} email(s)</div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
