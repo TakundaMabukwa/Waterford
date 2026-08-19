@@ -99,7 +99,6 @@ export async function POST(request: NextRequest) {
     let query = supabase
       .from('invoices')
       .select('*')
-      .eq('is_draft', false)
       .order('invoice_date', { ascending: false })
 
     if (invoiceIds && invoiceIds.length > 0) {
