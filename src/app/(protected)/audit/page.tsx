@@ -151,9 +151,11 @@ export default function AuditPage() {
     const fetchSundry = async () => {
       setSundryLoading(true)
       try {
-        const res = await fetch('/api/sundry-invoices')
+        const res = await fetch('/api/invoices')
         const result = await res.json()
-        setSundryInvoices(result.data || [])
+        const allInvoices = result.data || []
+        const sundryOnly = allInvoices.filter((inv: any) => !inv.trip_id)
+        setSundryInvoices(sundryOnly)
       } catch (err) {
         console.error('Error fetching sundry invoices:', err)
       } finally {
@@ -205,18 +207,13 @@ export default function AuditPage() {
   }, [activeTab])
 
   useEffect(() => {
-    if (activeTab !== 'invoices') return
+    if (activeTab !== 'invoices' && activeTab !== 'invoiced') return
     const fetchInvoices = async () => {
       setInvoicesLoading(true)
       try {
-        const [invRes, sundryRes] = await Promise.all([
-          fetch('/api/invoices?finalized=true'),
-          fetch('/api/sundry-invoices'),
-        ])
-        const invResult = await invRes.json()
-        const sundryResult = await sundryRes.json()
-        setFinalizedInvoices(invResult.data || [])
-        setSundryInvoices(sundryResult.data || [])
+        const res = await fetch('/api/invoices?finalized=true')
+        const result = await res.json()
+        setFinalizedInvoices(result.data || [])
       } catch (err) {
         console.error('Error fetching invoices:', err)
       } finally {
@@ -904,6 +901,7 @@ export default function AuditPage() {
               <table className="w-full border-collapse text-left">
                 <thead className="bg-slate-50">
                   <tr>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
                     <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
                     <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
                     <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
@@ -916,7 +914,14 @@ export default function AuditPage() {
                   {sundryInvoices.map((inv: any) => (
                     <tr key={inv.id} className="border-t hover:bg-slate-50">
                       <td className="px-3 py-2">
-                        <div className="font-medium text-slate-900">{inv.invoice_number}</div>
+                        {inv.is_draft ? (
+                          <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-2 py-0.5">Draft</Badge>
+                        ) : (
+                          <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Finalized</Badge>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-slate-900">{inv.invoice_number || '-'}</div>
                       </td>
                       <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
                       <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
@@ -925,16 +930,24 @@ export default function AuditPage() {
                         {currency(toNumber(inv.amount_due))}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        {inv.invoice_url && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => window.open(inv.invoice_url, '_blank')}
-                          >
-                            <FileText className="mr-1 h-3 w-3" /> Download
-                          </Button>
-                        )}
+                        <div className="flex items-center justify-end gap-1">
+                          {inv.is_draft ? (
+                            <>
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleEditDraft(inv)}>
+                                Edit
+                              </Button>
+                              <Button size="sm" className="h-7 px-2 text-xs bg-[#001e42] text-white hover:bg-[#0b2955]" onClick={() => handleFinalizeDraft(inv)}>
+                                Finalize
+                              </Button>
+                            </>
+                          ) : (
+                            inv.invoice_url && (
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                                <FileText className="mr-1 h-3 w-3" /> Download
+                              </Button>
+                            )
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1140,9 +1153,9 @@ export default function AuditPage() {
           {/* Invoiced Sundry Invoices */}
           <div>
             <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Sundry Invoices</h4>
-            {sundryLoading ? (
+            {invoicesLoading ? (
               <div className="py-8 text-center text-sm text-slate-500">Loading sundry invoices...</div>
-            ) : sundryInvoices.length === 0 ? (
+            ) : finalizedInvoices.filter((inv: any) => !inv.trip_id).length === 0 ? (
               <div className="py-4 text-center text-sm text-slate-500">No sundry invoices found.</div>
             ) : (
               <div className="overflow-x-auto rounded-lg border">
@@ -1157,7 +1170,7 @@ export default function AuditPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sundryInvoices.map((inv: any) => (
+                    {finalizedInvoices.filter((inv: any) => !inv.trip_id).map((inv: any) => (
                       <tr key={inv.id} className="border-t hover:bg-slate-50">
                         <td className="px-3 py-2">
                           <div className="font-medium text-slate-900">{inv.invoice_number}</div>
@@ -1270,6 +1283,37 @@ export default function AuditPage() {
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-bold text-[#001e42]">Finalized Invoices</h3>
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  if (!confirm('Export all finalized invoices to Excel?')) return
+                  try {
+                    const res = await fetch('/api/invoices/export', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ invoiceIds: finalizedInvoices.map((inv: any) => inv.id) }),
+                    })
+                    if (!res.ok) {
+                      const err = await res.json()
+                      throw new Error(err.error || 'Export failed')
+                    }
+                    const blob = await res.blob()
+                    const url = window.URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `invoices-export-${new Date().toISOString().split('T')[0]}.xlsx`
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                    window.URL.revokeObjectURL(url)
+                  } catch (err: any) {
+                    alert(err.message)
+                  }
+                }}
+              >
+                <Download className="mr-1 h-3 w-3" /> Export to Excel
+              </Button>
               <Input
                 type="month"
                 value={lockMonth}
@@ -1310,12 +1354,12 @@ export default function AuditPage() {
 
           {invoicesLoading ? (
             <div className="py-8 text-center text-sm text-slate-500">Loading invoices...</div>
-          ) : finalizedInvoices.length === 0 && sundryInvoices.length === 0 ? (
+          ) : finalizedInvoices.length === 0 ? (
             <div className="py-8 text-center text-sm text-slate-500">No invoices found.</div>
           ) : (
             <div className="space-y-6">
               {/* Trip Invoices */}
-              {finalizedInvoices.length > 0 && (
+              {finalizedInvoices.filter((inv: any) => inv.trip_id).length > 0 && (
                 <div>
                   <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Trip Invoices</h4>
                   <div className="overflow-x-auto rounded-lg border">
@@ -1333,7 +1377,7 @@ export default function AuditPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {finalizedInvoices.map((inv: any) => (
+                        {finalizedInvoices.filter((inv: any) => inv.trip_id).map((inv: any) => (
                           <tr key={inv.id} className="border-t hover:bg-slate-50">
                             <td className="px-3 py-2">
                               <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
@@ -1398,7 +1442,7 @@ export default function AuditPage() {
               )}
 
               {/* Sundry Invoices */}
-              {sundryInvoices.length > 0 && (
+              {finalizedInvoices.filter((inv: any) => !inv.trip_id).length > 0 && (
                 <div>
                   <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Sundry Invoices</h4>
                   <div className="overflow-x-auto rounded-lg border">
@@ -1409,19 +1453,31 @@ export default function AuditPage() {
                           <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
                           <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
                           <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
+                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
+                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
                           <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {sundryInvoices.map((inv: any) => (
+                        {finalizedInvoices.filter((inv: any) => !inv.trip_id).map((inv: any) => (
                           <tr key={inv.id} className="border-t hover:bg-slate-50">
                             <td className="px-3 py-2">
-                              <div className="font-medium text-slate-900">{inv.invoice_number}</div>
+                              <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
                             </td>
                             <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
                             <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
                             <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
-                              {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.amount_due).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                              {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {inv.is_locked ? (
+                                <Badge className="bg-red-100 text-red-800 border-red-200 text-[10px] px-2 py-0.5">Locked</Badge>
+                              ) : (
+                                <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Finalized</Badge>
+                              )}
                             </td>
                             <td className="px-3 py-2 text-right">
                               {inv.invoice_url && (
@@ -1446,7 +1502,10 @@ export default function AuditPage() {
       <SundryInvoiceModal open={showSundryModal} onClose={() => {
         setShowSundryModal(false)
         if (activeTab === 'sundry') {
-          fetch('/api/sundry-invoices').then(r => r.json()).then(result => setSundryInvoices(result.data || []))
+          fetch('/api/invoices').then(r => r.json()).then(result => {
+            const allInvoices = result.data || []
+            setSundryInvoices(allInvoices.filter((inv: any) => !inv.trip_id))
+          })
         }
       }} />
 
