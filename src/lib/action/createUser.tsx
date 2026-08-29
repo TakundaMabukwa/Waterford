@@ -21,7 +21,8 @@ export async function CreateUser(formData: FormData) {
         role !== "fc" &&
         role !== "customer" &&
         role !== "driver" &&
-        role !== "client"
+        role !== "client" &&
+        role !== "accounts"
     ) {
         console.log('Invalid role:', role);
         return { success: false, message: "Invalid role selected" };

@@ -7,6 +7,10 @@ const roles = [
     path: ['*'], // Admin has access to all routes
   },
   {
+    name: 'accounts',
+    path: ['*'], // Accounts has access to all routes
+  },
+  {
     name: 'call centre',
     path: ['*'], // All users have access to all routes
   },

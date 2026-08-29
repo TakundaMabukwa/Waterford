@@ -8,6 +8,7 @@ import { Download, FileText, Paperclip, Route, Truck, Plus, AlertTriangle, Loade
 // @ts-ignore
 import ExcelJS from 'exceljs'
 import SundryInvoiceModal from '@/components/audit/SundryInvoiceModal'
+import { TripReportsSection } from '@/components/trip-reports-section'
 import GenerateInvoiceModal from '@/components/audit/GenerateInvoiceModal'
 
 import { Button } from '@/components/ui/button'
@@ -18,14 +19,71 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { SecureButton } from '@/components/SecureButton'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
+import { cn } from '@/lib/utils'
+import { X } from 'lucide-react'
 
 const toNumber = (value: unknown) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+// Pretty-format a value for the audit log. Complex values (arrays, objects)
+// are rendered as readable text rather than raw JSON code.
+function formatAuditValue(raw: string | null | undefined, field?: string): string {
+  if (!raw) return ''
+  const trimmed = String(raw).trim()
+  if (!trimmed) return ''
+
+  // Try parsing JSON for arrays/objects
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (field === 'line_items' && Array.isArray(parsed)) {
+        return parsed.map((item: any, i: number) => {
+          const desc = item.description || '(no description)'
+          const qty = item.quantity ?? ''
+          const price = item.unitPrice ?? item.unit_price ?? ''
+          const vat = item.vatType || item.vat_type || ''
+          return `Line ${i + 1}: ${desc} — qty ${qty} × ${price} (${vat})`
+        }).join('\n')
+      }
+      if (Array.isArray(parsed)) {
+        return parsed.map((v, i) => `${i + 1}. ${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n')
+      }
+      if (typeof parsed === 'object' && parsed !== null) {
+        return Object.entries(parsed)
+          .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
+          .join('\n')
+      }
+      return String(parsed)
+    } catch {
+      // Fall through to plain string
+    }
+  }
+  return trimmed
+}
+
 const currency = (value: number) =>
   `R${value.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+const FIELD_LABELS: Record<string, string> = {
+  customer_name: 'Customer Name',
+  customer_address: 'Customer Address',
+  customer_vat: 'Customer VAT',
+  invoice_date: 'Invoice Date',
+  due_date: 'Due Date',
+  line_items: 'Line Items',
+  subtotal: 'Subtotal',
+  vat_amount: 'VAT Amount',
+  total_amount: 'Total Amount',
+  amount_due: 'Amount Due',
+  currency: 'Currency',
+  invoice_url: 'Invoice PDF',
+  reference_number: 'Reference Number',
+  sales_code: 'Sales Code',
+  invoice_number: 'Invoice Number',
+}
 
 const getClientName = (record: any) => {
   if (record.selectedclient || record.selected_client) return record.selectedclient || record.selected_client
@@ -60,7 +118,7 @@ export default function AuditPage() {
   const [tripDocuments, setTripDocuments] = useState<any[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState<'trips' | 'sundry' | 'incomplete' | 'drafts' | 'invoices'>('trips')
+  const [activeTab, setActiveTab] = useState<'trips' | 'sundry' | 'incomplete' | 'drafts' | 'invoices' | 'reports'>('trips')
   const [sundryInvoices, setSundryInvoices] = useState<any[]>([])
   const [sundryLoading, setSundryLoading] = useState(false)
   const [showSundryModal, setShowSundryModal] = useState(false)
@@ -84,6 +142,20 @@ export default function AuditPage() {
   const [finalizedInvoiceUrl, setFinalizedInvoiceUrl] = useState<string | null>(null)
   const [sendEmailGroups, setSendEmailGroups] = useState<any[]>([])
   const [sendingEmail, setSendingEmail] = useState(false)
+  const [selectedDraftIds, setSelectedDraftIds] = useState<Set<number>>(new Set())
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<number>>(new Set())
+  const [batchFinalizing, setBatchFinalizing] = useState(false)
+  const [batchSending, setBatchSending] = useState(false)
+  // Send modal state — confirms which recipients get which invoices before sending
+  const [sendModalOpen, setSendModalOpen] = useState(false)
+  // Map<invoiceId, Set<emailAddress>> — selected recipient per invoice
+  const [sendRecipients, setSendRecipients] = useState<Record<number, Set<string>>>({})
+  // Map<invoiceId, Set<groupName>> — selected email groups per invoice
+  const [sendSelectedGroups, setSendSelectedGroups] = useState<Record<number, Set<string>>>({})
+  const [auditLogOpen, setAuditLogOpen] = useState(false)
+  const [auditLogInvoiceId, setAuditLogInvoiceId] = useState<number | null>(null)
+  const [auditLogData, setAuditLogData] = useState<any[]>([])
+  const [auditLogLoading, setAuditLogLoading] = useState(false)
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date()
     d.setMonth(d.getMonth() - 1, 1)
@@ -96,6 +168,239 @@ export default function AuditPage() {
   })
   const [appliedDateFrom, setAppliedDateFrom] = useState(dateFrom)
   const [appliedDateTo, setAppliedDateTo] = useState(dateTo)
+
+  const handleBatchFinalize = async () => {
+    if (selectedDraftIds.size === 0) return
+    if (!confirm(`Finalize ${selectedDraftIds.size} invoice(s)?`)) return
+    setBatchFinalizing(true)
+    try {
+      const res = await fetch('/api/invoices/batch-finalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedDraftIds) }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Batch finalize failed')
+
+      const succeeded = result.results?.filter((r: any) => r.success) || []
+      const failed = result.results?.filter((r: any) => !r.success) || []
+
+      if (succeeded.length > 0) {
+        // Generate PDFs for each succeeded invoice
+        const { generateAndUploadInvoicePdf } = await import('@/lib/generate-invoice-pdf')
+        for (const inv of succeeded) {
+          try {
+            const invoiceData = draftInvoices.find((d: any) => d.id === inv.id)
+            if (!invoiceData) continue
+            const { pdfUrl } = await generateAndUploadInvoicePdf({
+              invoiceNumber: inv.invoice_number,
+              customerName: invoiceData.customer_name || '',
+              customerAddress: invoiceData.customer_address || '',
+              customerVat: invoiceData.customer_vat || '',
+              invoiceDate: invoiceData.invoice_date || '',
+              dueDate: invoiceData.due_date || '',
+              referenceNumber: invoiceData.reference_number || '',
+              salesCode: invoiceData.sales_code || '200',
+              currency: invoiceData.currency || 'ZAR',
+              lineItems: (invoiceData.line_items || []).map((item: any) => ({
+                description: item.description || '',
+                quantity: Number(item.quantity) || 0,
+                unitPrice: Number(item.unitPrice) || 0,
+                vatType: item.vatType || 'zero',
+                vehicle: item.vehicle || '',
+                driver: item.driver || '',
+              })),
+              subtotal: Number(invoiceData.subtotal) || 0,
+              vatAmount: Number(invoiceData.vat_amount) || 0,
+              totalAmount: Number(invoiceData.total_amount) || 0,
+              amountDue: Number(invoiceData.amount_due) || 0,
+            })
+            if (pdfUrl) {
+              await fetch(`/api/invoices/${inv.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ invoice_url: pdfUrl }),
+              })
+            }
+          } catch (pdfErr) {
+            console.error(`PDF generation failed for invoice ${inv.id}:`, pdfErr)
+          }
+        }
+      }
+
+      setSelectedDraftIds(new Set())
+      // Refresh lists and wait for completion before continuing
+      const [draftRes, finalizedRes] = await Promise.all([
+        fetch('/api/invoices?draft=true').then(r => r.json()),
+        fetch('/api/invoices?finalized=true').then(r => r.json()),
+      ])
+      setDraftInvoices(draftRes.data || [])
+      setFinalizedInvoices(finalizedRes.data || [])
+
+      const msg = succeeded.length > 0 ? `Finalized ${succeeded.length} invoice(s)` : ''
+      const errMsg = failed.length > 0 ? `\nFailed: ${failed.map((f: any) => `${f.id}: ${f.error}`).join(', ')}` : ''
+      alert(msg + errMsg || 'No invoices were finalized')
+    } catch (err: any) {
+      alert(err.message)
+    } finally {
+      setBatchFinalizing(false)
+    }
+  }
+
+  const openSendModal = () => {
+    if (selectedInvoiceIds.size === 0) return
+    // Pre-populate the per-invoice selection with all available recipients
+    const selected = finalizedInvoices.filter((inv: any) => selectedInvoiceIds.has(inv.id))
+    const recipientMap: Record<number, Set<string>> = {}
+    const groupMap: Record<number, Set<string>> = {}
+    for (const inv of selected) {
+      const groups = inv.invoice_email_groups || []
+      const allEmails = new Set<string>()
+      const groupNames = new Set<string>()
+      for (const g of groups) {
+        if (g.emails?.length) {
+          for (const e of g.emails.filter((e: string) => e.trim())) {
+            allEmails.add(e.trim())
+          }
+          groupNames.add(g.name || '')
+        }
+      }
+      recipientMap[inv.id] = allEmails
+      groupMap[inv.id] = groupNames
+    }
+    setSendRecipients(recipientMap)
+    setSendSelectedGroups(groupMap)
+    setSendModalOpen(true)
+  }
+
+  const closeSendModal = () => {
+    setSendModalOpen(false)
+    setSendRecipients({})
+    setSendSelectedGroups({})
+  }
+
+  const toggleSendGroup = (invoiceId: number, group: any) => {
+    const groupName = group.name || ''
+    const emails = (group.emails || []).filter((e: string) => e.trim()).map((e: string) => e.trim())
+    setSendSelectedGroups((prev) => {
+      const next: Record<number, Set<string>> = { ...prev }
+      const cur = new Set(next[invoiceId] || [])
+      if (cur.has(groupName)) {
+        cur.delete(groupName)
+      } else {
+        cur.add(groupName)
+      }
+      next[invoiceId] = cur
+      return next
+    })
+    setSendRecipients((prev) => {
+      const next: Record<number, Set<string>> = { ...prev }
+      const cur = new Set(next[invoiceId] || [])
+      if (cur.size === 0 && emails.length) {
+        // Selecting group: add all its emails
+        for (const e of emails) cur.add(e)
+      } else {
+        // Check intersection
+        const stillSelected = emails.every((e: string) => cur.has(e))
+        if (stillSelected) {
+          for (const e of emails) cur.delete(e)
+        } else {
+          for (const e of emails) cur.add(e)
+        }
+      }
+      next[invoiceId] = cur
+      return next
+    })
+  }
+
+  const toggleSendEmail = (invoiceId: number, email: string) => {
+    setSendRecipients((prev) => {
+      const next: Record<number, Set<string>> = { ...prev }
+      const cur = new Set(next[invoiceId] || [])
+      const trimmed = email.trim()
+      if (cur.has(trimmed)) cur.delete(trimmed)
+      else cur.add(trimmed)
+      next[invoiceId] = cur
+      return next
+    })
+  }
+
+  const toggleAllForInvoice = (invoiceId: number, groups: any[]) => {
+    const allEmails = new Set<string>()
+    for (const g of groups) {
+      for (const e of (g.emails || []).filter((e: string) => e.trim())) {
+        allEmails.add(e.trim())
+      }
+    }
+    setSendRecipients((prev) => {
+      const next: Record<number, Set<string>> = { ...prev }
+      const cur = new Set(next[invoiceId] || [])
+      const allSelected = allEmails.size > 0 && Array.from(allEmails).every((e) => cur.has(e))
+      if (allSelected) {
+        next[invoiceId] = new Set()
+      } else {
+        next[invoiceId] = new Set(allEmails)
+      }
+      return next
+    })
+  }
+
+  const handleBatchSend = async () => {
+    if (selectedInvoiceIds.size === 0) return
+
+    // Build per-invoice recipient payloads
+    const selected = finalizedInvoices.filter((inv: any) => selectedInvoiceIds.has(inv.id))
+    const payload = selected.map((inv: any) => ({
+      id: inv.id,
+      recipients: Array.from(sendRecipients[inv.id] || []),
+    }))
+    const totalRecipients = payload.reduce((sum: number, p: any) => sum + p.recipients.length, 0)
+    if (totalRecipients === 0) {
+      alert('No recipients selected. Pick at least one email to send to.')
+      return
+    }
+    if (!confirm(`Send ${selected.length} invoice(s) to ${totalRecipients} email address(es)?`)) return
+
+    setBatchSending(true)
+    try {
+      const res = await fetch('/api/invoices/batch-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ perInvoiceRecipients: payload }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Batch send failed')
+
+      const succeeded = result.results?.filter((r: any) => r.success) || []
+      const failed = result.results?.filter((r: any) => !r.success) || []
+
+      setSelectedInvoiceIds(new Set())
+      closeSendModal()
+
+      const msg = succeeded.length > 0 ? `Sent ${succeeded.length} invoice(s)` : ''
+      const errMsg = failed.length > 0 ? `\nFailed: ${failed.map((f: any) => `${f.id}: ${f.error}`).join(', ')}` : ''
+      alert(msg + errMsg || 'No invoices were sent')
+    } catch (err: any) {
+      alert(err.message)
+    } finally {
+      setBatchSending(false)
+    }
+  }
+
+  const loadAuditLog = async (invoiceId: number) => {
+    setAuditLogInvoiceId(invoiceId)
+    setAuditLogOpen(true)
+    setAuditLogLoading(true)
+    try {
+      const res = await fetch(`/api/invoice-audit-log?invoice_id=${invoiceId}`)
+      const result = await res.json()
+      setAuditLogData(result.data || [])
+    } catch {
+      setAuditLogData([])
+    } finally {
+      setAuditLogLoading(false)
+    }
+  }
 
   const handleSearch = () => {
     setAppliedDateFrom(dateFrom)
@@ -369,6 +674,100 @@ export default function AuditPage() {
     setShowEditModal(true)
   }
 
+  // Download invoice PDF. If the URL is missing (e.g. older draft whose PDF
+  // was never uploaded), regenerate on-demand using the latest invoice data.
+  const handleDownloadInvoice = async (inv: any) => {
+    if (inv?.invoice_url) {
+      window.open(inv.invoice_url, '_blank')
+      return
+    }
+    if (!inv?.invoice_number) {
+      alert('This invoice has no PDF yet — it is still a draft. Finalize first.')
+      return
+    }
+    try {
+      const { generateAndUploadInvoicePdf } = await import('@/lib/generate-invoice-pdf')
+      const { pdfUrl } = await generateAndUploadInvoicePdf({
+        invoiceNumber: inv.invoice_number,
+        customerName: inv.customer_name || '',
+        customerAddress: inv.customer_address || '',
+        customerVat: inv.customer_vat || '',
+        invoiceDate: inv.invoice_date || '',
+        dueDate: inv.due_date || '',
+        referenceNumber: inv.reference_number || '',
+        salesCode: inv.sales_code || '200',
+        currency: inv.currency || 'ZAR',
+        lineItems: (inv.line_items || []).map((item: any) => ({
+          description: item.description || '',
+          quantity: Number(item.quantity) || 0,
+          unitPrice: Number(item.unitPrice) || 0,
+          vatType: item.vatType || 'zero',
+          vehicle: item.vehicle || '',
+          driver: item.driver || '',
+        })),
+        subtotal: Number(inv.subtotal) || 0,
+        vatAmount: Number(inv.vat_amount) || 0,
+        totalAmount: Number(inv.total_amount) || 0,
+        amountDue: Number(inv.amount_due) || 0,
+      })
+      if (pdfUrl) {
+        // Patch the row locally so subsequent downloads are instant
+        const updateRow = (arr: any[]) =>
+          arr.map((r: any) => (r.id === inv.id ? { ...r, invoice_url: pdfUrl } : r))
+        setDraftInvoices((prev) => updateRow(prev))
+        setFinalizedInvoices((prev) => updateRow(prev))
+        // Persist to DB so it sticks across reloads
+        await fetch(`/api/invoices/${inv.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoice_url: pdfUrl }),
+        }).catch(() => {})
+        window.open(pdfUrl, '_blank')
+      } else {
+        alert('Could not regenerate the PDF. Please try again.')
+      }
+    } catch (err: any) {
+      alert(`Failed to regenerate PDF: ${err.message}`)
+    }
+  }
+
+  // Send a single invoice to its configured email group (no per-recipient modal).
+  // For multi-invoice sending with recipient pickers, use the Send Selected button.
+  const handleSingleSend = async (invoice: any) => {
+    if (!invoice?.invoice_number) {
+      alert('This invoice is still a draft. Finalize it before sending.')
+      return
+    }
+    const groups = invoice.invoice_email_groups || []
+    const recipients: string[] = []
+    for (const g of groups) {
+      if (g.emails) recipients.push(...g.emails.filter((e: string) => e.trim()))
+    }
+    if (recipients.length === 0) {
+      alert('No email groups configured for this client. Add groups in the Clients page.')
+      return
+    }
+    if (!confirm(`Send invoice ${invoice.invoice_number} to ${recipients.length} recipient(s)?`)) return
+    setSendingEmail(true)
+    try {
+      const res = await fetch('/api/invoices/batch-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          perInvoiceRecipients: [{ id: invoice.id, recipients }],
+        }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Send failed')
+      const succeeded = (result.results || []).filter((r: any) => r.success).length
+      alert(`Sent invoice ${invoice.invoice_number} to ${recipients.length} recipient(s).`)
+    } catch (err: any) {
+      alert(`Failed to send: ${err.message}`)
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+
   const handleFinalizeDraft = async (draft: any) => {
     if (draft.is_locked) {
       alert('This invoice is locked and cannot be finalized.')
@@ -449,6 +848,8 @@ export default function AuditPage() {
           quantity: Number(item.quantity) || 0,
           unitPrice: Number(item.unitPrice) || 0,
           vatType: item.vatType || 'zero',
+          vehicle: item.vehicle || '',
+          driver: item.driver || '',
         })),
         subtotal: Number(finalizePreview.subtotal) || 0,
         vatAmount: Number(finalizePreview.vat_amount) || 0,
@@ -532,10 +933,38 @@ export default function AuditPage() {
 
       const subject = `Invoice ${invoice.invoice_number || ''} - Waterford Carriers`
 
+      // Build attachments list - include invoice PDF and PODs (Proof of Delivery)
+      const attachments: { filename: string; path: string }[] = [
+        {
+          filename: `${invoice.invoice_number || 'invoice'}.pdf`,
+          path: invoice.invoice_url || '',
+        },
+      ]
+
+      // Fetch PODs from invoice_documents
+      try {
+        const docQueryParam = invoice.trip_id
+          ? `trip_id=${invoice.trip_id}`
+          : `sundry_invoice_id=${invoice.id}`
+        const docsRes = await fetch(`/api/invoice-documents?${docQueryParam}`)
+        const docsResult = await docsRes.json()
+        const docs = docsResult.data?.documents || []
+        for (const doc of docs) {
+          if (doc.file_url && doc.file_name) {
+            attachments.push({
+              filename: doc.file_name,
+              path: doc.file_url,
+            })
+          }
+        }
+      } catch {
+        // PODs are optional; proceed without them if fetch fails
+      }
+
       const res = await fetch('/api/send-invoice-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipients, subject, html }),
+        body: JSON.stringify({ recipients, subject, html, attachments }),
       })
 
       const result = await res.json()
@@ -748,6 +1177,14 @@ export default function AuditPage() {
         >
           Invoices
         </button>
+        <button
+          onClick={() => setActiveTab('reports')}
+          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'reports' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Trip Reports
+        </button>
       </div>
 
       {activeTab === 'trips' && (
@@ -760,16 +1197,6 @@ export default function AuditPage() {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="md:max-w-sm"
             />
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="md:w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Delivered + Completed</SelectItem>
-                <SelectItem value="delivered">Delivered</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-              </SelectContent>
-            </Select>
             <div className="ml-auto flex items-center gap-2">
               <Input
                 type="date"
@@ -933,6 +1360,15 @@ export default function AuditPage() {
                         <div className="flex items-center justify-end gap-1">
                           {inv.is_draft ? (
                             <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => handleDownloadInvoice(inv)}
+                                title="Download (regenerates PDF if missing)"
+                              >
+                                <Download className="h-3 w-3" />
+                              </Button>
                               <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleEditDraft(inv)}>
                                 Edit
                               </Button>
@@ -941,11 +1377,26 @@ export default function AuditPage() {
                               </Button>
                             </>
                           ) : (
-                            inv.invoice_url && (
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
-                                <FileText className="mr-1 h-3 w-3" /> Download
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => handleDownloadInvoice(inv)}
+                                title="Download (regenerates PDF if missing)"
+                              >
+                                <Download className="mr-1 h-3 w-3" /> Download
                               </Button>
-                            )
+                              <Button
+                                size="sm"
+                                className="h-7 px-2 text-xs bg-emerald-600 text-white hover:bg-emerald-700"
+                                onClick={() => handleSingleSend(inv)}
+                                disabled={sendingEmail}
+                                title="Send this invoice to the client's email group"
+                              >
+                                <Mail className="mr-1 h-3 w-3" /> Send
+                              </Button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -1181,23 +1632,60 @@ export default function AuditPage() {
                           {currency(toNumber(inv.amount_due))}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          {inv.invoice_url && (
-                            <div className="flex justify-end gap-1">
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
-                                <FileText className="mr-1 h-3 w-3" /> View
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => {
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => handleDownloadInvoice(inv)}
+                              title={inv.invoice_url ? 'View in new tab' : 'Will regenerate PDF on click'}
+                            >
+                              <FileText className="mr-1 h-3 w-3" /> View
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => {
+                                if (!inv.invoice_url) {
+                                  handleDownloadInvoice(inv)
+                                  return
+                                }
                                 const a = document.createElement('a')
                                 a.href = inv.invoice_url
                                 a.download = `${inv.invoice_number || 'invoice'}.pdf`
                                 document.body.appendChild(a)
                                 a.click()
                                 document.body.removeChild(a)
-                              }}>
-                                <Download className="mr-1 h-3 w-3" /> Download
+                              }}
+                              title="Download PDF"
+                            >
+                              <Download className="mr-1 h-3 w-3" /> Download
+                            </Button>
+                            {inv.invoice_email_groups?.length > 0 && (
+                              <Button
+                                size="sm"
+                                className="h-7 px-2 text-xs bg-emerald-600 text-white hover:bg-emerald-700"
+                                disabled={sendingEmail}
+                                onClick={() => handleSingleSend(inv)}
+                                title="Send this invoice to the client's email group"
+                              >
+                                <Mail className="mr-1 h-3 w-3" /> Send
                               </Button>
-                            </div>
-                          )}
+                            )}
+                            {(!inv.invoice_email_groups || inv.invoice_email_groups.length === 0) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                disabled={sendingEmail}
+                                onClick={() => alert('No email groups configured for this client. Add groups in the Clients page.')}
+                                title="No email groups configured"
+                              >
+                                <Mail className="mr-1 h-3 w-3" /> No Groups
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1215,6 +1703,22 @@ export default function AuditPage() {
         <CardContent className="pt-6">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-bold text-[#001e42]">Invoice Drafts</h3>
+            <div className="flex items-center gap-2">
+              {selectedDraftIds.size > 0 && (
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 text-white hover:bg-emerald-700"
+                  onClick={handleBatchFinalize}
+                  disabled={batchFinalizing}
+                >
+                  {batchFinalizing ? (
+                    <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Finalizing...</>
+                  ) : (
+                    `Finalize Selected (${selectedDraftIds.size})`
+                  )}
+                </Button>
+              )}
+            </div>
           </div>
 
           {draftLoading ? (
@@ -1226,12 +1730,27 @@ export default function AuditPage() {
               <table className="w-full border-collapse text-left">
                 <thead className="bg-slate-50">
                   <tr>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 w-10">
+                      <input
+                        type="checkbox"
+                        checked={selectedDraftIds.size === draftInvoices.length && draftInvoices.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedDraftIds(new Set(draftInvoices.map((inv: any) => inv.id)))
+                          } else {
+                            setSelectedDraftIds(new Set())
+                          }
+                        }}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                    </th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
                     <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Order</th>
                     <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Reference</th>
                     <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
                     <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
                     <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
                     <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
                   </tr>
                 </thead>
@@ -1239,18 +1758,32 @@ export default function AuditPage() {
                   {draftInvoices.map((inv: any) => (
                     <tr key={inv.id} className="border-t hover:bg-slate-50">
                       <td className="px-3 py-2">
-                        <div className="font-medium text-slate-900">{inv.ordernumber || inv.trip_id || '—'}</div>
+                        <input
+                          type="checkbox"
+                          checked={selectedDraftIds.has(inv.id)}
+                          onChange={(e) => {
+                            const next = new Set(selectedDraftIds)
+                            if (e.target.checked) next.add(inv.id)
+                            else next.delete(inv.id)
+                            setSelectedDraftIds(next)
+                          }}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="text-sm text-slate-700">{inv.ordernumber || inv.trip_id || '—'}</div>
                       </td>
                       <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
+                      <td className="px-3 py-2 text-sm text-slate-700">{inv.reference_number || '-'}</td>
                       <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
                       <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
                         {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-3 py-2 text-center">
                         <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-2 py-0.5">Draft</Badge>
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex justify-end gap-1">
@@ -1283,6 +1816,20 @@ export default function AuditPage() {
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-bold text-[#001e42]">Finalized Invoices</h3>
             <div className="flex items-center gap-2">
+              {selectedInvoiceIds.size > 0 && (
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 text-white hover:bg-emerald-700"
+                  onClick={openSendModal}
+                  disabled={batchSending}
+                >
+                  {batchSending ? (
+                    <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Sending...</>
+                  ) : (
+                    <><Mail className="mr-1 h-3 w-3" /> Send Selected ({selectedInvoiceIds.size})</>
+                  )}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -1338,7 +1885,6 @@ export default function AuditPage() {
                     }
                     const result = await res.json()
                     alert(`Locked ${result.lockedCount} invoices for ${lockMonth}`)
-                    // Refresh invoices
                     const invRes = await fetch('/api/invoices?finalized=true')
                     const invResult = await invRes.json()
                     setFinalizedInvoices(invResult.data || [])
@@ -1366,9 +1912,24 @@ export default function AuditPage() {
                     <table className="w-full border-collapse text-left">
                       <thead className="bg-slate-50">
                         <tr>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 w-10">
+                            <input
+                              type="checkbox"
+                              checked={finalizedInvoices.filter((inv: any) => inv.trip_id).length > 0 && finalizedInvoices.filter((inv: any) => inv.trip_id).every((inv: any) => selectedInvoiceIds.has(inv.id))}
+                              onChange={(e) => {
+                                const tripIds = finalizedInvoices.filter((inv: any) => inv.trip_id).map((inv: any) => inv.id)
+                                const next = new Set(selectedInvoiceIds)
+                                if (e.target.checked) tripIds.forEach((id: number) => next.add(id))
+                                else tripIds.forEach((id: number) => next.delete(id))
+                                setSelectedInvoiceIds(next)
+                              }}
+                              className="h-4 w-4 rounded border-slate-300"
+                            />
+                          </th>
                           <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
                           <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Order</th>
                           <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Reference</th>
                           <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
                           <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
                           <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
@@ -1380,10 +1941,24 @@ export default function AuditPage() {
                         {finalizedInvoices.filter((inv: any) => inv.trip_id).map((inv: any) => (
                           <tr key={inv.id} className="border-t hover:bg-slate-50">
                             <td className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                checked={selectedInvoiceIds.has(inv.id)}
+                                onChange={(e) => {
+                                  const next = new Set(selectedInvoiceIds)
+                                  if (e.target.checked) next.add(inv.id)
+                                  else next.delete(inv.id)
+                                  setSelectedInvoiceIds(next)
+                                }}
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
                               <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
                             </td>
                             <td className="px-3 py-2 text-sm text-slate-700">{inv.ordernumber || inv.trip_id || '-'}</td>
                             <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
+                            <td className="px-3 py-2 text-sm text-slate-700">{inv.reference_number || '-'}</td>
                             <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
                             <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
                               {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
@@ -1408,29 +1983,16 @@ export default function AuditPage() {
                                     <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
                                       <Download className="mr-1 h-3 w-3" /> Download
                                     </Button>
-                                    {inv.invoice_email_groups?.length > 0 && (
-                                      <Button
-                                        size="sm"
-                                        className="h-7 px-2 text-xs bg-emerald-600 text-white hover:bg-emerald-700"
-                                        disabled={sendingEmail}
-                                        onClick={() => sendInvoiceEmail(inv, inv.invoice_email_groups)}
-                                      >
-                                        <FileText className="mr-1 h-3 w-3" /> Send Invoice
-                                      </Button>
-                                    )}
-                                    {(!inv.invoice_email_groups || inv.invoice_email_groups.length === 0) && (
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-7 px-2 text-xs"
-                                        disabled={sendingEmail}
-                                        onClick={() => alert('No email groups configured for this client. Add groups in the Clients page.')}
-                                      >
-                                        <Mail className="mr-1 h-3 w-3" /> No Groups
-                                      </Button>
-                                    )}
                                   </>
                                 )}
+                                {!inv.is_locked && (
+                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleEditDraft(inv)}>
+                                    Edit
+                                  </Button>
+                                )}
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => loadAuditLog(inv.id)}>
+                                  History
+                                </Button>
                               </div>
                             </td>
                           </tr>
@@ -1449,8 +2011,23 @@ export default function AuditPage() {
                     <table className="w-full border-collapse text-left">
                       <thead className="bg-slate-50">
                         <tr>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 w-10">
+                            <input
+                              type="checkbox"
+                              checked={finalizedInvoices.filter((inv: any) => !inv.trip_id).length > 0 && finalizedInvoices.filter((inv: any) => !inv.trip_id).every((inv: any) => selectedInvoiceIds.has(inv.id))}
+                              onChange={(e) => {
+                                const sundryIds = finalizedInvoices.filter((inv: any) => !inv.trip_id).map((inv: any) => inv.id)
+                                const next = new Set(selectedInvoiceIds)
+                                if (e.target.checked) sundryIds.forEach((id: number) => next.add(id))
+                                else sundryIds.forEach((id: number) => next.delete(id))
+                                setSelectedInvoiceIds(next)
+                              }}
+                              className="h-4 w-4 rounded border-slate-300"
+                            />
+                          </th>
                           <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
                           <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
+                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Reference</th>
                           <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
                           <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
                           <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
@@ -1462,9 +2039,23 @@ export default function AuditPage() {
                         {finalizedInvoices.filter((inv: any) => !inv.trip_id).map((inv: any) => (
                           <tr key={inv.id} className="border-t hover:bg-slate-50">
                             <td className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                checked={selectedInvoiceIds.has(inv.id)}
+                                onChange={(e) => {
+                                  const next = new Set(selectedInvoiceIds)
+                                  if (e.target.checked) next.add(inv.id)
+                                  else next.delete(inv.id)
+                                  setSelectedInvoiceIds(next)
+                                }}
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
                               <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
                             </td>
                             <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
+                            <td className="px-3 py-2 text-sm text-slate-700">{inv.reference_number || '-'}</td>
                             <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
                             <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
                               {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
@@ -1480,11 +2071,36 @@ export default function AuditPage() {
                               )}
                             </td>
                             <td className="px-3 py-2 text-right">
-                              {inv.invoice_url && (
-                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                              <div className="flex justify-end gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => handleDownloadInvoice(inv)}
+                                  title={inv.invoice_url ? 'View PDF' : 'Will regenerate PDF on click'}
+                                >
                                   <FileText className="mr-1 h-3 w-3" /> View
                                 </Button>
-                              )}
+                                {!inv.is_locked && (
+                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleEditDraft(inv)}>
+                                    Edit
+                                  </Button>
+                                )}
+                                {inv.invoice_email_groups?.length > 0 && (
+                                  <Button
+                                    size="sm"
+                                    className="h-7 px-2 text-xs bg-emerald-600 text-white hover:bg-emerald-700"
+                                    disabled={sendingEmail}
+                                    onClick={() => handleSingleSend(inv)}
+                                    title="Send this invoice to the client's email group"
+                                  >
+                                    <Mail className="mr-1 h-3 w-3" /> Send
+                                  </Button>
+                                )}
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => loadAuditLog(inv.id)}>
+                                  History
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1497,6 +2113,14 @@ export default function AuditPage() {
           )}
         </CardContent>
       </Card>
+      )}
+
+      {activeTab === 'reports' && (
+        <Card>
+          <CardContent className="pt-6">
+            <TripReportsSection />
+          </CardContent>
+        </Card>
       )}
 
       <SundryInvoiceModal open={showSundryModal} onClose={() => {
@@ -1894,6 +2518,255 @@ export default function AuditPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Audit Trail Dialog — uses Radix Dialog primitives directly so we can size
+          the panel independently of the global DialogContent constraints (95vw). */}
+      <DialogPrimitive.Root open={auditLogOpen} onOpenChange={setAuditLogOpen}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <DialogPrimitive.Content
+            className={cn(
+              'fixed left-[50%] top-[50%] z-50 flex max-h-[95vh] w-[95vw] translate-x-[-50%] translate-y-[-50%] flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl',
+              'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95'
+            )}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-8 py-5">
+              <div className="min-w-0 flex-1">
+                <DialogPrimitive.Title className="text-2xl font-bold text-[#001e42]">
+                  Invoice Change History
+                </DialogPrimitive.Title>
+                <DialogPrimitive.Description className="mt-1 text-base text-slate-500">
+                  Audit trail for invoice {auditLogInvoiceId ? `#${auditLogInvoiceId}` : ''}
+                </DialogPrimitive.Description>
+              </div>
+              <DialogPrimitive.Close className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                <X className="h-5 w-5" />
+              </DialogPrimitive.Close>
+            </div>
+
+            <div className="flex-1 overflow-hidden p-6">
+              <div className="h-full overflow-hidden rounded-lg border border-slate-200 bg-white">
+                {auditLogLoading ? (
+                  <div className="p-6 text-base text-slate-600">Loading history...</div>
+                ) : auditLogData.length === 0 ? (
+                  <div className="p-6 text-base text-slate-600">No changes recorded for this invoice.</div>
+                ) : (
+                  <div className="h-full divide-y overflow-y-auto">
+                    {auditLogData.map((entry: any) => {
+                      const fieldLabel = entry.field_changed ? (FIELD_LABELS[entry.field_changed] || entry.field_changed) : ''
+                      const oldFormatted = formatAuditValue(entry.old_value, entry.field_changed)
+                      const newFormatted = formatAuditValue(entry.new_value, entry.field_changed)
+                      return (
+                        <div key={entry.id} className="space-y-4 px-7 py-6">
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                              <Badge variant="outline" className="px-3 py-1 text-xs uppercase tracking-wide">
+                                {entry.action}
+                              </Badge>
+                              {fieldLabel && (
+                                <span className="text-xl font-semibold text-slate-800">{fieldLabel}</span>
+                              )}
+                            </div>
+                            <span className="shrink-0 text-sm text-slate-500">
+                              {entry.changed_at ? new Date(entry.changed_at).toLocaleString('en-ZA') : ''}
+                            </span>
+                          </div>
+                          {fieldLabel && (
+                            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 px-5 py-4">
+                              {oldFormatted && (
+                                <div className="flex items-start gap-4">
+                                  <span className="w-20 shrink-0 text-xs font-bold uppercase tracking-wider text-red-600">
+                                    From
+                                  </span>
+                                  <span className="min-w-0 flex-1 break-words whitespace-pre-wrap rounded bg-white px-3 py-2 text-sm text-red-700 line-through">
+                                    {oldFormatted}
+                                  </span>
+                                </div>
+                              )}
+                              {newFormatted && (
+                                <div className="flex items-start gap-4">
+                                  <span className="w-20 shrink-0 text-xs font-bold uppercase tracking-wider text-emerald-600">
+                                    To
+                                  </span>
+                                  <span className="min-w-0 flex-1 break-words whitespace-pre-wrap rounded bg-white px-3 py-2 text-sm text-emerald-700">
+                                    {newFormatted}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <div className="text-sm text-slate-500">
+                            Changed by <span className="font-semibold text-slate-700">{entry.changed_by}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-8 py-4">
+              <DialogPrimitive.Close asChild>
+                <Button variant="outline">Close</Button>
+              </DialogPrimitive.Close>
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
+
+      {/* Per-client Send Modal — confirms which email recipients each invoice goes to. */}
+      <DialogPrimitive.Root open={sendModalOpen} onOpenChange={(open) => { if (!open) closeSendModal() }}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <DialogPrimitive.Content
+            className={cn(
+              'fixed left-[50%] top-[50%] z-50 flex max-h-[95vh] w-[95vw] translate-x-[-50%] translate-y-[-50%] flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl',
+              'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95'
+            )}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-8 py-5">
+              <div className="min-w-0 flex-1">
+                <DialogPrimitive.Title className="text-2xl font-bold text-[#001e42]">
+                  Send Invoices to Clients
+                </DialogPrimitive.Title>
+                <DialogPrimitive.Description className="mt-1 text-base text-slate-500">
+                  Review the email groups for each invoice and pick which recipients should receive it.
+                </DialogPrimitive.Description>
+              </div>
+              <DialogPrimitive.Close className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                <X className="h-5 w-5" />
+              </DialogPrimitive.Close>
+            </div>
+
+            <div className="flex-1 overflow-hidden p-6">
+              <div className="h-full space-y-4 overflow-y-auto pr-1">
+                {finalizedInvoices
+                  .filter((inv: any) => selectedInvoiceIds.has(inv.id))
+                  .map((inv: any) => {
+                    const groups = inv.invoice_email_groups || []
+                    const allEmails = new Set<string>()
+                    for (const g of groups) {
+                      for (const e of (g.emails || []).filter((e: string) => e.trim())) {
+                        allEmails.add(e.trim())
+                      }
+                    }
+                    const selectedForInv = sendRecipients[inv.id] || new Set<string>()
+                    const totalForInv = allEmails.size
+                    const totalSelected = selectedForInv.size
+                    const allSelected = totalForInv > 0 && totalSelected === totalForInv
+                    const noGroups = groups.length === 0
+                    return (
+                      <div key={inv.id} className="rounded-lg border border-slate-200 bg-white p-5">
+                        <div className="mb-4 flex items-start justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                                {inv.invoice_number || `INV#${inv.id}`}
+                              </Badge>
+                              <span className="text-base font-semibold text-slate-900 truncate">
+                                {inv.customer_name || '(no customer)'}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              {inv.ordernumber || inv.trip_id || 'Sundry'} ·{' '}
+                              {inv.currency === 'USD' ? '$' : 'R'}
+                              {toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                              {' '}· {totalSelected}/{totalForInv} recipient(s) selected
+                            </div>
+                          </div>
+                          {!noGroups && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => toggleAllForInvoice(inv.id, groups)}
+                            >
+                              {allSelected ? 'Deselect all' : 'Select all'}
+                            </Button>
+                          )}
+                        </div>
+
+                        {noGroups ? (
+                          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                            No invoice email groups configured for this client. Add groups in the Clients page.
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {groups.map((group: any, gIdx: number) => {
+                              const groupName = group.name || `Group ${gIdx + 1}`
+                              const emails = (group.emails || []).filter((e: string) => e.trim())
+                              const groupSelected = sendSelectedGroups[inv.id]?.has(groupName) ?? false
+                              return (
+                                <div key={gIdx} className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                                  <div className="mb-2 flex items-center justify-between">
+                                    <label className="flex cursor-pointer items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={groupSelected}
+                                        onChange={() => toggleSendGroup(inv.id, group)}
+                                        className="h-4 w-4 rounded border-slate-300"
+                                      />
+                                      <span className="text-sm font-semibold text-slate-800">{groupName}</span>
+                                    </label>
+                                    <span className="text-xs text-slate-500">
+                                      {(group.emails || []).filter((e: string) => e.trim()).length} email(s)
+                                    </span>
+                                  </div>
+                                  <div className="space-y-1 pl-6">
+                                    {emails.length === 0 && (
+                                      <div className="text-xs italic text-slate-400">No emails in this group</div>
+                                    )}
+                                    {emails.map((email: string) => (
+                                      <label key={email} className="flex cursor-pointer items-center gap-2 text-sm">
+                                        <input
+                                          type="checkbox"
+                                          checked={selectedForInv.has(email)}
+                                          onChange={() => toggleSendEmail(inv.id, email)}
+                                          className="h-4 w-4 rounded border-slate-300"
+                                        />
+                                        <span className="break-all text-slate-700">{email}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-8 py-4">
+              <div className="text-sm text-slate-600">
+                {(() => {
+                  const total = Object.values(sendRecipients).reduce((sum, set) => sum + set.size, 0)
+                  const invCount = Object.keys(sendRecipients).length
+                  return `${total} recipient(s) selected across ${invCount} invoice(s)`
+                })()}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={closeSendModal} disabled={batchSending}>
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-emerald-600 text-white hover:bg-emerald-700"
+                  onClick={handleBatchSend}
+                  disabled={batchSending}
+                >
+                  {batchSending ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending…</>
+                  ) : (
+                    <><Mail className="mr-2 h-4 w-4" /> Confirm & Send</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
     </div>
   )
 }

@@ -31,18 +31,54 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Trip ID required' }, { status: 400 })
     }
 
-    const response = await fetch(
-      `${ROUTING_SERVER_BASE_URL}/api/trips/${tripId}/route?company=waterford`,
-      { cache: 'no-store' }
-    )
-
-    if (!response.ok) {
-      const error = await response.text()
-      console.error('Routing server error:', error)
-      return NextResponse.json({ error: 'Failed to fetch route from server' }, { status: response.status })
+    // Fetch trip record to get both id (PK) and trip_id (string identifier).
+    // The routing server historically expected one or the other; resolve to whichever is present.
+    let resolvedTripId: string = tripId
+    let resolvedTripPk: string | null = null
+    if (supabase) {
+      const { data: trip } = await supabase
+        .from('trips')
+        .select('id, trip_id')
+        .or(`id.eq.${Number.isFinite(Number(tripId)) ? tripId : -1},trip_id.eq.${tripId}`)
+        .maybeSingle()
+      if (trip) {
+        resolvedTripPk = String(trip.id)
+        resolvedTripId = trip.trip_id || String(trip.id)
+      }
     }
 
-    const data = await response.json()
+    // Try the string trip_id first, then the numeric id as a fallback
+    const candidates = resolvedTripPk && resolvedTripPk !== resolvedTripId
+      ? [resolvedTripId, resolvedTripPk]
+      : [resolvedTripId]
+
+    let data: any = null
+    let lastError: string | null = null
+    let lastStatus = 0
+    for (const candidate of candidates) {
+      const response = await fetch(
+        `${ROUTING_SERVER_BASE_URL}/api/trips/${candidate}/route?company=waterford`,
+        { cache: 'no-store' }
+      )
+      if (response.ok) {
+        data = await response.json()
+        lastStatus = 200
+        break
+      }
+      lastStatus = response.status
+      lastError = await response.text()
+    }
+
+    if (!data) {
+      console.error('Routing server error (all candidates failed):', lastError)
+      // Graceful fallback: return empty route so the audit page still renders.
+      // Use 200 with a flag so the client can render without crashing.
+      return NextResponse.json(
+        { route_points: [], _unavailable: true, _status: lastStatus },
+        { status: 200 }
+      )
+    }
+
     const routePoints = Array.isArray(data?.route_points) ? data.route_points : []
 
     if (!supabase || !routePoints.length) {
@@ -52,7 +88,7 @@ export async function GET(request: Request) {
     const { data: trip, error } = await supabase
       .from('trips')
       .select('id, status, accepted_at, actual_end_time')
-      .eq('id', Number(tripId))
+      .eq('id', Number(resolvedTripPk ?? tripId))
       .single()
 
     if (error || !trip?.accepted_at) {

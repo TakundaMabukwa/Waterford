@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 
 const EMAIL_SERVICE_URL = process.env.EMAIL_SERVICE_URL
 
@@ -10,7 +9,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { recipients, subject, html } = body
+    const { recipients, subject, html, attachments } = body
 
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return NextResponse.json({ error: 'recipients array is required' }, { status: 400 })
@@ -22,10 +21,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'html body is required' }, { status: 400 })
     }
 
+    const payload: any = { to: recipients, subject, html }
+    if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+      payload.attachments = attachments
+    }
+
     const res = await fetch(`${EMAIL_SERVICE_URL}/api/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: recipients, subject, html }),
+      body: JSON.stringify(payload),
     })
 
     const result = await res.json()

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createClient as createServerClient } from '@/lib/supabase/server'
 
 export async function PATCH(
   request: NextRequest,
@@ -12,10 +13,24 @@ export async function PATCH(
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    // Check if invoice is locked before allowing any changes
+    // Get the authenticated user from the session (server-side, not from body)
+    let changedBy = 'unknown'
+    try {
+      const serverClient = await createServerClient()
+      if (serverClient) {
+        const { data: { user } } = await serverClient.auth.getUser()
+        if (user) {
+          changedBy = user.email || user.id || 'unknown'
+        }
+      }
+    } catch {
+      // Fall back to 'unknown' if session can't be resolved
+    }
+
+    // Fetch current invoice (allow editing of non-locked invoices, including finalized ones)
     const { data: existing, error: fetchError } = await supabase
       .from('invoices')
-      .select('is_locked')
+      .select('*')
       .eq('id', Number(id))
       .single()
 
@@ -29,22 +44,41 @@ export async function PATCH(
 
     const body = await request.json()
 
+    // Track changes for audit trail
+    const changes: { field: string; oldValue: any; newValue: any }[] = []
+
+    const fieldMap: Record<string, string> = {
+      customerName: 'customer_name',
+      customerAddress: 'customer_address',
+      customerVat: 'customer_vat',
+      invoiceDate: 'invoice_date',
+      dueDate: 'due_date',
+      lineItems: 'line_items',
+      subtotal: 'subtotal',
+      vatAmount: 'vat_amount',
+      totalAmount: 'total_amount',
+      amountDue: 'amount_due',
+      currency: 'currency',
+      invoice_url: 'invoice_url',
+      invoiceNumber: 'invoice_number',
+      referenceNumber: 'reference_number',
+      salesCode: 'sales_code',
+    }
+
     const updateData: any = { updated_at: new Date().toISOString() }
-    if (body.customerName !== undefined) updateData.customer_name = body.customerName
-    if (body.customerAddress !== undefined) updateData.customer_address = body.customerAddress
-    if (body.customerVat !== undefined) updateData.customer_vat = body.customerVat
-    if (body.invoiceDate !== undefined) updateData.invoice_date = body.invoiceDate
-    if (body.dueDate !== undefined) updateData.due_date = body.dueDate
-    if (body.lineItems !== undefined) updateData.line_items = body.lineItems
-    if (body.subtotal !== undefined) updateData.subtotal = body.subtotal
-    if (body.vatAmount !== undefined) updateData.vat_amount = body.vatAmount
-    if (body.totalAmount !== undefined) updateData.total_amount = body.totalAmount
-    if (body.amountDue !== undefined) updateData.amount_due = body.amountDue
-    if (body.currency !== undefined) updateData.currency = body.currency
-    if (body.invoice_url !== undefined) updateData.invoice_url = body.invoice_url
-    if (body.invoiceData !== undefined) updateData.invoice_data = body.invoiceData
-    if (body.referenceNumber !== undefined) updateData.reference_number = body.referenceNumber
-    if (body.salesCode !== undefined) updateData.sales_code = body.salesCode
+
+    for (const [camelKey, dbKey] of Object.entries(fieldMap)) {
+      if (body[camelKey] !== undefined) {
+        const oldVal = existing[dbKey]
+        const newVal = body[camelKey]
+        const oldStr = JSON.stringify(oldVal)
+        const newStr = JSON.stringify(newVal)
+        if (oldStr !== newStr) {
+          changes.push({ field: dbKey, oldValue: oldVal, newValue: newVal })
+        }
+        updateData[dbKey] = newVal
+      }
+    }
 
     const { data, error } = await supabase
       .from('invoices')
@@ -54,6 +88,20 @@ export async function PATCH(
       .single()
 
     if (error) throw error
+
+    // Log audit trail entries using server-derived user identity
+    if (changes.length > 0) {
+      const auditEntries = changes.map((c) => ({
+        invoice_id: Number(id),
+        action: 'updated',
+        field_changed: c.field,
+        old_value: typeof c.oldValue === 'object' ? JSON.stringify(c.oldValue) : String(c.oldValue ?? ''),
+        new_value: typeof c.newValue === 'object' ? JSON.stringify(c.newValue) : String(c.newValue ?? ''),
+        changed_by: changedBy,
+      }))
+
+      await supabase.from('invoice_audit_log').insert(auditEntries)
+    }
 
     return NextResponse.json({ data })
   } catch (err: any) {

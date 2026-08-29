@@ -79,7 +79,16 @@ export async function POST(request: NextRequest) {
     )
     const body = await request.json()
 
+    // Generate invoice number at draft creation
+    const { data: invoiceNumber, error: numError } = await supabase
+      .rpc('get_next_invoice_number')
+
+    if (numError || !invoiceNumber) {
+      return NextResponse.json({ error: 'Failed to generate invoice number' }, { status: 500 })
+    }
+
     const insertData: any = {
+      invoice_number: invoiceNumber,
       trip_id: body.tripId || null,
       sundry_invoice_id: body.sundryInvoiceId || null,
       is_draft: true,
@@ -107,13 +116,8 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error
 
-    // Mark trip as invoiced if it's a trip invoice
-    if (body.tripId) {
-      await supabase
-        .from('trips')
-        .update({ is_invoiced: true })
-        .eq('trip_id', body.tripId)
-    }
+    // Trip is marked as invoiced only when the draft is finalized, not at draft creation.
+    // See: POST /api/invoices/[id]/finalize
 
     return NextResponse.json({ data })
   } catch (err: any) {

@@ -175,10 +175,16 @@ export default function AuditTripDetailPage() {
 
         if (tripData?.id) {
           setRouteLoading(true)
-          const response = await fetch(`/api/trip-route?tripId=${tripData.id}`)
+          // Prefer the string trip_id (matches the routing-server's identifier).
+          // The API also accepts the numeric PK as a fallback.
+          const routeKey = tripData.trip_id || String(tripData.id)
+          const response = await fetch(`/api/trip-route?tripId=${encodeURIComponent(routeKey)}`)
           if (response.ok) {
             const routePayload = await response.json()
             setRouteData(routePayload)
+          } else {
+            // Don't break the page if routing server is unavailable.
+            setRouteData({ route_points: [], _unavailable: true })
           }
           setRouteLoading(false)
         }
@@ -271,10 +277,12 @@ export default function AuditTripDetailPage() {
   const splitData = buildAssignmentSplitData(record)
   const financeEntries = buildFinanceEntries(record)
   const tabParam = searchParams.get('tab')
+  // Default to 'split' tab when opening a load so users land on the invoice-relevant view.
+  // 'summary' is reserved for callers that explicitly request it.
   const initialTab =
-    tabParam === 'route' || tabParam === 'finance' || tabParam === 'handover' || tabParam === 'split'
-      ? (tabParam as 'route' | 'finance' | 'handover' | 'split')
-      : 'summary'
+    tabParam === 'route' || tabParam === 'finance' || tabParam === 'handover' || tabParam === 'split' || tabParam === 'summary'
+      ? (tabParam as 'route' | 'finance' | 'handover' | 'split' | 'summary')
+      : 'split'
 
   return (
     <>

@@ -8,6 +8,8 @@ type InvoiceLineItemInput = {
   quantity: number
   unitPrice: number
   vatType: string
+  vehicle?: string
+  driver?: string
 }
 
 export type InvoicePdfParams = {
@@ -51,6 +53,15 @@ const formatDisplayDate = (isoDate: string) => {
   const [y, m, d] = isoDate.split('-')
   const date = new Date(Number(y), Number(m) - 1, Number(d))
   return date.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })
+}
+
+export function calculateDueDate(invoiceDate: string): string {
+  if (!invoiceDate) return ''
+  const [y, m] = invoiceDate.split('-').map(Number)
+  const nextMonth = m === 12 ? 1 : m + 1
+  const nextYear = m === 12 ? y + 1 : y
+  const lastDay = new Date(nextYear, nextMonth, 0).getDate()
+  return `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 }
 
 const wrapAddressByComma = (address: string): string[] => {
@@ -183,13 +194,19 @@ export async function generateInvoicePdf(
 
   y = Math.max(custY + 5 + addrLines.length * 4.5 + (customerVat ? 8 : 0), ry) + 8
 
-  // ── LINE ITEMS TABLE (no Sales Code column) ────────────────────
+  // ── LINE ITEMS TABLE ────────────────────────────────────────────
+  const salesCodeLabel = SALES_CODES.find(sc => sc.code === (params.salesCode || '200'))
+  const salesCodeDisplay = salesCodeLabel ? `${params.salesCode || '200'} - ${salesCodeLabel.label}` : (params.salesCode || '200')
+
   const tableData = lineItems.map((item) => {
     const lineTotal = (item.quantity || 0) * (item.unitPrice || 0)
     return [
-      item.description,
+      item.description || '',
       String(item.quantity ? formatNum(item.quantity) : ''),
       formatNum(item.unitPrice || 0),
+      salesCodeDisplay,
+      item.vehicle || '',
+      item.driver || '',
       VAT_LABELS[item.vatType] || '',
       formatNum(lineTotal),
     ]
@@ -199,12 +216,12 @@ export async function generateInvoicePdf(
 
   autoTable(doc, {
     startY: y,
-    head: [['Description', 'Quantity', 'Unit Price', 'VAT', amountHeader]],
+    head: [['Description', 'Qty', 'Unit Price', 'Sales Code', 'Vehicle', 'Driver', 'VAT', amountHeader]],
     body: tableData,
     theme: 'plain',
     styles: {
-      fontSize: 9,
-      cellPadding: { top: 5, bottom: 5, left: 2, right: 2 },
+      fontSize: 8,
+      cellPadding: { top: 4, bottom: 4, left: 2, right: 2 },
       lineWidth: 0,
       lineColor: [255, 255, 255],
       overflow: 'linebreak',
@@ -213,18 +230,21 @@ export async function generateInvoicePdf(
     headStyles: {
       textColor: [0, 0, 0],
       fontStyle: 'bold',
-      fontSize: 9,
+      fontSize: 8,
       cellPadding: { top: 4, bottom: 6, left: 2, right: 2 },
       lineWidth: 0,
       lineColor: [255, 255, 255],
       borderColor: [255, 255, 255],
     },
     columnStyles: {
-      0: { cellWidth: 55, halign: 'left' },
-      1: { cellWidth: 22, halign: 'right' },
-      2: { cellWidth: 25, halign: 'right' },
-      3: { cellWidth: 35, halign: 'left', overflow: 'linebreak' },
-      4: { cellWidth: 30, halign: 'right' },
+      0: { cellWidth: 38, halign: 'left' },
+      1: { cellWidth: 14, halign: 'right' },
+      2: { cellWidth: 18, halign: 'right' },
+      3: { cellWidth: 26, halign: 'left' },
+      4: { cellWidth: 22, halign: 'left' },
+      5: { cellWidth: 24, halign: 'left' },
+      6: { cellWidth: 18, halign: 'left', overflow: 'linebreak' },
+      7: { cellWidth: 22, halign: 'right' },
     },
     didDrawCell: (data) => {
       const { doc: d } = data
@@ -233,12 +253,6 @@ export async function generateInvoicePdf(
         d.setDrawColor(0, 0, 0)
         d.setLineWidth(0.5)
         d.line(ml, lineY, pw - mr, lineY)
-      }
-      if (data.section === 'body' && data.column.index === 3) {
-        const lineY = data.cell.y + data.cell.height + 3
-        d.setDrawColor(220, 220, 220)
-        d.setLineWidth(0.2)
-        d.line(data.cell.x, lineY, data.cell.x + data.cell.width, lineY)
       }
     },
   })
@@ -286,20 +300,32 @@ export async function generateInvoicePdf(
 
   // ── BANK DETAILS — pinned to bottom of page ─────────────────────
   const pageH = doc.internal.pageSize.getHeight()
-  const footerStartY = pageH - 55
+  const footerStartY = pageH - 50
 
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(12)
   doc.setTextColor(0, 0, 0)
   doc.text(`Invoice Due Date: ${formatDisplayDate(dueDate)}`, ml, footerStartY)
-  doc.text('Bank accounts:', ml, footerStartY + 7)
-  doc.text('South African Rand (ZAR)', ml, footerStartY + 12)
-  doc.text('First National Bank (FNB), Branch 210554, Acc 62878278946', ml, footerStartY + 16)
 
-  doc.text('Global account (USD)', ml, footerStartY + 23)
-  doc.text('Capitec Bank, Swift CABLZAJJ, Branch 450105, Acc 5000040384', ml, footerStartY + 27)
-  doc.text('Acc type CFC Call Account', ml, footerStartY + 31)
-  doc.text('142 West Street, Sandton, Johannesburg, 2196', ml, footerStartY + 35)
+  doc.setFontSize(9)
+  doc.text('Bank accounts:', ml, footerStartY + 8)
+
+  doc.setFont('helvetica', 'bold')
+  doc.text('South African Rand (ZAR)', ml, footerStartY + 15)
+  doc.setFont('helvetica', 'normal')
+  doc.text('Bank: First National Bank (FNB)', ml, footerStartY + 20)
+  doc.text('Branch: 210554', ml, footerStartY + 25)
+  doc.text('Account number: 62878278946', ml, footerStartY + 30)
+
+  doc.setFont('helvetica', 'bold')
+  doc.text('Global account (USD)', ml, footerStartY + 38)
+  doc.setFont('helvetica', 'normal')
+  doc.text('Bank: Capitec Bank', ml, footerStartY + 43)
+  doc.text('Swift: CABLZAJJ', ml, footerStartY + 48)
+  doc.text('Branch: 450105', ml, footerStartY + 53)
+  doc.text('Account number: 5000040384', ml, footerStartY + 58)
+  doc.text('Acc type CFC Call Account', ml, footerStartY + 63)
+  doc.text('142 West Street, Sandton, Johannesburg, 2196', ml, footerStartY + 68)
 
   // ── FOOTER ─────────────────────────────────────────────────────
   doc.setFontSize(7)
@@ -308,7 +334,7 @@ export async function generateInvoicePdf(
   doc.text(
     'Company Registration No: 2020/601042/07.  Registered Office: 96 CAVALEROS DRIVE, INDUSTRIES WEST, GERMISTON, GERMISTON, GAUTENG, 1401, SOUTH AFRICA',
     ml,
-    footerStartY + 44
+    footerStartY + 77
   )
 
   const fileName = `${invoiceNumber || 'invoice'}.pdf`

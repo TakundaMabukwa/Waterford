@@ -39,7 +39,7 @@ export async function GET() {
     while (true) {
       const { data, error } = await supabase
         .from('eps_client_list')
-        .select('id, name, address, city, state, country, client_id, contact_person, contact_phone, contact_email, email, phone, status, industry, credit_limit, dormant_flag, postal_code, fax_number, registration_number, registration_name, ck_number, tax_number, vat_number, operating_hours, capacity, notes, coordinates, coords, blocked, notification_period, notification_groups, invoice_email_groups, created_at, updated_at')
+        .select('id, name, address, city, state, country, client_id, contact_person, contact_phone, contact_email, email, phone, status, industry, credit_limit, dormant_flag, postal_code, fax_number, registration_number, registration_name, ck_number, tax_number, vat_number, vat_type, operating_hours, capacity, notes, coordinates, coords, blocked, notification_period, notification_groups, invoice_email_groups, created_at, updated_at')
         .order('name')
         .range(from, from + batchSize - 1)
       
@@ -105,6 +105,7 @@ export async function POST(request) {
       ck_number: cleanText(payload.ck_number, '') ?? '',
       tax_number: cleanText(payload.tax_number, '') ?? '',
       vat_number: cleanText(payload.vat_number, '') ?? '',
+      vat_type: cleanText(payload.vat_type, '') ?? '',
       status: cleanText(payload.status, 'Active') ?? 'Active',
       postal_code: cleanText(payload.postal_code, '') ?? '',
       fax_number: cleanText(payload.fax_number, '') ?? '',
@@ -210,6 +211,7 @@ export async function PUT(request) {
       ck_number: payload.ck_number !== undefined ? (cleanText(payload.ck_number, '') ?? '') : existing.ck_number,
       tax_number: payload.tax_number !== undefined ? (cleanText(payload.tax_number, '') ?? '') : existing.tax_number,
       vat_number: payload.vat_number !== undefined ? (cleanText(payload.vat_number, '') ?? '') : existing.vat_number,
+      vat_type: payload.vat_type !== undefined ? (cleanText(payload.vat_type, '') ?? '') : existing.vat_type,
       status: payload.status !== undefined ? (cleanText(payload.status, 'Active') ?? 'Active') : existing.status,
       postal_code: payload.postal_code !== undefined ? (cleanText(payload.postal_code, '') ?? '') : existing.postal_code,
       fax_number: payload.fax_number !== undefined ? (cleanText(payload.fax_number, '') ?? '') : existing.fax_number,

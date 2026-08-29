@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
+import { calculateDueDate } from '@/lib/generate-invoice-pdf'
 
 const supabase = createClient()
 
@@ -16,6 +17,7 @@ type InvoiceLineItem = {
   description: string
   quantity: string
   unitPrice: string
+  salesCode: string
   vatType: 'zero' | 'standard' | 'exempt' | 'zero_export'
 }
 
@@ -35,6 +37,128 @@ const SALES_CODES = [
   { code: '260', label: 'Other Revenue' },
 ]
 
+const normalizeClientName = (s: string) =>
+  (s || '')
+    .replace(/^\(\$\)\s*/, '')
+    .replace(/^\$\s*/, '')
+    .replace(/[()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+
+// Auto-expanding textarea that grows downward as content is added.
+function AutoExpandTextarea({
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  className,
+  minRows = 2,
+  maxRows = 20,
+}: {
+  value: string
+  onChange: (val: string) => void
+  placeholder?: string
+  disabled?: boolean
+  className?: string
+  minRows?: number
+  maxRows?: number
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    const lineHeight = 20
+    const next = Math.min(el.scrollHeight, lineHeight * maxRows)
+    el.style.height = `${Math.max(next, lineHeight * minRows)}px`
+  }, [value, minRows, maxRows])
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      disabled={disabled}
+      rows={minRows}
+      className={
+        className ||
+        'flex w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm leading-5 shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-none disabled:bg-slate-50 disabled:text-slate-500'
+      }
+    />
+  )
+}
+
+// Searchable client combobox.
+function SearchableClientSelect({
+  clients,
+  value,
+  onSelect,
+  placeholder = 'Search client…',
+}: {
+  clients: any[]
+  value: string
+  onSelect: (clientId: string) => void
+  placeholder?: string
+}) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const selectedClient = clients.find((c) => String(c.id) === value)
+  useEffect(() => {
+    if (selectedClient) setQuery(selectedClient.name || '')
+  }, [selectedClient?.id])
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current) return
+      if (!wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+  const q = normalizeClientName(query)
+  const filtered = q
+    ? clients.filter((c) => normalizeClientName(c.name || '').includes(q)).slice(0, 25)
+    : clients.slice(0, 25)
+  return (
+    <div ref={wrapRef} className="relative">
+      <input
+        type="text"
+        value={query}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setQuery(e.target.value)
+          setOpen(true)
+          if (selectedClient && e.target.value !== selectedClient.name) {
+            onSelect('')
+          }
+        }}
+        onFocus={() => setOpen(true)}
+        className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+          {filtered.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => {
+                onSelect(String(c.id))
+                setQuery(c.name || '')
+                setOpen(false)
+              }}
+              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-slate-100"
+            >
+              <span className="truncate">{c.name || '(no name)'}</span>
+              {c.client_id && <span className="ml-2 shrink-0 text-xs text-slate-400">{c.client_id}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const formatCurrency = (value: number, currencyCode: string = 'ZAR') =>
   new Intl.NumberFormat('en-ZA', {
     style: 'currency',
@@ -50,11 +174,7 @@ type Props = {
 
 export default function SundryInvoiceModal({ open, onClose }: Props) {
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().split('T')[0])
-  const [dueDate, setDueDate] = useState(() => {
-    const d = new Date()
-    d.setMonth(d.getMonth() + 1)
-    return d.toISOString().split('T')[0]
-  })
+  const [dueDate, setDueDate] = useState(() => calculateDueDate(new Date().toISOString().split('T')[0]))
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [referenceNumber, setReferenceNumber] = useState('')
   const [customerName, setCustomerName] = useState('')
@@ -84,12 +204,28 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
 
   const handleClientSelect = (clientId: string) => {
     setSelectedClientId(clientId)
+    if (!clientId) return
     const client = clients.find((c) => String(c.id) === clientId)
-    if (client) {
-      setCustomerName(client.name || '')
-      const addrParts = [client.address, client.city, client.country].filter(Boolean)
-      setCustomerAddress(addrParts.join(', '))
-      setCustomerVat(client.vat_number || client.tax_number || '')
+    if (!client) return
+    const clientName = client.name || ''
+    setCustomerName(clientName)
+
+    // Auto-switch currency to USD if client name has ($) or $ prefix
+    if (clientName.startsWith('($)') || clientName.startsWith('$')) {
+      setCurrency('USD')
+    }
+
+    const addrParts = [client.address, client.city, client.country].filter(Boolean)
+    setCustomerAddress(addrParts.join(', '))
+    setCustomerVat(client.vat_number || client.tax_number || '')
+
+    // Apply client defaults: vat type across all lines + per-line sales code
+    const clientVatType = client.vat_type
+    if (clientVatType && ['zero', 'standard', 'exempt', 'zero_export'].includes(clientVatType)) {
+      setLineItems((prev) => prev.map((l) => ({ ...l, vatType: clientVatType as any })))
+    }
+    if (client.industry_code) {
+      setLineItems((prev) => prev.map((l) => ({ ...l, salesCode: client.industry_code })))
     }
   }
 
@@ -99,6 +235,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       description: '',
       quantity: '1',
       unitPrice: '',
+      salesCode: '200',
       vatType: 'zero' as const,
     },
   ])
@@ -117,6 +254,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
         description: '',
         quantity: '1',
         unitPrice: '',
+        salesCode: '200',
         vatType: 'zero' as const,
       },
     ])
@@ -178,6 +316,10 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       if (!res.ok) throw new Error(result.error || 'Failed to save draft')
 
       const invoiceId = result.data?.id
+      const generatedInvoiceNumber = result.data?.invoice_number || ''
+      if (generatedInvoiceNumber) {
+        setInvoiceNumber(generatedInvoiceNumber)
+      }
 
       // Upload pending documents linked to this invoice
       if (invoiceId && pendingFiles.length > 0) {
@@ -253,22 +395,25 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
               <input
                 type="date"
                 value={invoiceDate}
-                onChange={(e) => setInvoiceDate(e.target.value)}
+                onChange={(e) => {
+                  setInvoiceDate(e.target.value)
+                  setDueDate(calculateDueDate(e.target.value))
+                }}
                 className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Due Date</label>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Due Date (Auto-calculated)</label>
               <input
                 type="date"
                 value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
+                readOnly
+                className="flex h-9 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-500 cursor-not-allowed"
               />
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Number</label>
-              <Input value={invoiceNumber} disabled placeholder="Generated on finalize" />
+              <Input value={invoiceNumber} disabled placeholder="Auto-generated on save" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Currency</label>
@@ -287,45 +432,25 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
               <Input value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} placeholder="e.g. PO Number or custom reference" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Sales Code</label>
-              <Select value={salesCode} onValueChange={setSalesCode}>
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SALES_CODES.map((sc) => (
-                    <SelectItem key={sc.code} value={sc.code}>
-                      {sc.code} - {sc.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Client (optional)</label>
-              <Select value={selectedClientId} onValueChange={handleClientSelect}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select client to auto-fill" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer Name</label>
-              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Customer or company name" />
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Client</label>
+              <SearchableClientSelect
+                clients={clients}
+                value={selectedClientId}
+                onSelect={handleClientSelect}
+                placeholder="Search and select client…"
+              />
+              {selectedClientId && (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Selected: <span className="font-medium text-slate-700">{customerName || '—'}</span>
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Customer Address</label>
-              <textarea
+              <AutoExpandTextarea
                 value={customerAddress}
-                onChange={(e) => setCustomerAddress(e.target.value)}
+                onChange={setCustomerAddress}
                 placeholder="PO Box, City, Country"
-                rows={2}
-                className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-y"
               />
             </div>
             <div>
@@ -348,23 +473,22 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-20">Qty</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Unit Price</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-16">Qty</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Sales Code</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Unit Price</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">VAT</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Amount</th>
-                    <th className="px-4 py-3 w-10"></th>
+                    <th className="px-4 py-3 w-8"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {lineItems.map((item) => (
                     <tr key={item.id}>
-                      <td className="px-4 py-2">
-                        <textarea
+                      <td className="min-w-[280px] px-4 py-2 align-top">
+                        <AutoExpandTextarea
                           value={item.description}
-                          onChange={(e) => updateLine(item.id, 'description', e.target.value)}
+                          onChange={(val) => updateLine(item.id, 'description', val)}
                           placeholder="What is being invoiced"
-                          rows={2}
-                          className="flex w-full rounded-md border border-slate-300 bg-transparent px-2 py-1 text-sm shadow-sm placeholder:text-slate-400 focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] resize-y min-h-[40px]"
                         />
                       </td>
                       <td className="px-4 py-2">
@@ -373,8 +497,21 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                           inputMode="decimal"
                           value={item.quantity}
                           onChange={(e) => updateLine(item.id, 'quantity', e.target.value)}
-                          className="h-9 w-20 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
+                          className="h-9 w-16 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
                         />
+                      </td>
+                      <td className="px-4 py-2">
+                        <select
+                          value={item.salesCode || salesCode}
+                          onChange={(e) => updateLine(item.id, 'salesCode' as any, e.target.value)}
+                          className="h-9 w-32 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
+                        >
+                          {SALES_CODES.map((sc) => (
+                            <option key={sc.code} value={sc.code}>
+                              {sc.code} - {sc.label}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td className="px-4 py-2">
                         <input
@@ -382,7 +519,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                           inputMode="decimal"
                           value={item.unitPrice}
                           onChange={(e) => updateLine(item.id, 'unitPrice', e.target.value)}
-                          className="h-9 w-32 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
+                          className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
                         />
                       </td>
                       <td className="px-4 py-2">

@@ -305,6 +305,8 @@ export default function SettingsPage() {
                 return "bg-gray-100 text-gray-800"
             case "client":
                 return "bg-emerald-100 text-emerald-800"
+            case "accounts":
+                return "bg-teal-100 text-teal-800"
             default:
                 return "bg-gray-100 text-gray-800"
         }
@@ -525,6 +527,7 @@ export default function SettingsPage() {
                                         <SelectItem value="fc">Fleet Controller</SelectItem>
                                         <SelectItem value="customer">External</SelectItem>
                                         <SelectItem value="client">Client</SelectItem>
+                                        <SelectItem value="accounts">Accounts</SelectItem>
                                     </SelectContent>
                                 </Select>
                                 <Dialog open={isAddUserOpen} onOpenChange={(open) => {
@@ -597,6 +600,7 @@ export default function SettingsPage() {
                                                                 <SelectItem value="fc"><div className="text-sm">Fleet Controller</div></SelectItem>
                                                                 <SelectItem value="customer"><div className="text-sm">External User</div></SelectItem>
                                                                 <SelectItem value="client"><div className="text-sm">Client</div></SelectItem>
+                                                                <SelectItem value="accounts"><div className="text-sm">Accounts</div></SelectItem>
                                                             </SelectContent>
                                                         </Select>
                                                     </div>
@@ -1152,6 +1156,7 @@ export default function SettingsPage() {
                                             <SelectItem value="fleet manager">Fleet Manager</SelectItem>
                                             <SelectItem value="fc">FC</SelectItem>
                                             <SelectItem value="customer">External</SelectItem>
+                                            <SelectItem value="accounts">Accounts</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>

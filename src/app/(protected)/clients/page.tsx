@@ -98,6 +98,7 @@ type FuelStopRecord = {
 
 export default function ClientsPage() {
   const supabase = useMemo(() => createSupabaseClient(), []);
+  const [userRole, setUserRole] = useState<string>("");
   const [activeTab, setActiveTab] = useState("clients");
   const [search, setSearch] = useState("");
 
@@ -115,6 +116,17 @@ export default function ClientsPage() {
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [viewingStop, setViewingStop] = useState<FuelStopRecord | null>(null);
   const [isStopViewDialogOpen, setIsStopViewDialogOpen] = useState(false);
+
+  useEffect(() => {
+    const getCookie = (name: string) => {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop()?.split(";").shift();
+      return null;
+    };
+    const role = decodeURIComponent(getCookie("role") || "");
+    if (role) setUserRole(role);
+  }, []);
 
   const fetchClients = async () => {
     setIsLoadingClients(true);
@@ -416,6 +428,7 @@ export default function ClientsPage() {
         onOpenChange={(open) => { if (!open) closeClientForm(); else setIsClientSheetOpen(true) }}
         onSaved={async () => { await fetchClients() }}
         initialRecord={editingClientId ? clients.find(c => c.id === editingClientId) : null}
+        userRole={userRole}
       />
 
       <Sheet open={isStopSheetOpen} onOpenChange={(open) => { if (!open) { closeStopForm(); return; } setIsStopSheetOpen(true); }}>

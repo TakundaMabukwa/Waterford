@@ -72,6 +72,20 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
   client: [
     { page: 'clientDashboard', actions: ['view'] },
     { page: 'systemSettings', actions: ['view'] }
+  ],
+  accounts: [
+    { page: 'dashboard', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'fleetJobs', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'loadPlan', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'fuel', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'clients', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'drivers', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'vehicles', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'costCenters', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'financials', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'inspections', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'userManagement', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'systemSettings', actions: ['view', 'create', 'edit', 'delete'] }
   ]
 };
 

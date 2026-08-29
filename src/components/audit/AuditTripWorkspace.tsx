@@ -2,6 +2,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   ArrowLeft,
   BarChart3,
@@ -228,6 +229,7 @@ export default function AuditTripWorkspace({
   onSaveAudit,
   onRecordUpdate,
 }: Props) {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<'summary' | 'split' | 'finance' | 'route' | 'handover'>(initialTab)
   const [splitRows, setSplitRows] = useState<AuditSplitRow[]>(initialSplits)
   const [financeEntries, setFinanceEntries] = useState<AuditFinanceEntry[]>(initialFinanceEntries)
@@ -263,7 +265,15 @@ export default function AuditTripWorkspace({
     setAmountToSplit(nextInvoiceRate)
     setActualCurrency(normalizeCurrency(record?.actual_currency ?? 'ZAR'))
     setInvoiceRateStr(String(record?.invoice_rate ?? record?.rate ?? ''))
-    setInvoiceCurrency(normalizeCurrency(record?.invoice_currency ?? record?.actual_currency ?? 'ZAR'))
+
+    // Auto-switch invoice currency to USD if client name has ($) or $ prefix
+    const clientName = record?.selectedclient || ''
+    const isDollarClient = clientName.startsWith('($)') || clientName.startsWith('$')
+    if (isDollarClient) {
+      setInvoiceCurrency('USD')
+    } else {
+      setInvoiceCurrency(normalizeCurrency(record?.invoice_currency ?? record?.actual_currency ?? 'ZAR'))
+    }
   }, [record])
 
   const invoiceRate = Number(invoiceRateStr) || 0
@@ -544,7 +554,7 @@ export default function AuditTripWorkspace({
   }
 
   return (
-    <div className="flex h-full flex-col bg-slate-50">
+    <div className="flex flex-col bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
         <div className="flex items-start justify-between gap-4 px-5 py-4">
           <div className="flex min-w-0 items-start gap-3">
@@ -580,7 +590,7 @@ export default function AuditTripWorkspace({
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-5 py-4">
+      <div className="px-5 py-4">
         <section className="mb-4 grid grid-cols-2 gap-3 xl:grid-cols-5">
           <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
             <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Planned Rate</div>
@@ -1291,7 +1301,17 @@ export default function AuditTripWorkspace({
       {showInvoiceModal && (
         <GenerateInvoiceModal
           open={showInvoiceModal}
-          onClose={() => setShowInvoiceModal(false)}
+          onClose={(result: any) => {
+            setShowInvoiceModal(false)
+            // After a successful generate, take the user back to the audit list so they
+            // don't have to manually navigate away from a now-invoiced trip.
+            const status = typeof result === 'object' ? result?.status : undefined
+            if (status === 'success' && onBack) {
+              onBack()
+            } else if (status === 'success') {
+              router.push('/audit')
+            }
+          }}
           record={record}
           invoiceRate={invoiceRate}
           invoiceCurrency={invoiceCurrency}
@@ -1299,6 +1319,7 @@ export default function AuditTripWorkspace({
           calcSplitTotal={calcSplitTotal}
           onInvoiced={(rate, currency) => onRecordUpdate?.({ is_invoiced: true, invoice_rate: rate, invoice_currency: currency })}
           mode="draft"
+          closeParentOnSuccess
         />
       )}
     </div>

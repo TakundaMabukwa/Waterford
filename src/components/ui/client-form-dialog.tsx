@@ -19,6 +19,7 @@ interface ClientFormDialogProps {
   onOpenChange: (open: boolean) => void
   onSaved: () => void
   initialRecord?: any | null
+  userRole?: string | null
 }
 
 const defaultFormState = {
@@ -41,6 +42,7 @@ const defaultFormState = {
   ck_number: "",
   tax_number: "",
   vat_number: "",
+  vat_type: "",
   fax_number: "",
   operating_hours: "",
   capacity: "",
@@ -51,15 +53,25 @@ const defaultFormState = {
   invoice_email_groups: [] as Array<{ name: string; emails: string[] }>,
 }
 
+const VAT_TYPES = [
+  { code: 'zero', label: 'Zero Rate' },
+  { code: 'zero_export', label: 'Zero Rate (Excl. Goods Exported)' },
+  { code: 'standard', label: '15% VAT' },
+  { code: 'exempt', label: 'Exempt' },
+]
+
 function ClientFormContent({
   initialRecord,
   onDone,
+  userRole,
 }: {
   initialRecord?: any | null
   onDone: () => void
+  userRole?: string | null
 }) {
   const { loaded: mapsLoaded, error: mapsError } = useGoogleMaps()
   const isEditing = Boolean(initialRecord?.id)
+  const canEditAll = !isEditing || userRole === 'accounts'
 
   const [formState, setFormState] = useState(defaultFormState)
   const [centerPoint, setCenterPoint] = useState<Point | null>(null)
@@ -72,6 +84,7 @@ function ClientFormContent({
 
   const drawModeRef = useRef(drawMode)
   const centerPointRef = useRef<Point | null>(null)
+  const canEditAllRef = useRef(canEditAll)
   const mapRef = useRef<google.maps.Map | null>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const centerMarkerRef = useRef<google.maps.Marker | null>(null)
@@ -80,6 +93,7 @@ function ClientFormContent({
 
   useEffect(() => { drawModeRef.current = drawMode }, [drawMode])
   useEffect(() => { centerPointRef.current = centerPoint }, [centerPoint])
+  useEffect(() => { canEditAllRef.current = canEditAll }, [canEditAll])
 
   useEffect(() => {
     if (initialRecord) {
@@ -103,6 +117,7 @@ function ClientFormContent({
         ck_number: initialRecord.ck_number || "",
         tax_number: initialRecord.tax_number || "",
         vat_number: initialRecord.vat_number || "",
+        vat_type: initialRecord.vat_type || "",
         fax_number: initialRecord.fax_number || "",
         operating_hours: initialRecord.operating_hours || "",
         capacity: initialRecord.capacity || "",
@@ -163,6 +178,7 @@ function ClientFormContent({
     })
     mapRef.current.addListener("click", (event: google.maps.MapMouseEvent) => {
       if (!event.latLng) return
+      if (!canEditAllRef.current) return
       const clickLat = Number(event.latLng.lat().toFixed(6))
       const clickLng = Number(event.latLng.lng().toFixed(6))
       const clickedPoint = { lng: clickLng, lat: clickLat }
@@ -290,6 +306,9 @@ function ClientFormContent({
       <div className="border-b border-slate-200 px-6 py-4">
         <h1 className="text-lg font-semibold text-slate-900">{isEditing ? "Edit Client" : "Add Client"}</h1>
         <p className="text-sm text-slate-500">Manage client details and geozone area.</p>
+        {isEditing && !canEditAll && (
+          <p className="mt-1 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1 inline-block">Only Notification Groups can be edited. Contact an Accounts user to modify other fields.</p>
+        )}
       </div>
 
       <div className="grid flex-1 gap-5 overflow-hidden px-6 py-5 lg:grid-cols-[1.1fr_1fr]">
@@ -302,7 +321,7 @@ function ClientFormContent({
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Client Name</Label>
-                <Input value={formState.name} onChange={(e) => {
+                <Input value={formState.name} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => {
                   const val = e.target.value
                   updateField("name", val)
                   if (!isEditing) updateField("client_id", val)
@@ -310,7 +329,7 @@ function ClientFormContent({
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Client ID</Label>
-                <Input value={formState.client_id} onChange={(e) => updateField("client_id", e.target.value)} disabled={isEditing} readOnly={isEditing} className={isEditing ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} />
+                <Input value={formState.client_id} onChange={(e) => updateField("client_id", e.target.value)} disabled={isEditing || !canEditAll} readOnly={isEditing} className={isEditing || !canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Notification Period (0-6)</Label>
@@ -319,6 +338,8 @@ function ClientFormContent({
                   min={0}
                   max={6}
                   value={formState.notification_period}
+                  disabled={!canEditAll}
+                  className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""}
                   onChange={(e) => {
                     const val = e.target.value
                     if (val === "") { updateField("notification_period", ""); return }
@@ -333,8 +354,9 @@ function ClientFormContent({
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Blocked</Label>
                 <button
                   type="button"
-                  onClick={() => updateField("blocked", (!formState.blocked).toString())}
-                  className={`inline-flex h-7 w-12 items-center rounded-full transition-colors ${formState.blocked === "true" || formState.blocked === true ? "bg-red-500" : "bg-emerald-500"}`}
+                  onClick={() => canEditAll && updateField("blocked", (!formState.blocked).toString())}
+                  disabled={!canEditAll}
+                  className={`inline-flex h-7 w-12 items-center rounded-full transition-colors ${!canEditAll ? "opacity-50 cursor-not-allowed" : ""} ${formState.blocked === "true" || formState.blocked === true ? "bg-red-500" : "bg-emerald-500"}`}
                 >
                   <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${formState.blocked === "true" || formState.blocked === true ? "translate-x-6" : "translate-x-1"}`} />
                 </button>
@@ -342,7 +364,7 @@ function ClientFormContent({
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Industry</Label>
-                <Input value={formState.industry} onChange={(e) => updateField("industry", e.target.value)} />
+                <Input value={formState.industry} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("industry", e.target.value)} />
               </div>
             </div>
           </section>
@@ -360,6 +382,7 @@ function ClientFormContent({
                     value={locationQuery}
                     onChange={(value) => { setLocationQuery(value); setSelectedLocation(null) }}
                     onSelect={(suggestion) => {
+                      if (!canEditAll) return
                       if (!suggestion?.coordinates || suggestion.coordinates.length < 2) return
                       const [lng, lat] = suggestion.coordinates
                       setSelectedLocation(suggestion)
@@ -375,7 +398,8 @@ function ClientFormContent({
                       }))
                       reverseGeocode(lat, lng)
                     }}
-                    placeholder="Search address or place"
+                    placeholder={canEditAll ? "Search address or place" : "Locked"}
+                    disabled={!canEditAll}
                   />
                 </div>
               </div>
@@ -383,23 +407,23 @@ function ClientFormContent({
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Address</Label>
-                <Input value={formState.address} onChange={(e) => updateField("address", e.target.value)} />
+                <Input value={formState.address} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("address", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">City</Label>
-                <Input value={formState.city} onChange={(e) => updateField("city", e.target.value)} />
+                <Input value={formState.city} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("city", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">State</Label>
-                <Input value={formState.state} onChange={(e) => updateField("state", e.target.value)} />
+                <Input value={formState.state} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("state", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Country</Label>
-                <Input value={formState.country} onChange={(e) => updateField("country", e.target.value)} />
+                <Input value={formState.country} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("country", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Postal Code</Label>
-                <Input value={formState.postal_code} onChange={(e) => updateField("postal_code", e.target.value)} />
+                <Input value={formState.postal_code} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("postal_code", e.target.value)} />
               </div>
             </div>
           </section>
@@ -412,23 +436,23 @@ function ClientFormContent({
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Contact Person</Label>
-                <Input value={formState.contact_person} onChange={(e) => updateField("contact_person", e.target.value)} />
+                <Input value={formState.contact_person} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("contact_person", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Contact Phone</Label>
-                <Input value={formState.contact_phone} onChange={(e) => updateField("contact_phone", e.target.value)} />
+                <Input value={formState.contact_phone} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("contact_phone", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Contact Email</Label>
-                <Input value={formState.contact_email} onChange={(e) => updateField("contact_email", e.target.value)} />
+                <Input value={formState.contact_email} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("contact_email", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">General Email</Label>
-                <Input value={formState.email} onChange={(e) => updateField("email", e.target.value)} />
+                <Input value={formState.email} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("email", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">General Phone</Label>
-                <Input value={formState.phone} onChange={(e) => updateField("phone", e.target.value)} />
+                <Input value={formState.phone} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("phone", e.target.value)} />
               </div>
             </div>
           </section>
@@ -441,39 +465,55 @@ function ClientFormContent({
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Credit Limit</Label>
-                <Input value={formState.credit_limit} onChange={(e) => updateField("credit_limit", e.target.value)} />
+                <Input value={formState.credit_limit} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("credit_limit", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Operating Hours</Label>
-                <Input value={formState.operating_hours} onChange={(e) => updateField("operating_hours", e.target.value)} placeholder="24/7" />
+                <Input value={formState.operating_hours} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("operating_hours", e.target.value)} placeholder="24/7" />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Capacity</Label>
-                <Input value={formState.capacity} onChange={(e) => updateField("capacity", e.target.value)} />
+                <Input value={formState.capacity} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("capacity", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">CK Number</Label>
-                <Input value={formState.ck_number} onChange={(e) => updateField("ck_number", e.target.value)} />
+                <Input value={formState.ck_number} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("ck_number", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Tax Number</Label>
-                <Input value={formState.tax_number} onChange={(e) => updateField("tax_number", e.target.value)} />
+                <Input value={formState.tax_number} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("tax_number", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">VAT Number</Label>
-                <Input value={formState.vat_number} onChange={(e) => updateField("vat_number", e.target.value)} />
+                <Input value={formState.vat_number} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("vat_number", e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Default VAT Type</Label>
+                <select
+                  value={formState.vat_type}
+                  disabled={!canEditAll}
+                  className={`flex h-9 w-full rounded-md border border-slate-300 px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] ${!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-white"}`}
+                  onChange={(e) => updateField("vat_type", e.target.value)}
+                >
+                  <option value="">-- Select --</option>
+                  {VAT_TYPES.map((vt) => (
+                    <option key={vt.code} value={vt.code}>
+                      {vt.label}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Registration Number</Label>
-                <Input value={formState.registration_number} onChange={(e) => updateField("registration_number", e.target.value)} />
+                <Input value={formState.registration_number} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("registration_number", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Registration Name</Label>
-                <Input value={formState.registration_name} onChange={(e) => updateField("registration_name", e.target.value)} />
+                <Input value={formState.registration_name} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("registration_name", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Fax Number</Label>
-                <Input value={formState.fax_number} onChange={(e) => updateField("fax_number", e.target.value)} />
+                <Input value={formState.fax_number} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("fax_number", e.target.value)} />
               </div>
             </div>
           </section>
@@ -485,7 +525,7 @@ function ClientFormContent({
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Notes</Label>
-              <Textarea value={formState.notes} onChange={(e) => updateField("notes", e.target.value)} rows={3} />
+              <Textarea value={formState.notes} disabled={!canEditAll} className={!canEditAll ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""} onChange={(e) => updateField("notes", e.target.value)} rows={3} />
             </div>
           </section>
 
@@ -586,7 +626,7 @@ function ClientFormContent({
             </Button>
           </section>
 
-          <section className="space-y-4">
+          <section className={`space-y-4 ${!canEditAll ? "opacity-50 pointer-events-none" : ""}`}>
             <div>
               <h3 className="text-sm font-semibold text-slate-900">Invoice Contact Emails</h3>
               <p className="text-xs text-slate-500">Email groups that receive invoices for this client.</p>
@@ -698,12 +738,12 @@ function ClientFormContent({
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button type="button" variant={drawMode === "station" ? "default" : "outline"} size="sm" onClick={() => setDrawMode("station")}>Station Point</Button>
-                <Button type="button" variant={drawMode === "polygon" ? "default" : "outline"} size="sm" onClick={() => setDrawMode("polygon")} disabled={!centerPoint}>Draw Zone</Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => setPolygonPoints((prev) => prev.slice(0, -1))} disabled={polygonPoints.length === 0}>
+                <Button type="button" variant={drawMode === "station" ? "default" : "outline"} size="sm" onClick={() => setDrawMode("station")} disabled={!canEditAll}>Station Point</Button>
+                <Button type="button" variant={drawMode === "polygon" ? "default" : "outline"} size="sm" onClick={() => setDrawMode("polygon")} disabled={!centerPoint || !canEditAll}>Draw Zone</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setPolygonPoints((prev) => prev.slice(0, -1))} disabled={polygonPoints.length === 0 || !canEditAll}>
                   <RotateCcw className="mr-1 h-4 w-4" /> Undo
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => { setCenterPoint(null); setPolygonPoints([]) }}>
+                <Button type="button" variant="outline" size="sm" onClick={() => { setCenterPoint(null); setPolygonPoints([]) }} disabled={!canEditAll}>
                   <Trash2 className="mr-1 h-4 w-4" /> Clear
                 </Button>
               </div>
@@ -754,7 +794,7 @@ function ClientFormContent({
   )
 }
 
-export function ClientFormDialog({ open, onOpenChange, onSaved, initialRecord = null }: ClientFormDialogProps) {
+export function ClientFormDialog({ open, onOpenChange, onSaved, initialRecord = null, userRole }: ClientFormDialogProps) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
@@ -767,6 +807,7 @@ export function ClientFormDialog({ open, onOpenChange, onSaved, initialRecord = 
           {open && (
             <ClientFormContent
               initialRecord={initialRecord}
+              userRole={userRole}
               onDone={() => {
                 onOpenChange(false)
                 onSaved()
