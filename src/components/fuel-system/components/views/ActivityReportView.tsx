@@ -3,13 +3,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 
-import { RefreshCw, Calendar, Download } from 'lucide-react';
+import { RefreshCw, Calendar, Download, BarChart3, GitCompare } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useApp } from '@/components/fuel-system/contexts/AppContext';
 import { useUser } from '@/components/fuel-system/contexts/UserContext';
 import { useToast } from '@/hooks/use-toast';
 import { getReportsApiUrl } from '@/lib/utils/api-url';
+import { FuelComparisonView } from '@/components/fuel-system/components/views/FuelComparisonView';
 
 interface ActivityReportViewProps {
   onBack?: () => void;
@@ -138,6 +139,7 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
   const [reportData, setReportData] = useState<ActivityReportData | null>(null);
   const [selectedCostCode, setSelectedCostCode] = useState('');
   const [generatingExcel, setGeneratingExcel] = useState(false);
+  const [viewMode, setViewMode] = useState<'overview' | 'comparison'>('overview');
 
   const getCostCenterName = () => {
     return 'Activity Reports';
@@ -556,6 +558,38 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
           </div>
         </div>
 
+        {/* View Mode Tabs */}
+        <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
+          <button
+            onClick={() => setViewMode('overview')}
+            className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              viewMode === 'overview'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <BarChart3 className="mr-2 inline h-4 w-4" />
+            Overview
+          </button>
+          <button
+            onClick={() => setViewMode('comparison')}
+            className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              viewMode === 'comparison'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <GitCompare className="mr-2 inline h-4 w-4" />
+            Fuel Comparison
+          </button>
+        </div>
+
+        {/* Comparison View */}
+        {viewMode === 'comparison' && <FuelComparisonView />}
+
+        {/* Overview Content */}
+        {viewMode === 'overview' && (<>
+
         <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:px-4 sm:py-3">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:items-end">
@@ -759,6 +793,8 @@ export function ActivityReportView({ onBack, initialDate }: ActivityReportViewPr
             </Table>
           </div>
         </div>
+        </>
+      )}
       </div>
     </div>
   );
