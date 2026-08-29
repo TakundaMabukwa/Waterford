@@ -89,7 +89,7 @@ function getTrackingFromTrip(trip: any): { vehicle: string; driver: string } {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { invoiceIds, month } = body
+    const { invoiceIds, month, fromInvoiceNumber, toInvoiceNumber } = body
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -99,9 +99,13 @@ export async function POST(request: NextRequest) {
     let query = supabase
       .from('invoices')
       .select('*')
-      .order('invoice_date', { ascending: false })
+      .order('invoice_number', { ascending: true })
 
-    if (invoiceIds && invoiceIds.length > 0) {
+    if (fromInvoiceNumber && toInvoiceNumber) {
+      query = query
+        .gte('invoice_number', fromInvoiceNumber)
+        .lte('invoice_number', toInvoiceNumber)
+    } else if (invoiceIds && invoiceIds.length > 0) {
       query = query.in('id', invoiceIds)
     } else if (month) {
       query = query.eq('lock_month', month)

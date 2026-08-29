@@ -156,6 +156,9 @@ export default function AuditPage() {
   const [auditLogInvoiceId, setAuditLogInvoiceId] = useState<number | null>(null)
   const [auditLogData, setAuditLogData] = useState<any[]>([])
   const [auditLogLoading, setAuditLogLoading] = useState(false)
+  const [exportRangeOpen, setExportRangeOpen] = useState(false)
+  const [exportFromInvoice, setExportFromInvoice] = useState('')
+  const [exportToInvoice, setExportToInvoice] = useState('')
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date()
     d.setMonth(d.getMonth() - 1, 1)
@@ -1833,31 +1836,7 @@ export default function AuditPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
-                  if (!confirm('Export all finalized invoices to Excel?')) return
-                  try {
-                    const res = await fetch('/api/invoices/export', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ invoiceIds: finalizedInvoices.map((inv: any) => inv.id) }),
-                    })
-                    if (!res.ok) {
-                      const err = await res.json()
-                      throw new Error(err.error || 'Export failed')
-                    }
-                    const blob = await res.blob()
-                    const url = window.URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = `invoices-export-${new Date().toISOString().split('T')[0]}.xlsx`
-                    document.body.appendChild(a)
-                    a.click()
-                    document.body.removeChild(a)
-                    window.URL.revokeObjectURL(url)
-                  } catch (err: any) {
-                    alert(err.message)
-                  }
-                }}
+                onClick={() => setExportRangeOpen(true)}
               >
                 <Download className="mr-1 h-3 w-3" /> Export to Excel
               </Button>
@@ -2767,6 +2746,85 @@ export default function AuditPage() {
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>
       </DialogPrimitive.Root>
+
+      {/* Export Range Dialog */}
+      <Dialog open={exportRangeOpen} onOpenChange={(open) => {
+        setExportRangeOpen(open)
+        if (!open) {
+          setExportFromInvoice('')
+          setExportToInvoice('')
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#001e42]">Export Invoices to Excel</DialogTitle>
+            <DialogDescription>
+              Enter the invoice number range to export.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">From Invoice #</label>
+              <Input
+                placeholder="e.g. INV20001"
+                value={exportFromInvoice}
+                onChange={(e) => setExportFromInvoice(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">To Invoice #</label>
+              <Input
+                placeholder="e.g. INV20051"
+                value={exportToInvoice}
+                onChange={(e) => setExportToInvoice(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => {
+                setExportRangeOpen(false)
+                setExportFromInvoice('')
+                setExportToInvoice('')
+              }}>
+                Cancel
+              </Button>
+              <Button
+                className="bg-[#001e42] text-white hover:bg-[#002a5a]"
+                disabled={!exportFromInvoice || !exportToInvoice}
+                onClick={async () => {
+                  if (!exportFromInvoice || !exportToInvoice) return
+                  try {
+                    const res = await fetch('/api/invoices/export', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ fromInvoiceNumber: exportFromInvoice, toInvoiceNumber: exportToInvoice }),
+                    })
+                    if (!res.ok) {
+                      const err = await res.json()
+                      throw new Error(err.error || 'Export failed')
+                    }
+                    const blob = await res.blob()
+                    const url = window.URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `invoices-export-${exportFromInvoice}-to-${exportToInvoice}.xlsx`
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                    window.URL.revokeObjectURL(url)
+                    setExportRangeOpen(false)
+                    setExportFromInvoice('')
+                    setExportToInvoice('')
+                  } catch (err: any) {
+                    alert(err.message)
+                  }
+                }}
+              >
+                <Download className="mr-1 h-3 w-3" /> Export
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
