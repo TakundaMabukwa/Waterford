@@ -58,6 +58,7 @@ export function FuelStopForm({
   const [state, setState] = useState('')
   const [country, setCountry] = useState('')
   const [fuelPrice, setFuelPrice] = useState('')
+  const [prescribedValue, setPrescribedValue] = useState('')
   const [contactPerson, setContactPerson] = useState('')
   const [contactPhone, setContactPhone] = useState('')
   const [contactEmail, setContactEmail] = useState('')
@@ -368,6 +369,7 @@ export function FuelStopForm({
     setState('')
     setCountry('')
     setFuelPrice('')
+    setPrescribedValue('')
     setContactPerson('')
     setContactPhone('')
     setContactEmail('')
@@ -398,6 +400,11 @@ export function FuelStopForm({
       initialRecord.fuel_price_per_liter !== null && initialRecord.fuel_price_per_liter !== undefined
         ? String(initialRecord.fuel_price_per_liter)
         : initialRecord.value || ''
+    )
+    setPrescribedValue(
+      initialRecord.prescribed_value !== null && initialRecord.prescribed_value !== undefined
+        ? String(initialRecord.prescribed_value)
+        : ''
     )
     setContactPerson(initialRecord.contact_person || '')
     setContactPhone(initialRecord.contact_phone || '')
@@ -444,6 +451,7 @@ export function FuelStopForm({
         location_coordinates: { lat: centerPoint.lat, lng: centerPoint.lng },
         geozone_name: geozoneName || name,
         fuel_price_per_liter: fuelPrice ? Number(fuelPrice) : null,
+        prescribed_value: prescribedValue ? Number(prescribedValue) : null,
         value: fuelPrice || null,
         contact_person: contactPerson || null,
         contact_phone: contactPhone || null,
@@ -528,6 +536,10 @@ export function FuelStopForm({
               <div className="space-y-2">
                 <Label>Fuel Price Per Liter</Label>
                 <Input value={fuelPrice} onChange={(event) => setFuelPrice(event.target.value)} placeholder="9.67" type="number" step="0.01" />
+              </div>
+              <div className="space-y-2">
+                <Label>Prescribed Value</Label>
+                <Input value={prescribedValue} onChange={(event) => setPrescribedValue(event.target.value)} placeholder="Max fuel value" type="number" step="0.01" />
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label>Address</Label>

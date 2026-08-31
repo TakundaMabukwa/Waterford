@@ -10,6 +10,8 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const date = searchParams.get('date')
+    const startDate = searchParams.get('start_date')
+    const endDate = searchParams.get('end_date')
     const actionType = searchParams.get('action_type')
 
     let query = supabase
@@ -17,7 +19,9 @@ export async function GET(request: NextRequest) {
       .select('*')
       .order('created_at', { ascending: false })
 
-    if (date) {
+    if (startDate && endDate) {
+      query = query.gte('review_date', startDate).lte('review_date', endDate)
+    } else if (date) {
       query = query.eq('review_date', date)
     }
     if (actionType) {
@@ -36,7 +40,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { vehicle_reg, review_date, action_type, confirmed, investigated, reviewed_by, notes } = body
+    const {
+      vehicle_reg, review_date, action_type,
+      confirmed, investigated, reviewed_by, notes,
+      probe_value, driver_value, type,
+    } = body
 
     if (!vehicle_reg || !review_date || !action_type) {
       return NextResponse.json({ error: 'vehicle_reg, review_date, and action_type are required' }, { status: 400 })
@@ -54,6 +62,9 @@ export async function POST(request: NextRequest) {
           reviewed_by: reviewed_by || null,
           reviewed_at: (confirmed || investigated) ? new Date().toISOString() : null,
           notes: notes || null,
+          probe_value: probe_value || null,
+          driver_value: driver_value || null,
+          type: type || null,
         },
         { onConflict: 'vehicle_reg,review_date,action_type' }
       )
@@ -71,7 +82,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json()
-    const { id, confirmed, investigated, reviewed_by, notes } = body
+    const { id, confirmed, investigated, reviewed_by, notes, probe_value, driver_value, type } = body
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -82,6 +93,9 @@ export async function PATCH(request: NextRequest) {
     if (investigated !== undefined) update.investigated = investigated
     if (reviewed_by !== undefined) update.reviewed_by = reviewed_by
     if (notes !== undefined) update.notes = notes
+    if (probe_value !== undefined) update.probe_value = probe_value
+    if (driver_value !== undefined) update.driver_value = driver_value
+    if (type !== undefined) update.type = type
     if (confirmed || investigated) {
       update.reviewed_at = new Date().toISOString()
     }

@@ -10,6 +10,7 @@ export const PAGES = {
   vehicles: { name: 'Vehicles', path: '/vehicles', description: 'Manage vehicle fleet and equipment' },
   costCenters: { name: 'Cost Centers', path: '/ccenter', description: 'Manage cost center allocations and budgets' },
   financials: { name: 'Financials', path: '/audit', description: 'View financial reports and audit trails' },
+  fuelComparison: { name: 'Fuel Comparison', path: '/fuel-comparison', description: 'Compare fuel fills and thefts with review actions' },
   inspections: { name: 'Inspections', path: '/fleetManager/inspections', description: 'Manage vehicle inspections and compliance' },
   userManagement: { name: 'User Management', path: '/userManagement', description: 'Manage user accounts and permissions' },
   systemSettings: { name: 'System Settings', path: '/settings', description: 'Configure system-wide settings and preferences' }
@@ -42,6 +43,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     { page: 'vehicles', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'costCenters', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'financials', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'fuelComparison', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'inspections', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'userManagement', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'systemSettings', actions: ['view', 'create', 'edit', 'delete'] }
@@ -54,6 +56,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     { page: 'vehicles', actions: ['view', 'create', 'edit'] },
     { page: 'inspections', actions: ['view', 'create', 'edit'] },
     { page: 'fuel', actions: ['view', 'create', 'edit'] },
+    { page: 'fuelComparison', actions: ['view', 'create', 'edit'] },
     { page: 'financials', actions: ['view'] },
     { page: 'systemSettings', actions: ['view'] }
   ],
@@ -83,6 +86,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     { page: 'vehicles', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'costCenters', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'financials', actions: ['view', 'create', 'edit', 'delete'] },
+    { page: 'fuelComparison', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'inspections', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'userManagement', actions: ['view', 'create', 'edit', 'delete'] },
     { page: 'systemSettings', actions: ['view', 'create', 'edit', 'delete'] }

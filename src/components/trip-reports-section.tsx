@@ -27,7 +27,7 @@ export function TripReportsSection() {
         const { data, error } = await supabase
           .from('trips')
           .select('*')
-          .or('status.eq.completed,status.eq.delivered,statusnotes.like.%TRIP COMPLETED EARLY%,status_notes.like.%TRIP COMPLETED EARLY%')
+          .or('statusnotes.like.%TRIP CANCELLED%,status_notes.like.%TRIP CANCELLED%,status.eq.cancelled')
           .gte('created_at', `${startDate}T00:00:00`)
           .lte('created_at', `${endDate}T23:59:59`)
           .order('created_at', { ascending: false })
