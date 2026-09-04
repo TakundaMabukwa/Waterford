@@ -96,8 +96,7 @@ const plateDistance = (a: string, b: string) => {
   return diff
 }
 
-const matchVehicleByPlate = (vehicles: any[], plate: string) => {
-  const target = normalizePlate(plate)
+const matchVehicleByPlate = (vehicles: any[], plate: string) => {  const target = normalizePlate(plate)
   if (!target) return null
   const normalized = vehicles
     .map((v) => ({ v, plate: normalizePlate(v?.plate || v?.Plate || v?.registration_number) }))
@@ -113,6 +112,16 @@ const matchVehicleByPlate = (vehicles: any[], plate: string) => {
     .sort((a, b) => a.dist - b.dist)[0]
 
   return fuzzy?.v || null
+}
+
+// Realtime telemetry alert styling per alert kind
+const TELEMETRY_ALERT_STYLES: Record<string, { dot: string; text: string; sub: string }> = {
+  engine_on: { dot: 'bg-emerald-500', text: 'text-emerald-800', sub: 'text-emerald-700' },
+  ignition_on: { dot: 'bg-teal-500', text: 'text-teal-800', sub: 'text-teal-700' },
+  engine_off: { dot: 'bg-slate-400', text: 'text-slate-700', sub: 'text-slate-500' },
+  ignition_off: { dot: 'bg-slate-400', text: 'text-slate-700', sub: 'text-slate-500' },
+  fuel_fill: { dot: 'bg-amber-500', text: 'text-amber-800', sub: 'text-amber-700' },
+  fuel_theft: { dot: 'bg-red-500', text: 'text-red-800', sub: 'text-red-700' },
 }
 
 // Global vehicle data cache to prevent redundant API calls
@@ -354,7 +363,7 @@ const parseFcNotes = (trip: any): Array<{ message: string; created_at: string | 
 }
 
 // Driver Card Component with fetched driver info
-const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNotesImages, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, onlineDevices, isVisible = true, fuelData = null }: any) {
+const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setNoteText, setNotesImages, setNoteOpen, setAvailableDrivers, setCurrentTripForChange, setChangeDriverOpen, setCurrentTripForClose, setCloseReason, setCloseTripOpen, setCurrentTripForEdit, setEditTripOpen, setCurrentTripForApproval, setApprovalModalOpen, setVideoModalOpen, setCurrentTripForVideo, onlineDevices, telemetryAlerts = {}, onDismissTelemetryAlert = () => {}, isVisible = true, fuelData = null }: any) {
   const router = useRouter()
   const [driverInfo, setDriverInfo] = useState<any>(null)
   const [vehicleInfo, setVehicleInfo] = useState<any>(null)
@@ -530,6 +539,44 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
           </div>
         )}
       </div>
+
+      {/* Realtime Telemetry Alerts */}
+      {(() => {
+        const cardPlateKey = normalizePlate(vehicleLocation?.plate || vehicleInfo?.registration_number || assignment?.vehicle?.name || '')
+        const cardAlerts = (telemetryAlerts?.[cardPlateKey] || [])
+        if (!cardPlateKey || cardAlerts.length === 0) return null
+        return (
+          <div className="mb-2 p-2 rounded-lg bg-white/20 border border-white/5">
+            <div className="flex items-center gap-1 mb-1">
+              <div className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" />
+              <span className="text-xs font-medium text-slate-700 uppercase">Live Alerts</span>
+            </div>
+            <div className="space-y-1">
+              {cardAlerts.map((alert: any) => {
+                const style = TELEMETRY_ALERT_STYLES[alert.kind] || TELEMETRY_ALERT_STYLES.engine_off
+                return (
+                  <div key={alert.id} className="flex items-start gap-1.5 rounded bg-white/60 px-1.5 py-1">
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0 ${style.dot}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-xs font-semibold ${style.text}`}>{alert.label}</div>
+                      <div className={`text-[10px] ${style.sub}`}>
+                        {[alert.locTime, alert.speed ? `${alert.speed} km/h` : ''].filter(Boolean).join(' • ')}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onDismissTelemetryAlert(cardPlateKey, alert.id)}
+                      className="flex-shrink-0 text-slate-400 hover:text-slate-700"
+                      title="Dismiss alert"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Unauthorized Stop Alert */}
       {trip.unauthorized_stops_count > 0 && trip.status?.toLowerCase() !== 'delivered' && (
@@ -1052,6 +1099,36 @@ const RoutingSection = memo(function RoutingSection({ userRole, handleViewMap, s
   const [loading, setLoading] = useState(true)
   const [dropoffEtaByTrip, setDropoffEtaByTrip] = useState<Record<string, TripEtaState>>({})
   const [tripSearch, setTripSearch] = useState('')
+  // Realtime telemetry alerts keyed by normalized plate; cleared only by user dismiss
+  const [telemetryAlerts, setTelemetryAlerts] = useState<Record<string, any[]>>({})
+
+  useEffect(() => {
+    const source = new EventSource('/api/telemetry/stream')
+    source.onmessage = (event) => {
+      try {
+        const alert = JSON.parse(event.data)
+        if (!alert?.plateKey || !alert?.kind) return
+        setTelemetryAlerts((prev) => {
+          const list = [...(prev[alert.plateKey] || []), alert]
+          return { ...prev, [alert.plateKey]: list.slice(-10) }
+        })
+      } catch {}
+    }
+    source.onerror = () => {}
+    return () => source.close()
+  }, [])
+
+  const dismissTelemetryAlert = (plateKey: string, alertId: string) => {
+    setTelemetryAlerts((prev) => {
+      const list = (prev[plateKey] || []).filter((a) => a.id !== alertId)
+      if (list.length === 0) {
+        const next = { ...prev }
+        delete next[plateKey]
+        return next
+      }
+      return { ...prev, [plateKey]: list }
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -1486,6 +1563,8 @@ const STATUS_OPTIONS = [
               setVideoModalOpen={setVideoModalOpen}
               setCurrentTripForVideo={setCurrentTripForVideo}
               onlineDevices={onlineDevices}
+              telemetryAlerts={telemetryAlerts}
+              onDismissTelemetryAlert={dismissTelemetryAlert}
             />
             {/* Trip Card - 70% */}
             <div className={cn(

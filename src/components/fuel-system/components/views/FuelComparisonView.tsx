@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Calendar, CheckCircle, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Calendar, CheckCircle, AlertTriangle, X, Image as ImageIcon } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
@@ -10,7 +10,7 @@ import { createClient } from '@/lib/supabase/client';
 
 interface FuelComparisonViewProps {
   onBack?: () => void;
-  initialMonth?: string;
+  initialDate?: string;
 }
 
 interface FuelRecord {
@@ -23,35 +23,43 @@ interface FuelRecord {
   reviewed_by: string | null;
   probe_value: string | null;
   driver_value: string | null;
+  notes: string | null;
 }
 
-const toMonthInputValue = (date: Date) => {
+interface SlipMatch {
+  slip_id: number;
+  fuel_amount: number | null;
+  fuel_type: string | null;
+  image_url: string | null;
+  slip_created_at: string;
+}
+
+const toDateInputValue = (date: Date) => {
   const pad = (num: number) => String(num).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
-const getMonthRange = (monthStr: string) => {
-  const [year, month] = monthStr.split('-').map(Number);
-  const startDate = `${monthStr}-01`;
-  const lastDay = new Date(year, month, 0).getDate();
-  const endDate = `${monthStr}-${String(lastDay).padStart(2, '0')}`;
-  return { startDate, endDate };
-};
-
-export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewProps) {
+export function FuelComparisonView({ onBack, initialDate }: FuelComparisonViewProps) {
   const { toast } = useToast();
   const supabase = createClient();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState(() => initialMonth || toMonthInputValue(new Date()));
-  const [appliedMonth, setAppliedMonth] = useState(selectedMonth);
+  const [selectedDate, setSelectedDate] = useState(() => initialDate || toDateInputValue(new Date()));
+  const [appliedDate, setAppliedDate] = useState(selectedDate);
 
   const [activeTab, setActiveTab] = useState<'fills' | 'thefts'>('fills');
   const [records, setRecords] = useState<FuelRecord[]>([]);
+  const [matches, setMatches] = useState<Record<string, SlipMatch>>({});
+  const [unmatchedSlips, setUnmatchedSlips] = useState<SlipMatch[]>([]);
   const [userEmail, setUserEmail] = useState<string>('');
   const [editingDriverValue, setEditingDriverValue] = useState<string | null>(null);
   const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
+  const [editingNoteValue, setEditingNoteValue] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [closingId, setClosingId] = useState<string | null>(null);
+  const [closingNote, setClosingNote] = useState('');
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   useEffect(() => {
     async function getUser() {
@@ -66,17 +74,18 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
       setLoading(true);
       setError(null);
 
-      const { startDate, endDate } = getMonthRange(appliedMonth);
-      const res = await fetch(`/api/fuel-review-actions?start_date=${startDate}&end_date=${endDate}`);
+      const res = await fetch(`/api/fuel-slip-matches?date=${appliedDate}`);
 
-      if (!res.ok) throw new Error('Failed to fetch fuel review actions');
+      if (!res.ok) throw new Error('Failed to fetch fuel comparison data');
 
       const result = await res.json();
       setRecords(result.data || []);
+      setMatches(result.matches || {});
+      setUnmatchedSlips(result.unmatched_slips || []);
 
       toast({
         title: 'Data loaded',
-        description: `Found ${(result.data || []).length} records for ${appliedMonth}`,
+        description: `Found ${(result.data || []).length} records for ${appliedDate}`,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch data');
@@ -88,7 +97,7 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
     } finally {
       setLoading(false);
     }
-  }, [appliedMonth, toast]);
+  }, [appliedDate, toast]);
 
   useEffect(() => {
     fetchData();
@@ -97,8 +106,20 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
   const fills = records.filter((r) => r.action_type === 'fill');
   const thefts = records.filter((r) => r.action_type === 'theft');
 
-  const handleApplyMonth = () => {
-    setAppliedMonth(selectedMonth);
+  const handleApplyDate = () => {
+    setAppliedDate(selectedDate);
+  };
+
+  const patchRecord = async (id: string, body: Record<string, unknown>) => {
+    const res = await fetch('/api/fuel-review-actions', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...body }),
+    });
+    if (!res.ok) throw new Error('Failed to save');
+    const result = await res.json();
+    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...result.data } : r)));
+    return result.data;
   };
 
   const handleSaveDriverValue = async (record: FuelRecord) => {
@@ -110,19 +131,7 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
     }
 
     try {
-      const res = await fetch('/api/fuel-review-actions', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: record.id,
-          driver_value: newValue || null,
-        }),
-      });
-
-      if (!res.ok) throw new Error('Failed to save');
-
-      const result = await res.json();
-      setRecords((prev) => prev.map((r) => (r.id === record.id ? { ...r, ...result.data } : r)));
+      await patchRecord(record.id, { driver_value: newValue || null });
       setEditingDriverId(null);
     } catch (err) {
       toast({
@@ -172,6 +181,153 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
     );
   };
 
+  const handleSaveNote = async (record: FuelRecord) => {
+    const newValue = editingNoteValue ?? record.notes;
+
+    if ((newValue || '') === (record.notes || '')) {
+      setEditingNoteId(null);
+      return;
+    }
+
+    try {
+      await patchRecord(record.id, { notes: newValue || null });
+      setEditingNoteId(null);
+      toast({ title: 'Note saved', description: record.vehicle_reg });
+    } catch (err) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to save note',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const renderNotes = (record: FuelRecord) => {
+    if (editingNoteId === record.id) {
+      return (
+        <input
+          autoFocus
+          type="text"
+          value={editingNoteValue ?? ''}
+          onChange={(e) => setEditingNoteValue(e.target.value)}
+          onBlur={() => handleSaveNote(record)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSaveNote(record);
+            if (e.key === 'Escape') setEditingNoteId(null);
+          }}
+          placeholder="Type note..."
+          className="w-full rounded border border-blue-400 bg-white px-1 py-0.5 text-sm outline-none focus:ring-1 focus:ring-blue-400"
+        />
+      );
+    }
+
+    if (record.confirmed) {
+      return (
+        <span className="px-1 py-0.5 text-sm text-gray-700">
+          {record.notes || '-'}
+        </span>
+      );
+    }
+
+    return (
+      <span
+        onClick={() => {
+          setEditingNoteId(record.id);
+          setEditingNoteValue(record.notes || '');
+        }}
+        className="cursor-pointer rounded px-1 py-0.5 text-sm hover:bg-gray-100"
+      >
+        {record.notes || <span className="text-gray-400">Add note</span>}
+      </span>
+    );
+  };
+
+  const handleCloseInvestigation = async (record: FuelRecord) => {
+    const note = closingNote.trim();
+    if (!note) {
+      toast({
+        title: 'Note required',
+        description: 'Please enter a note to close the investigation',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      await patchRecord(record.id, {
+        investigated: false,
+        notes: note,
+        reviewed_by: userEmail,
+      });
+      setClosingId(null);
+      setClosingNote('');
+      toast({
+        title: 'Investigation closed',
+        description: record.vehicle_reg,
+      });
+    } catch (err) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to close investigation',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleAcceptSlip = async (record: FuelRecord) => {
+    const match = matches[record.id];
+    if (!match || match.fuel_amount === null) return;
+
+    try {
+      await patchRecord(record.id, { driver_value: String(match.fuel_amount) });
+      toast({
+        title: 'Slip value applied',
+        description: `${record.vehicle_reg} driver value set to ${match.fuel_amount}`,
+      });
+    } catch (err) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to apply slip value',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const renderSlip = (record: FuelRecord) => {
+    const match = matches[record.id];
+    if (!match) {
+      return <span className="text-xs text-gray-400">No slip</span>;
+    }
+
+    return (
+      <div className="flex items-center gap-2">
+        {match.image_url ? (
+          <img
+            src={match.image_url}
+            alt={`Fuel slip ${match.slip_id}`}
+            onClick={() => setViewingImage(match.image_url)}
+            className="h-10 w-10 cursor-pointer rounded border object-cover hover:opacity-80"
+          />
+        ) : (
+          <span className="flex h-10 w-10 items-center justify-center rounded border bg-gray-50">
+            <ImageIcon className="h-4 w-4 text-gray-400" />
+          </span>
+        )}
+        <div className="flex flex-col">
+          <span className="text-sm font-medium">{match.fuel_amount ?? '-'}</span>
+          {!record.confirmed && match.fuel_amount !== null && (
+            <button
+              onClick={() => handleAcceptSlip(record)}
+              className="text-left text-[11px] font-medium text-blue-600 hover:underline"
+            >
+              Use this value
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const handleReviewAction = async (
     record: FuelRecord,
     action: 'confirm' | 'investigate'
@@ -183,31 +339,15 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
     const newConfirmed = isSameAction ? false : action === 'confirm';
     const newInvestigated = isSameAction ? false : action === 'investigate';
 
-    const updateData = {
-      id: record.id,
-      vehicle_reg: record.vehicle_reg,
-      review_date: record.review_date,
-      action_type: record.action_type,
-      confirmed: newConfirmed,
-      investigated: newInvestigated,
-      reviewed_by: userEmail,
-    };
-
     try {
-      const res = await fetch('/api/fuel-review-actions', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updateData),
+      await patchRecord(record.id, {
+        vehicle_reg: record.vehicle_reg,
+        review_date: record.review_date,
+        action_type: record.action_type,
+        confirmed: newConfirmed,
+        investigated: newInvestigated,
+        reviewed_by: userEmail,
       });
-
-      if (!res.ok) throw new Error('Failed to save');
-
-      const result = await res.json();
-      const updated = result.data;
-
-      setRecords((prev) =>
-        prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r))
-      );
 
       toast({
         title: isSameAction ? `${action} removed` : `${action} applied`,
@@ -220,12 +360,6 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
         variant: 'destructive',
       });
     }
-  };
-
-  const getRowColor = (record: FuelRecord): string => {
-    if (record.investigated) return 'bg-red-50';
-    if (record.confirmed) return 'bg-green-50';
-    return '';
   };
 
   const renderActions = (record: FuelRecord) => {
@@ -262,11 +396,71 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
       );
     }
 
+    // Investigated: allow closing with a note
+    if (closingId === record.id) {
+      return (
+        <div className="flex items-center justify-center gap-1">
+          <input
+            autoFocus
+            type="text"
+            value={closingNote}
+            onChange={(e) => setClosingNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCloseInvestigation(record);
+              if (e.key === 'Escape') {
+                setClosingId(null);
+                setClosingNote('');
+              }
+            }}
+            placeholder="Closing note (required)..."
+            className="w-40 rounded border border-red-400 bg-white px-1 py-0.5 text-xs outline-none focus:ring-1 focus:ring-red-400"
+          />
+          <Button
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => handleCloseInvestigation(record)}
+          >
+            Close
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-1 text-xs"
+            onClick={() => {
+              setClosingId(null);
+              setClosingNote('');
+            }}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      );
+    }
+
     return (
-      <span className="inline-flex items-center text-red-600 text-xs font-medium">
-        <AlertTriangle className="mr-1 h-4 w-4" /> Investigated
-      </span>
+      <div className="flex items-center justify-center gap-2">
+        <span className="inline-flex items-center text-red-600 text-xs font-medium">
+          <AlertTriangle className="mr-1 h-4 w-4" /> Investigated
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => {
+            setClosingId(record.id);
+            setClosingNote(record.notes || '');
+          }}
+        >
+          Close investigation
+        </Button>
+      </div>
     );
+  };
+
+  const getRowColor = (record: FuelRecord): string => {
+    if (record.investigated) return 'bg-red-50';
+    if (record.confirmed) return 'bg-green-50';
+    return '';
   };
 
   if (loading) {
@@ -294,34 +488,74 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
     );
   }
 
-  const tableHeaders = (
+  const fillsHeaders = (
     <TableHeader>
       <TableRow className="bg-slate-50">
         <TableHead className="font-medium text-xs">Reg</TableHead>
         <TableHead className="font-medium text-xs">Fuel Probe Value</TableHead>
         <TableHead className="font-medium text-xs">Driver Value</TableHead>
+        <TableHead className="font-medium text-xs">Slip</TableHead>
+        <TableHead className="font-medium text-xs">Notes</TableHead>
         <TableHead className="font-medium text-xs">Reviewed By</TableHead>
         <TableHead className="font-medium text-xs text-center">Actions</TableHead>
       </TableRow>
     </TableHeader>
   );
 
-  const renderRows = (data: FuelRecord[]) => {
-    if (data.length === 0) {
+  const theftsHeaders = (
+    <TableHeader>
+      <TableRow className="bg-slate-50">
+        <TableHead className="font-medium text-xs">Reg</TableHead>
+        <TableHead className="font-medium text-xs">Fuel Probe Value</TableHead>
+        <TableHead className="font-medium text-xs">Driver Value</TableHead>
+        <TableHead className="font-medium text-xs">Notes</TableHead>
+        <TableHead className="font-medium text-xs">Reviewed By</TableHead>
+        <TableHead className="font-medium text-xs text-center">Actions</TableHead>
+      </TableRow>
+    </TableHeader>
+  );
+
+  const renderFillRows = () => {
+    if (fills.length === 0) {
       return (
         <TableRow>
-          <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-            No records found for {appliedMonth}
+          <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+            No fuel fills found for {appliedDate}
           </TableCell>
         </TableRow>
       );
     }
 
-    return data.map((record) => (
+    return fills.map((record) => (
       <TableRow key={record.id} className={`h-12 ${getRowColor(record)}`}>
         <TableCell className="font-medium">{record.vehicle_reg}</TableCell>
         <TableCell>{record.probe_value || '-'}</TableCell>
         <TableCell>{renderDriverValue(record)}</TableCell>
+        <TableCell>{renderSlip(record)}</TableCell>
+        <TableCell>{renderNotes(record)}</TableCell>
+        <TableCell className="text-xs text-gray-500">{record.reviewed_by || '-'}</TableCell>
+        <TableCell className="text-center">{renderActions(record)}</TableCell>
+      </TableRow>
+    ));
+  };
+
+  const renderTheftRows = () => {
+    if (thefts.length === 0) {
+      return (
+        <TableRow>
+          <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+            No fuel thefts found for {appliedDate}
+          </TableCell>
+        </TableRow>
+      );
+    }
+
+    return thefts.map((record) => (
+      <TableRow key={record.id} className={`h-12 ${getRowColor(record)}`}>
+        <TableCell className="font-medium">{record.vehicle_reg}</TableCell>
+        <TableCell>{record.probe_value || '-'}</TableCell>
+        <TableCell>{renderDriverValue(record)}</TableCell>
+        <TableCell>{renderNotes(record)}</TableCell>
         <TableCell className="text-xs text-gray-500">{record.reviewed_by || '-'}</TableCell>
         <TableCell className="text-center">{renderActions(record)}</TableCell>
       </TableRow>
@@ -330,21 +564,21 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
 
   return (
     <div className="space-y-4">
-      {/* Month Selector */}
+      {/* Day Selector */}
       <div className="flex items-end gap-3">
         <div className="flex flex-col gap-1">
-          <label className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Month</label>
+          <label className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Day</label>
           <div className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2">
             <Calendar className="h-4 w-4 text-gray-500" />
             <input
-              type="month"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
               className="bg-transparent text-sm text-gray-700 outline-none"
             />
           </div>
         </div>
-        <Button onClick={handleApplyMonth} size="sm">
+        <Button onClick={handleApplyDate} size="sm">
           <RefreshCw className="mr-2 h-4 w-4" /> Update
         </Button>
       </div>
@@ -375,13 +609,40 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
 
       {/* Table */}
       <div className="rounded-md border overflow-x-auto">
-        <Table className="min-w-[800px]">
-          {tableHeaders}
+        <Table className="min-w-[900px]">
+          {activeTab === 'fills' ? fillsHeaders : theftsHeaders}
           <TableBody>
-            {activeTab === 'fills' ? renderRows(fills) : renderRows(thefts)}
+            {activeTab === 'fills' ? renderFillRows() : renderTheftRows()}
           </TableBody>
         </Table>
       </div>
+
+      {/* Unmatched slips (same day) */}
+      {unmatchedSlips.length > 0 && (
+        <details className="rounded-md border bg-white px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-gray-700">
+            Unmatched slips for {appliedDate} ({unmatchedSlips.length})
+          </summary>
+          <div className="mt-3 flex flex-wrap gap-3">
+            {unmatchedSlips.map((slip) => (
+              <div key={slip.slip_id} className="flex items-center gap-2 rounded-md border px-2 py-1">
+                {slip.image_url && (
+                  <img
+                    src={slip.image_url}
+                    alt={`Fuel slip ${slip.slip_id}`}
+                    onClick={() => setViewingImage(slip.image_url)}
+                    className="h-10 w-10 cursor-pointer rounded border object-cover hover:opacity-80"
+                  />
+                )}
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">{slip.fuel_amount ?? '-'}</span>
+                  <span className="text-[11px] text-gray-500">{slip.fuel_type || ''}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -418,6 +679,29 @@ export function FuelComparisonView({ onBack, initialMonth }: FuelComparisonViewP
           </CardContent>
         </Card>
       </div>
+
+      {/* Slip image lightbox */}
+      {viewingImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setViewingImage(null)}
+        >
+          <div className="relative max-h-full max-w-3xl">
+            <button
+              onClick={() => setViewingImage(null)}
+              className="absolute -top-2 -right-2 rounded-full bg-white p-1 shadow"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <img
+              src={viewingImage}
+              alt="Fuel slip"
+              className="max-h-[85vh] rounded-lg object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
