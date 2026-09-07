@@ -187,6 +187,77 @@ function SearchableClientSelect({
   )
 }
 
+// Generic searchable select for vehicle/driver (free-text + suggestions from a list)
+function SearchableFieldSelect({
+  value,
+  options,
+  onChange,
+  disabled,
+  placeholder,
+}: {
+  value: string
+  options: string[]
+  onChange: (val: string) => void
+  disabled?: boolean
+  placeholder?: string
+}) {
+  const [query, setQuery] = useState(value)
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => { setQuery(value) }, [value])
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current) return
+      if (!wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  const q = query.trim().toLowerCase()
+  const filtered = q
+    ? options.filter((o) => o.toLowerCase().includes(q)).slice(0, 20)
+    : options.slice(0, 20)
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <input
+        type="text"
+        value={query}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(e) => {
+          setQuery(e.target.value)
+          setOpen(true)
+          onChange(e.target.value)
+        }}
+        onFocus={() => setOpen(true)}
+        className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-xs shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-30 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+          {filtered.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => {
+                onChange(opt)
+                setQuery(opt)
+                setOpen(false)
+              }}
+              className="flex w-full px-3 py-1.5 text-left text-xs hover:bg-slate-100"
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const VAT_RATES: Record<string, number> = {
   zero: 0,
   standard: 0.15,
@@ -298,6 +369,8 @@ export default function GenerateInvoiceModal({
   const [clients, setClients] = useState<any[]>([])
   const [selectedClientId, setSelectedClientId] = useState('')
   const [clientVatType, setClientVatType] = useState<string>('zero')
+  const [vehicleOptions, setVehicleOptions] = useState<string[]>([])
+  const [driverOptions, setDriverOptions] = useState<string[]>([])
 
   useEffect(() => {
     async function fetchClients() {
@@ -308,6 +381,19 @@ export default function GenerateInvoiceModal({
       } catch {}
     }
     fetchClients()
+  }, [])
+
+  useEffect(() => {
+    async function fetchVehiclesAndDrivers() {
+      try {
+        const supabase = createClient()
+        const { data: vData } = await supabase.from('vehiclesc').select('registration_number')
+        if (vData) setVehicleOptions(vData.map((v: any) => v.registration_number).filter(Boolean).sort())
+        const { data: dData } = await supabase.from('drivers').select('first_name, surname')
+        if (dData) setDriverOptions(dData.map((d: any) => `${d.first_name || ''} ${d.surname || ''}`.trim()).filter(Boolean).sort())
+      } catch {}
+    }
+    fetchVehiclesAndDrivers()
   }, [])
 
   // Auto-match the client once clients are loaded. Runs in all modes so the
@@ -727,7 +813,6 @@ export default function GenerateInvoiceModal({
       setPreviewPdfUrl(previewUrl)
       setGenerating(false)
       toast.success(`Draft ${createdInvoice.invoice_number} created — preview below`)
-      onInvoiced?.(invoiceRate, detectedCurrency)
       return
     }
 
@@ -1118,22 +1203,20 @@ export default function GenerateInvoiceModal({
                         </select>
                       </td>
                       <td className="px-4 py-2">
-                        <input
-                          type="text"
+                        <SearchableFieldSelect
                           value={item.vehicle}
-                          onChange={(e) => updateLine(item.id, 'vehicle', e.target.value)}
+                          options={vehicleOptions}
+                          onChange={(val) => updateLine(item.id, 'vehicle', val)}
                           placeholder="Vehicle"
-                          className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-xs shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
                           disabled={!!record?.is_invoiced}
                         />
                       </td>
                       <td className="px-4 py-2">
-                        <input
-                          type="text"
+                        <SearchableFieldSelect
                           value={item.driver}
-                          onChange={(e) => updateLine(item.id, 'driver', e.target.value)}
+                          options={driverOptions}
+                          onChange={(val) => updateLine(item.id, 'driver', val)}
                           placeholder="Driver"
-                          className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-xs shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
                           disabled={!!record?.is_invoiced}
                         />
                       </td>
@@ -1281,7 +1364,7 @@ export default function GenerateInvoiceModal({
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70" onClick={() => {
           URL.revokeObjectURL(previewPdfUrl)
           setPreviewPdfUrl(null)
-          onClose({ status: 'finalize' })
+          onClose({ status: 'draft' })
         }}>
           <div className="relative flex h-[90vh] w-[90vw] max-w-5xl flex-col rounded-lg bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
@@ -1289,7 +1372,7 @@ export default function GenerateInvoiceModal({
               <Button variant="outline" size="sm" onClick={() => {
                 URL.revokeObjectURL(previewPdfUrl)
                 setPreviewPdfUrl(null)
-                onClose({ status: 'finalize' })
+                onClose({ status: 'draft' })
               }}>
                 Close
               </Button>
