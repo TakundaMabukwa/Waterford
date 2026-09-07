@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Truck } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
-export function TripReportsSection() {
+export function TripReportsSection({ cancelledOnly = false }: { cancelledOnly?: boolean }) {
   const [trips, setTrips] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -24,10 +24,14 @@ export function TripReportsSection() {
         const lastDay = new Date(year, month, 0).getDate()
         const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
+        const statusFilter = cancelledOnly
+          ? 'statusnotes.like.%TRIP CANCELLED%,status_notes.like.%TRIP CANCELLED%,status.eq.cancelled'
+          : 'statusnotes.like.%TRIP CANCELLED%,status_notes.like.%TRIP CANCELLED%,status.in.(completed,delivered,cancelled)'
+
         const { data, error } = await supabase
           .from('trips')
           .select('*')
-          .or('statusnotes.like.%TRIP CANCELLED%,status_notes.like.%TRIP CANCELLED%,status.eq.cancelled')
+          .or(statusFilter)
           .gte('created_at', `${startDate}T00:00:00`)
           .lte('created_at', `${endDate}T23:59:59`)
           .order('created_at', { ascending: false })
@@ -41,7 +45,7 @@ export function TripReportsSection() {
       }
     }
     fetchTrips()
-  }, [selectedMonth])
+  }, [selectedMonth, cancelledOnly])
 
   const getDisplayStatus = (trip: any) => {
     const sn = (trip.statusnotes || trip.status_notes || '').toLowerCase()
@@ -123,7 +127,7 @@ export function TripReportsSection() {
                 <TableCell colSpan={7} className="text-center py-12 text-slate-500">
                   <Truck className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p className="text-lg font-medium mb-2">No trips found</p>
-                  <p className="text-sm">No completed, delivered or cancelled trips for this month</p>
+                  <p className="text-sm">{cancelledOnly ? 'No cancelled trips for this month' : 'No completed, delivered or cancelled trips for this month'}</p>
                 </TableCell>
               </TableRow>
             )}

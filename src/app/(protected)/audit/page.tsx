@@ -2097,7 +2097,7 @@ export default function AuditPage() {
       {activeTab === 'reports' && (
         <Card>
           <CardContent className="pt-6">
-            <TripReportsSection />
+            <TripReportsSection cancelledOnly />
           </CardContent>
         </Card>
       )}
