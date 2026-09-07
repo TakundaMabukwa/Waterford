@@ -589,6 +589,26 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
             <div
               className="rounded-lg border-2 border-dashed border-slate-300 p-4 text-center cursor-pointer hover:border-[#001e42] transition-colors"
               onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDrop={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                if (e.dataTransfer.files) {
+                  const maxSize = 50 * 1024 * 1024
+                  const validFiles = Array.from(e.dataTransfer.files).filter((file) => {
+                    if (file.size > maxSize) {
+                      setUploadError(`"${file.name}" exceeds 50MB limit (${(file.size / 1024 / 1024).toFixed(1)}MB)`)
+                      return false
+                    }
+                    return true
+                  })
+                  if (validFiles.length > 0) {
+                    setUploadError('')
+                    setPendingFiles((prev) => [...prev, ...validFiles])
+                  }
+                }
+              }}
             >
               <Upload className="mx-auto mb-2 h-6 w-6 text-slate-400" />
               <p className="text-sm text-slate-600">

@@ -27,7 +27,7 @@ export function buildInvoiceEmailHtml(data: InvoiceEmailData): string {
     
     <!-- Header -->
     <div style="padding: 28px 24px 16px; text-align: center;">
-      <div style="display: inline-block; background: #0C1E3D; color: #E79B54; border-radius: 999px; padding: 10px 16px; font-size: 20px; font-weight: 800; letter-spacing: 0.08em;">WF</div>
+      <img src="https://waterfordcarriers.online/waterford%20logo.png" alt="Waterford Carriers" style="height: 50px; margin-bottom: 8px;" />
       <h1 style="color: #0C1E3D; font-size: 24px; margin: 10px 0 0 0;">Waterford Carriers</h1>
       <p style="color: #5b6573; font-size: 13px; margin: 2px 0 0 0;">Fleet Operations Platform</p>
     </div>

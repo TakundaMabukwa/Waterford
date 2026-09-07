@@ -10,6 +10,7 @@ import {
   Phone,
   Plus,
   Search,
+  Trash2,
   User2,
   X,
 } from "lucide-react";
@@ -67,6 +68,7 @@ type ClientRecord = {
   notes?: string | null;
   coordinates?: string | null;
   coords?: string | null;
+  pod_required?: boolean | null;
 };
 
 type FuelStopRecord = {
@@ -117,6 +119,8 @@ export default function ClientsPage() {
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [viewingStop, setViewingStop] = useState<FuelStopRecord | null>(null);
   const [isStopViewDialogOpen, setIsStopViewDialogOpen] = useState(false);
+  const [deletingClient, setDeletingClient] = useState<ClientRecord | null>(null);
+  const [deletingStop, setDeletingStop] = useState<FuelStopRecord | null>(null);
 
   useEffect(() => {
     const getCookie = (name: string) => {
@@ -256,6 +260,32 @@ export default function ClientsPage() {
     );
   };
 
+  const handleDeleteClient = async () => {
+    if (!deletingClient) return;
+    try {
+      const res = await fetch(`/api/eps-client-list?id=${deletingClient.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete client");
+      toast.success(`"${deletingClient.name}" deleted`);
+      setDeletingClient(null);
+      await fetchClients();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete client");
+    }
+  };
+
+  const handleDeleteStop = async () => {
+    if (!deletingStop) return;
+    try {
+      const { error } = await supabase.from("fuel_stops").delete().eq("id", deletingStop.id);
+      if (error) throw error;
+      toast.success(`"${deletingStop.name || deletingStop.name2}" deleted`);
+      setDeletingStop(null);
+      await fetchStops();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete stop");
+    }
+  };
+
   const currentTitle = activeTab === "clients" ? "Clients" : "Stops";
   const currentDescription = activeTab === "clients"
     ? "View, add, and update client records used in Load Plan."
@@ -359,6 +389,7 @@ export default function ClientsPage() {
                               </SecureButton>
                             )}
                             <SecureButton page="clients" action="edit" variant="outline" size="sm" className="h-6 min-w-[48px] px-1 text-[11px]" onClick={() => openEditClient(client)}><Pencil className="mr-0.5 h-3 w-3" />Edit</SecureButton>
+                            <SecureButton page="clients" action="edit" variant="outline" size="sm" className="h-6 min-w-[28px] px-1 text-[11px] text-red-600 hover:bg-red-50 hover:text-red-700 border-red-200" onClick={() => setDeletingClient(client)}><Trash2 className="h-3 w-3" /></SecureButton>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -412,6 +443,7 @@ export default function ClientsPage() {
                               </SecureButton>
                             )}
                             <Button variant="outline" size="sm" className="h-6 min-w-[48px] px-1 text-[11px]" onClick={() => { setEditingStop(stop); setIsStopSheetOpen(true); }}><Pencil className="mr-0.5 h-3 w-3" />Edit</Button>
+                            <Button variant="outline" size="sm" className="h-6 min-w-[28px] px-1 text-[11px] text-red-600 hover:bg-red-50 hover:text-red-700 border-red-200" onClick={() => setDeletingStop(stop)}><Trash2 className="h-3 w-3" /></Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -472,6 +504,40 @@ export default function ClientsPage() {
               <X className="h-5 w-5" />
             </DialogPrimitive.Close>
             {isStopViewDialogOpen && viewingStop && <GeozoneViewContent record={viewingStop} onClose={() => { setIsStopViewDialogOpen(false); setViewingStop(null); }} />}
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
+
+      {/* Delete Client Confirmation */}
+      <DialogPrimitive.Root open={!!deletingClient} onOpenChange={(open) => { if (!open) setDeletingClient(null); }}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
+          <DialogPrimitive.Content className="fixed left-[50%] top-[50%] z-50 translate-x-[-50%] translate-y-[-50%] w-[95vw] max-w-[400px] bg-white shadow-xl border border-gray-200 rounded-lg p-6">
+            <DialogPrimitive.Title className="text-lg font-semibold text-slate-900">Delete Client</DialogPrimitive.Title>
+            <p className="mt-2 text-sm text-slate-600">
+              Are you sure you want to permanently delete <strong>{deletingClient?.name}</strong>? This action cannot be undone.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setDeletingClient(null)}>Cancel</Button>
+              <Button variant="destructive" onClick={handleDeleteClient}>Delete</Button>
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
+
+      {/* Delete Stop Confirmation */}
+      <DialogPrimitive.Root open={!!deletingStop} onOpenChange={(open) => { if (!open) setDeletingStop(null); }}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
+          <DialogPrimitive.Content className="fixed left-[50%] top-[50%] z-50 translate-x-[-50%] translate-y-[-50%] w-[95vw] max-w-[400px] bg-white shadow-xl border border-gray-200 rounded-lg p-6">
+            <DialogPrimitive.Title className="text-lg font-semibold text-slate-900">Delete Stop</DialogPrimitive.Title>
+            <p className="mt-2 text-sm text-slate-600">
+              Are you sure you want to permanently delete <strong>{deletingStop?.name || deletingStop?.name2}</strong>? This action cannot be undone.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setDeletingStop(null)}>Cancel</Button>
+              <Button variant="destructive" onClick={handleDeleteStop}>Delete</Button>
+            </div>
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>
       </DialogPrimitive.Root>

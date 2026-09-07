@@ -195,18 +195,12 @@ export async function generateInvoicePdf(
   y = Math.max(custY + 5 + addrLines.length * 4.5 + (customerVat ? 8 : 0), ry) + 8
 
   // ── LINE ITEMS TABLE ────────────────────────────────────────────
-  const salesCodeLabel = SALES_CODES.find(sc => sc.code === (params.salesCode || '200'))
-  const salesCodeDisplay = salesCodeLabel ? `${params.salesCode || '200'} - ${salesCodeLabel.label}` : (params.salesCode || '200')
-
   const tableData = lineItems.map((item) => {
     const lineTotal = (item.quantity || 0) * (item.unitPrice || 0)
     return [
       item.description || '',
       String(item.quantity ? formatNum(item.quantity) : ''),
       formatNum(item.unitPrice || 0),
-      salesCodeDisplay,
-      item.vehicle || '',
-      item.driver || '',
       VAT_LABELS[item.vatType] || '',
       formatNum(lineTotal),
     ]
@@ -216,7 +210,7 @@ export async function generateInvoicePdf(
 
   autoTable(doc, {
     startY: y,
-    head: [['Description', 'Qty', 'Unit Price', 'Sales Code', 'Vehicle', 'Driver', 'VAT', amountHeader]],
+    head: [['Description', 'Qty', 'Unit Price', 'VAT', amountHeader]],
     body: tableData,
     theme: 'plain',
     styles: {
@@ -237,14 +231,11 @@ export async function generateInvoicePdf(
       borderColor: [255, 255, 255],
     },
     columnStyles: {
-      0: { cellWidth: 38, halign: 'left' },
+      0: { cellWidth: 55, halign: 'left' },
       1: { cellWidth: 14, halign: 'right' },
-      2: { cellWidth: 18, halign: 'right' },
-      3: { cellWidth: 26, halign: 'left' },
-      4: { cellWidth: 22, halign: 'left' },
-      5: { cellWidth: 24, halign: 'left' },
-      6: { cellWidth: 18, halign: 'left', overflow: 'linebreak' },
-      7: { cellWidth: 22, halign: 'right' },
+      2: { cellWidth: 22, halign: 'right' },
+      3: { cellWidth: 22, halign: 'left', overflow: 'linebreak' },
+      4: { cellWidth: 22, halign: 'right' },
     },
     didDrawCell: (data) => {
       const { doc: d } = data
@@ -298,9 +289,19 @@ export async function generateInvoicePdf(
   doc.text(amountDueLabel, sL, y)
   doc.text(formatNum(amountDue), sV, y, { align: 'right' })
 
-  // ── BANK DETAILS — pinned to bottom of page ─────────────────────
+  // ── BANK DETAILS — page break if needed ─────────────────────────
   const pageH = doc.internal.pageSize.getHeight()
-  const footerStartY = pageH - 50
+  const bankDetailsHeight = 100
+  const bankDetailsY = y + 10
+
+  if (bankDetailsY + bankDetailsHeight > pageH - 15) {
+    doc.addPage()
+    y = 20
+  } else {
+    y = bankDetailsY
+  }
+
+  const footerStartY = y
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(12)

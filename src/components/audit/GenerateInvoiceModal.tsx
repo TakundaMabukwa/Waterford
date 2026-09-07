@@ -284,6 +284,7 @@ export default function GenerateInvoiceModal({
   const [customerAddress, setCustomerAddress] = useState('')
   const [customerVat, setCustomerVat] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null)
 
   const nameIsDollar = customerName.startsWith('$') || customerName.startsWith('($)')
   const detectedCurrency: AuditCurrencyCode = nameIsDollar ? 'USD' : invoiceCurrency
@@ -495,8 +496,14 @@ export default function GenerateInvoiceModal({
   const totalZar = subtotal + totalVat
   const amountDue = totalZar
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
+    if (!files || files.length === 0 || !record?.id) return
+    await processFiles(files)
+    e.target.value = ''
+  }
+
+  const processFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0 || !record?.id) return
 
     setUploadError('')
@@ -555,7 +562,6 @@ export default function GenerateInvoiceModal({
         setUploading(false)
       }
     }
-    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   const handleDeleteDoc = async (docId: string) => {
@@ -620,7 +626,7 @@ export default function GenerateInvoiceModal({
     let finalInvoiceUrl: string | undefined = undefined
     try {
 
-    // In draft mode, save to invoices table without generating PDF
+    // In draft mode, save to invoices table then generate preview PDF
     if (mode === 'draft') {
       const res = await fetch('/api/invoices', {
         method: 'POST',
@@ -671,9 +677,34 @@ export default function GenerateInvoiceModal({
         throw new Error(err.error || 'Failed to create draft')
       }
 
-      toast.success('Invoice draft created')
+      // Generate preview PDF
+      const { blob: pdfBlob } = await generateInvoicePdf({
+        invoiceNumber: 'DRAFT PREVIEW',
+        customerName: cleanName,
+        customerAddress,
+        customerVat,
+        invoiceDate,
+        dueDate,
+        referenceNumber,
+        salesCode,
+        currency: detectedCurrency,
+        lineItems: lineItems.map(item => ({
+          description: item.description,
+          quantity: Number(item.quantity) || 0,
+          unitPrice: Number(item.unitPrice) || 0,
+          vatType: item.vatType,
+          vehicle: item.vehicle || '',
+          driver: item.driver || '',
+        })),
+        subtotal,
+        vatAmount: totalVat,
+        totalAmount: totalZar,
+        amountDue,
+      })
+      const previewUrl = URL.createObjectURL(pdfBlob)
+      setPreviewPdfUrl(previewUrl)
+      toast.success('Draft created — preview below')
       onInvoiced?.(invoiceRate, detectedCurrency)
-      onClose({ status: 'draft' })
       return
     }
 
@@ -883,50 +914,10 @@ export default function GenerateInvoiceModal({
       console.error('Error regenerating loadcon:', loadconError)
     }
 
-    // Bundle invoice PDF + loadcon PDF + all attached documents
-    try {
-      const zip = new JSZip()
-      zip.file(fileName, pdfBlob)
-      if (loadconBlob) {
-        zip.file(`${record.ordernumber || 'trip'}-loadcon.pdf`, loadconBlob)
-      }
-
-      // Fetch existing documents for this audit
-      if (record?.id) {
-        const docRes = await fetch(`/api/invoice-documents?audit_id=${record.id}`)
-        const docResult = await docRes.json()
-        const docs = docResult.data?.documents || []
-
-        for (const doc of docs) {
-          if (doc.file_url) {
-            try {
-              const fileRes = await fetch(doc.file_url)
-              if (fileRes.ok) {
-                const fileBlob = await fileRes.blob()
-                zip.file(doc.file_name || `document-${doc.id}`, fileBlob)
-              }
-            } catch {
-              // Skip files that can't be fetched
-            }
-          }
-        }
-      }
-
-      const zipBlob = await zip.generateAsync({ type: 'blob' })
-      const zipFileName = `${invNumber || 'invoice'}-documents.zip`
-      const zipUrl = URL.createObjectURL(zipBlob)
-      const a = document.createElement('a')
-      a.href = zipUrl
-      a.download = zipFileName
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(zipUrl)
-    } catch (zipErr) {
-      console.error('ZIP bundling error:', zipErr)
-    }
-
-    toast.success('Invoice generated and stored')
+    // Show preview of the invoice PDF
+    const previewUrl = URL.createObjectURL(pdfBlob)
+    setPreviewPdfUrl(previewUrl)
+    toast.success('Invoice generated — preview below')
   } catch (err) {
     console.error('Invoice generation error:', err)
     toast.error('Failed to generate invoice')
@@ -1039,13 +1030,8 @@ export default function GenerateInvoiceModal({
 
           {/* Line Items */}
           <div>
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">Line Items</h3>
-              {!record?.is_invoiced && (
-                <Button variant="outline" size="sm" onClick={addLine}>
-                  <Plus className="mr-1 h-3 w-3" /> Add Line
-                </Button>
-              )}
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -1054,10 +1040,8 @@ export default function GenerateInvoiceModal({
                   <tr>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-16">Qty</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Sales Code</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Unit Price</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Vehicle</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Driver</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Sales Code</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">VAT</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Amount</th>
                     <th className="px-4 py-3 w-8"></th>
@@ -1085,6 +1069,16 @@ export default function GenerateInvoiceModal({
                         />
                       </td>
                       <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={item.unitPrice}
+                          onChange={(e) => updateLine(item.id, 'unitPrice', e.target.value)}
+                          className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
+                          disabled={!!record?.is_invoiced}
+                        />
+                      </td>
+                      <td className="px-4 py-2">
                         <select
                           value={item.salesCode || salesCode}
                           onChange={(e) => updateLine(item.id, 'salesCode' as any, e.target.value)}
@@ -1097,36 +1091,6 @@ export default function GenerateInvoiceModal({
                             </option>
                           ))}
                         </select>
-                      </td>
-                      <td className="px-4 py-2">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={item.unitPrice}
-                          onChange={(e) => updateLine(item.id, 'unitPrice', e.target.value)}
-                          className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
-                          disabled={!!record?.is_invoiced}
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <input
-                          type="text"
-                          value={item.vehicle}
-                          onChange={(e) => updateLine(item.id, 'vehicle', e.target.value)}
-                          className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
-                          disabled={!!record?.is_invoiced}
-                          placeholder="Reg"
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <input
-                          type="text"
-                          value={item.driver}
-                          onChange={(e) => updateLine(item.id, 'driver', e.target.value)}
-                          className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
-                          disabled={!!record?.is_invoiced}
-                          placeholder="Driver"
-                        />
                       </td>
                       <td className="px-4 py-2">
                         <Select
@@ -1160,6 +1124,11 @@ export default function GenerateInvoiceModal({
                 </tbody>
               </table>
             </div>
+            {!record?.is_invoiced && (
+              <Button variant="outline" size="sm" onClick={addLine} className="mt-3">
+                <Plus className="mr-1 h-3 w-3" /> Add Line
+              </Button>
+            )}
           </div>
 
           {/* Summary */}
@@ -1196,6 +1165,9 @@ export default function GenerateInvoiceModal({
             <div
               className="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-center hover:border-[#001e42] hover:bg-slate-100 transition-colors cursor-pointer"
               onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); processFiles(e.dataTransfer.files); }}
             >
               <Upload className="mx-auto mb-2 h-6 w-6 text-slate-400" />
               <p className="text-sm text-slate-600">
@@ -1258,6 +1230,31 @@ export default function GenerateInvoiceModal({
           </Button>
         </div>
       </div>
+
+      {/* Invoice Preview Overlay */}
+      {previewPdfUrl && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70" onClick={() => {
+          URL.revokeObjectURL(previewPdfUrl)
+          setPreviewPdfUrl(null)
+          onClose({ status: 'finalize' })
+        }}>
+          <div className="relative flex h-[90vh] w-[90vw] max-w-5xl flex-col rounded-lg bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+              <h3 className="text-sm font-bold text-slate-900">Invoice Preview</h3>
+              <Button variant="outline" size="sm" onClick={() => {
+                URL.revokeObjectURL(previewPdfUrl)
+                setPreviewPdfUrl(null)
+                onClose({ status: 'finalize' })
+              }}>
+                Close
+              </Button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <iframe src={previewPdfUrl} className="h-full w-full border-0" title="Invoice Preview" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

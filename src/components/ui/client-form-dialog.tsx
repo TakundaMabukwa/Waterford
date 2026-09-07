@@ -49,6 +49,7 @@ const defaultFormState = {
   notes: "",
   notification_period: "0",
   blocked: false,
+  pod_required: false,
   notification_groups: [] as Array<{ name: string; emails: string[] }>,
   invoice_email_groups: [] as Array<{ name: string; emails: string[] }>,
 }
@@ -124,6 +125,7 @@ function ClientFormContent({
         notes: initialRecord.notes || "",
         notification_period: initialRecord.notification_period?.toString() || "0",
         blocked: Boolean(initialRecord.blocked),
+        pod_required: Boolean(initialRecord.pod_required),
         notification_groups: Array.isArray(initialRecord.notification_groups) ? initialRecord.notification_groups : [],
         invoice_email_groups: Array.isArray(initialRecord.invoice_email_groups) ? initialRecord.invoice_email_groups : [],
       })
@@ -277,6 +279,7 @@ function ClientFormContent({
         credit_limit: formState.credit_limit || "0",
         notification_period: Number(formState.notification_period) || 0,
         blocked: formState.blocked === "true" || formState.blocked === true,
+        pod_required: formState.pod_required === "true" || formState.pod_required === true,
         coordinates: polygon.length >= 3 ? JSON.stringify(polygon) : null,
         coords: centerPoint ? `${centerPoint.lat},${centerPoint.lng}` : null,
         notification_groups: formState.notification_groups || [],
@@ -313,6 +316,103 @@ function ClientFormContent({
 
       <div className="grid flex-1 gap-5 overflow-hidden px-6 py-5 lg:grid-cols-[1.1fr_1fr]">
         <div className="space-y-5 overflow-y-auto pr-1">
+          <section className={`space-y-4 ${!canEditAll ? "opacity-50 pointer-events-none" : ""}`}>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Invoice Contact Emails</h3>
+              <p className="text-xs text-slate-500">Email groups that receive invoices for this client.</p>
+            </div>
+            {formState.invoice_email_groups.length === 0 && (
+              <p className="text-xs text-slate-400 italic">No invoice email groups created yet.</p>
+            )}
+            {formState.invoice_email_groups.map((group, gIdx) => (
+              <div key={gIdx} className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={group.name}
+                    onChange={(e) => {
+                      const updated = [...formState.invoice_email_groups]
+                      updated[gIdx] = { ...updated[gIdx], name: e.target.value }
+                      setFormState((prev) => ({ ...prev, invoice_email_groups: updated }))
+                    }}
+                    placeholder="Group name"
+                    className="flex-1 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    onClick={() => {
+                      const updated = formState.invoice_email_groups.filter((_, i) => i !== gIdx)
+                      setFormState((prev) => ({ ...prev, invoice_email_groups: updated }))
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="space-y-1">
+                  {group.emails.map((email, eIdx) => (
+                    <div key={eIdx} className="flex items-center gap-2">
+                      <Input
+                        value={email}
+                        onChange={(e) => {
+                          const updated = [...formState.invoice_email_groups]
+                          const newEmails = [...updated[gIdx].emails]
+                          newEmails[eIdx] = e.target.value
+                          updated[gIdx] = { ...updated[gIdx], emails: newEmails }
+                          setFormState((prev) => ({ ...prev, invoice_email_groups: updated }))
+                        }}
+                        placeholder="Email address"
+                        className="flex-1 text-xs"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-slate-400 hover:text-red-500"
+                        onClick={() => {
+                          const updated = [...formState.invoice_email_groups]
+                          const newEmails = updated[gIdx].emails.filter((_, i) => i !== eIdx)
+                          updated[gIdx] = { ...updated[gIdx], emails: newEmails }
+                          setFormState((prev) => ({ ...prev, invoice_email_groups: updated }))
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                    onClick={() => {
+                      const updated = [...formState.invoice_email_groups]
+                      updated[gIdx] = { ...updated[gIdx], emails: [...updated[gIdx].emails, ''] }
+                      setFormState((prev) => ({ ...prev, invoice_email_groups: updated }))
+                    }}
+                  >
+                    <Plus className="mr-1 h-3 w-3" /> Add Email
+                  </Button>
+                </div>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-xs"
+              onClick={() => {
+                setFormState((prev) => ({
+                  ...prev,
+                  invoice_email_groups: [...prev.invoice_email_groups, { name: '', emails: [''] }],
+                }))
+              }}
+            >
+              <Plus className="mr-1 h-3 w-3" /> Add Group
+            </Button>
+          </section>
+
           <section className="space-y-4">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">Basic Details</h3>
@@ -361,6 +461,18 @@ function ClientFormContent({
                   <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${formState.blocked === "true" || formState.blocked === true ? "translate-x-6" : "translate-x-1"}`} />
                 </button>
                 <span className="ml-2 text-xs text-slate-600">{formState.blocked === "true" || formState.blocked === true ? "Yes" : "No"}</span>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">POD Required</Label>
+                <button
+                  type="button"
+                  onClick={() => canEditAll && updateField("pod_required", (!formState.pod_required).toString())}
+                  disabled={!canEditAll}
+                  className={`inline-flex h-7 w-12 items-center rounded-full transition-colors ${!canEditAll ? "opacity-50 cursor-not-allowed" : ""} ${formState.pod_required === "true" || formState.pod_required === true ? "bg-emerald-500" : "bg-slate-300"}`}
+                >
+                  <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${formState.pod_required === "true" || formState.pod_required === true ? "translate-x-6" : "translate-x-1"}`} />
+                </button>
+                <span className="ml-2 text-xs text-slate-600">{formState.pod_required === "true" || formState.pod_required === true ? "Yes" : "No"}</span>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-medium uppercase tracking-wide text-slate-600">Industry</Label>
@@ -619,103 +731,6 @@ function ClientFormContent({
                 setFormState((prev) => ({
                   ...prev,
                   notification_groups: [...prev.notification_groups, { name: '', emails: [''] }],
-                }))
-              }}
-            >
-              <Plus className="mr-1 h-3 w-3" /> Add Group
-            </Button>
-          </section>
-
-          <section className={`space-y-4 ${!canEditAll ? "opacity-50 pointer-events-none" : ""}`}>
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">Invoice Contact Emails</h3>
-              <p className="text-xs text-slate-500">Email groups that receive invoices for this client.</p>
-            </div>
-            {formState.invoice_email_groups.length === 0 && (
-              <p className="text-xs text-slate-400 italic">No invoice email groups created yet.</p>
-            )}
-            {formState.invoice_email_groups.map((group, gIdx) => (
-              <div key={gIdx} className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={group.name}
-                    onChange={(e) => {
-                      const updated = [...formState.invoice_email_groups]
-                      updated[gIdx] = { ...updated[gIdx], name: e.target.value }
-                      setFormState((prev) => ({ ...prev, invoice_email_groups: updated }))
-                    }}
-                    placeholder="Group name"
-                    className="flex-1 text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                    onClick={() => {
-                      const updated = formState.invoice_email_groups.filter((_, i) => i !== gIdx)
-                      setFormState((prev) => ({ ...prev, invoice_email_groups: updated }))
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="space-y-1">
-                  {group.emails.map((email, eIdx) => (
-                    <div key={eIdx} className="flex items-center gap-2">
-                      <Input
-                        value={email}
-                        onChange={(e) => {
-                          const updated = [...formState.invoice_email_groups]
-                          const newEmails = [...updated[gIdx].emails]
-                          newEmails[eIdx] = e.target.value
-                          updated[gIdx] = { ...updated[gIdx], emails: newEmails }
-                          setFormState((prev) => ({ ...prev, invoice_email_groups: updated }))
-                        }}
-                        placeholder="Email address"
-                        className="flex-1 text-xs"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-slate-400 hover:text-red-500"
-                        onClick={() => {
-                          const updated = [...formState.invoice_email_groups]
-                          const newEmails = updated[gIdx].emails.filter((_, i) => i !== eIdx)
-                          updated[gIdx] = { ...updated[gIdx], emails: newEmails }
-                          setFormState((prev) => ({ ...prev, invoice_email_groups: updated }))
-                        }}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                    onClick={() => {
-                      const updated = [...formState.invoice_email_groups]
-                      updated[gIdx] = { ...updated[gIdx], emails: [...updated[gIdx].emails, ''] }
-                      setFormState((prev) => ({ ...prev, invoice_email_groups: updated }))
-                    }}
-                  >
-                    <Plus className="mr-1 h-3 w-3" /> Add Email
-                  </Button>
-                </div>
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="text-xs"
-              onClick={() => {
-                setFormState((prev) => ({
-                  ...prev,
-                  invoice_email_groups: [...prev.invoice_email_groups, { name: '', emails: [''] }],
                 }))
               }}
             >

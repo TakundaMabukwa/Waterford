@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Download, FileText, Paperclip, Route, Truck, Plus, AlertTriangle, Loader2, Mail } from 'lucide-react'
+import { Download, FileText, Paperclip, Route, Truck, Plus, AlertTriangle, Loader2, Mail, Search } from 'lucide-react'
 // @ts-ignore
 import ExcelJS from 'exceljs'
 import SundryInvoiceModal from '@/components/audit/SundryInvoiceModal'
@@ -137,6 +137,8 @@ export default function AuditPage() {
   const [finalizePreview, setFinalizePreview] = useState<any>(null)
   const [showFinalizePreview, setShowFinalizePreview] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
+  const [draftSearch, setDraftSearch] = useState('')
+  const [invoiceSearch, setInvoiceSearch] = useState('')
   const [finalizeDocs, setFinalizeDocs] = useState<any[]>([])
   const [finalizeDocsLoading, setFinalizeDocsLoading] = useState(false)
   const [finalizedInvoiceUrl, setFinalizedInvoiceUrl] = useState<string | null>(null)
@@ -1232,9 +1234,9 @@ export default function AuditPage() {
                   <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Client</th>
                   <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Cargo</th>
                   <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Route</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Planned</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Actual</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Fuel</th>
+                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Vehicle</th>
+                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Driver</th>
+                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Created</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
                 </tr>
@@ -1253,12 +1255,9 @@ export default function AuditPage() {
                         <div className="truncate text-xs text-slate-500">→ {record.destination || 'N/A'}</div>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-sm text-slate-700">{currency(toNumber(record.planned_total_cost))}</td>
-                    <td className="px-3 py-2 text-sm text-slate-700">{currency(toNumber(record.actual_total_cost))}</td>
-                    <td className="px-3 py-2 text-sm text-slate-700">
-                      <div>{toNumber(record.fuel_used_liters).toFixed(1)} L</div>
-                      <div className="text-xs text-slate-500">{toNumber(record.fuel_liters_per_km).toFixed(3)} L/km</div>
-                    </td>
+                    <td className="px-3 py-2 text-sm text-slate-700">{getVehicleReg(record)}</td>
+                    <td className="px-3 py-2 text-sm text-slate-700">{getDriverName(record)}</td>
+                    <td className="px-3 py-2 text-sm text-slate-700">{record.created_at ? new Date(record.created_at).toLocaleDateString('en-ZA') : '—'}</td>
                     <td className="px-3 py-2 text-center">
                       {record.is_invoiced ? (
                         <div className="flex items-center justify-center gap-1.5">
@@ -1707,6 +1706,15 @@ export default function AuditPage() {
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-bold text-[#001e42]">Invoice Drafts</h3>
             <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={draftSearch}
+                  onChange={(e) => setDraftSearch(e.target.value)}
+                  placeholder="Search invoices..."
+                  className="pl-9 w-60"
+                />
+              </div>
               {selectedDraftIds.size > 0 && (
                 <Button
                   size="sm"
@@ -1758,7 +1766,12 @@ export default function AuditPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {draftInvoices.map((inv: any) => (
+                  {draftInvoices.filter((inv: any) => {
+                    if (!draftSearch.trim()) return true
+                    const needle = draftSearch.trim().toLowerCase()
+                    return [inv.invoice_number?.toString(), inv.ordernumber, inv.trip_id?.toString(), inv.customer_name, inv.reference_number]
+                      .filter(Boolean).join(' ').toLowerCase().includes(needle)
+                  }).map((inv: any) => (
                     <tr key={inv.id} className="border-t hover:bg-slate-50">
                       <td className="px-3 py-2">
                         <input
@@ -1819,6 +1832,15 @@ export default function AuditPage() {
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-bold text-[#001e42]">Finalized Invoices</h3>
             <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={invoiceSearch}
+                  onChange={(e) => setInvoiceSearch(e.target.value)}
+                  placeholder="Search invoices..."
+                  className="pl-9 w-60"
+                />
+              </div>
               {selectedInvoiceIds.size > 0 && (
                 <Button
                   size="sm"
@@ -1882,212 +1904,133 @@ export default function AuditPage() {
           ) : finalizedInvoices.length === 0 ? (
             <div className="py-8 text-center text-sm text-slate-500">No invoices found.</div>
           ) : (
-            <div className="space-y-6">
-              {/* Trip Invoices */}
-              {finalizedInvoices.filter((inv: any) => inv.trip_id).length > 0 && (
-                <div>
-                  <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Trip Invoices</h4>
-                  <div className="overflow-x-auto rounded-lg border">
-                    <table className="w-full border-collapse text-left">
-                      <thead className="bg-slate-50">
-                        <tr>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 w-10">
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full border-collapse text-left">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 w-10">
+                      <input
+                        type="checkbox"
+                        checked={finalizedInvoices.length > 0 && finalizedInvoices.every((inv: any) => selectedInvoiceIds.has(inv.id))}
+                        onChange={(e) => {
+                          const next = new Set(selectedInvoiceIds)
+                          if (e.target.checked) finalizedInvoices.forEach((inv: any) => next.add(inv.id))
+                          else finalizedInvoices.forEach((inv: any) => next.delete(inv.id))
+                          setSelectedInvoiceIds(next)
+                        }}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                    </th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Order</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Reference</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {finalizedInvoices
+                    .filter((inv: any) => {
+                      if (!invoiceSearch.trim()) return true
+                      const needle = invoiceSearch.trim().toLowerCase()
+                      return [inv.invoice_number?.toString(), inv.ordernumber, inv.trip_id?.toString(), inv.customer_name, inv.reference_number]
+                        .filter(Boolean).join(' ').toLowerCase().includes(needle)
+                    })
+                    .slice()
+                    .sort((a: any, b: any) => (a.invoice_number || 0) - (b.invoice_number || 0))
+                    .reduce((groups: any[], inv: any) => {
+                      const customer = inv.customer_name || 'Unknown'
+                      const lastGroup = groups[groups.length - 1]
+                      if (lastGroup && lastGroup.customer === customer) {
+                        lastGroup.invoices.push(inv)
+                      } else {
+                        groups.push({ customer, invoices: [inv] })
+                      }
+                      return groups
+                    }, [])
+                    .flatMap((group: any) => [
+                      <tr key={`group-${group.customer}`} className="bg-slate-100 border-t">
+                        <td colSpan={10} className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-slate-600">
+                          {group.customer}
+                        </td>
+                      </tr>,
+                      ...group.invoices.map((inv: any) => (
+                        <tr key={inv.id} className="border-t hover:bg-slate-50">
+                          <td className="px-3 py-2">
                             <input
                               type="checkbox"
-                              checked={finalizedInvoices.filter((inv: any) => inv.trip_id).length > 0 && finalizedInvoices.filter((inv: any) => inv.trip_id).every((inv: any) => selectedInvoiceIds.has(inv.id))}
+                              checked={selectedInvoiceIds.has(inv.id)}
                               onChange={(e) => {
-                                const tripIds = finalizedInvoices.filter((inv: any) => inv.trip_id).map((inv: any) => inv.id)
                                 const next = new Set(selectedInvoiceIds)
-                                if (e.target.checked) tripIds.forEach((id: number) => next.add(id))
-                                else tripIds.forEach((id: number) => next.delete(id))
+                                if (e.target.checked) next.add(inv.id)
+                                else next.delete(inv.id)
                                 setSelectedInvoiceIds(next)
                               }}
                               className="h-4 w-4 rounded border-slate-300"
                             />
-                          </th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Order</th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Reference</th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
-                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
-                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {finalizedInvoices.filter((inv: any) => inv.trip_id).map((inv: any) => (
-                          <tr key={inv.id} className="border-t hover:bg-slate-50">
-                            <td className="px-3 py-2">
-                              <input
-                                type="checkbox"
-                                checked={selectedInvoiceIds.has(inv.id)}
-                                onChange={(e) => {
-                                  const next = new Set(selectedInvoiceIds)
-                                  if (e.target.checked) next.add(inv.id)
-                                  else next.delete(inv.id)
-                                  setSelectedInvoiceIds(next)
-                                }}
-                                className="h-4 w-4 rounded border-slate-300"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
-                            </td>
-                            <td className="px-3 py-2 text-sm text-slate-700">{inv.ordernumber || inv.trip_id || '-'}</td>
-                            <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
-                            <td className="px-3 py-2 text-sm text-slate-700">{inv.reference_number || '-'}</td>
-                            <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
-                            <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
-                              {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              {inv.is_locked ? (
-                                <Badge className="bg-red-100 text-red-800 border-red-200 text-[10px] px-2 py-0.5">Locked</Badge>
-                              ) : (
-                                <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Finalized</Badge>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <div className="flex justify-end gap-1">
-                                {inv.invoice_url && (
-                                  <>
-                                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
-                                      <FileText className="mr-1 h-3 w-3" /> View
-                                    </Button>
-                                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
-                                      <Download className="mr-1 h-3 w-3" /> Download
-                                    </Button>
-                                  </>
-                                )}
-                                {!inv.is_locked && (
-                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleEditDraft(inv)}>
-                                    Edit
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
+                          </td>
+                          <td className="px-3 py-2 text-sm text-slate-700">{inv.ordernumber || inv.trip_id || '—'}</td>
+                          <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
+                          <td className="px-3 py-2 text-sm text-slate-700">{inv.reference_number || '-'}</td>
+                          <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
+                          <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
+                            {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {inv.is_locked ? (
+                              <Badge className="bg-red-100 text-red-800 border-red-200 text-[10px] px-2 py-0.5">Locked</Badge>
+                            ) : (
+                              <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Finalized</Badge>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="flex justify-end gap-1">
+                              {inv.invoice_url && (
+                                <>
+                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                                    <FileText className="mr-1 h-3 w-3" /> View
                                   </Button>
-                                )}
-                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => loadAuditLog(inv.id)}>
-                                  History
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Sundry Invoices */}
-              {finalizedInvoices.filter((inv: any) => !inv.trip_id).length > 0 && (
-                <div>
-                  <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Sundry Invoices</h4>
-                  <div className="overflow-x-auto rounded-lg border">
-                    <table className="w-full border-collapse text-left">
-                      <thead className="bg-slate-50">
-                        <tr>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 w-10">
-                            <input
-                              type="checkbox"
-                              checked={finalizedInvoices.filter((inv: any) => !inv.trip_id).length > 0 && finalizedInvoices.filter((inv: any) => !inv.trip_id).every((inv: any) => selectedInvoiceIds.has(inv.id))}
-                              onChange={(e) => {
-                                const sundryIds = finalizedInvoices.filter((inv: any) => !inv.trip_id).map((inv: any) => inv.id)
-                                const next = new Set(selectedInvoiceIds)
-                                if (e.target.checked) sundryIds.forEach((id: number) => next.add(id))
-                                else sundryIds.forEach((id: number) => next.delete(id))
-                                setSelectedInvoiceIds(next)
-                              }}
-                              className="h-4 w-4 rounded border-slate-300"
-                            />
-                          </th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Reference</th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
-                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
-                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {finalizedInvoices.filter((inv: any) => !inv.trip_id).map((inv: any) => (
-                          <tr key={inv.id} className="border-t hover:bg-slate-50">
-                            <td className="px-3 py-2">
-                              <input
-                                type="checkbox"
-                                checked={selectedInvoiceIds.has(inv.id)}
-                                onChange={(e) => {
-                                  const next = new Set(selectedInvoiceIds)
-                                  if (e.target.checked) next.add(inv.id)
-                                  else next.delete(inv.id)
-                                  setSelectedInvoiceIds(next)
-                                }}
-                                className="h-4 w-4 rounded border-slate-300"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
-                            </td>
-                            <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
-                            <td className="px-3 py-2 text-sm text-slate-700">{inv.reference_number || '-'}</td>
-                            <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
-                            <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
-                              {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              {inv.is_locked ? (
-                                <Badge className="bg-red-100 text-red-800 border-red-200 text-[10px] px-2 py-0.5">Locked</Badge>
-                              ) : (
-                                <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Finalized</Badge>
+                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
+                                    <Download className="mr-1 h-3 w-3" /> Download
+                                  </Button>
+                                </>
                               )}
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <div className="flex justify-end gap-1">
+                              {!inv.is_locked && (
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleEditDraft(inv)}>
+                                  Edit
+                                </Button>
+                              )}
+                              {inv.invoice_email_groups?.length > 0 && (
                                 <Button
                                   size="sm"
-                                  variant="outline"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={() => handleDownloadInvoice(inv)}
-                                  title={inv.invoice_url ? 'View PDF' : 'Will regenerate PDF on click'}
+                                  className="h-7 px-2 text-xs bg-emerald-600 text-white hover:bg-emerald-700"
+                                  disabled={sendingEmail}
+                                  onClick={() => handleSingleSend(inv)}
+                                  title="Send this invoice to the client's email group"
                                 >
-                                  <FileText className="mr-1 h-3 w-3" /> View
+                                  <Mail className="mr-1 h-3 w-3" /> Send
                                 </Button>
-                                {!inv.is_locked && (
-                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleEditDraft(inv)}>
-                                    Edit
-                                  </Button>
-                                )}
-                                {inv.invoice_email_groups?.length > 0 && (
-                                  <Button
-                                    size="sm"
-                                    className="h-7 px-2 text-xs bg-emerald-600 text-white hover:bg-emerald-700"
-                                    disabled={sendingEmail}
-                                    onClick={() => handleSingleSend(inv)}
-                                    title="Send this invoice to the client's email group"
-                                  >
-                                    <Mail className="mr-1 h-3 w-3" /> Send
-                                  </Button>
-                                )}
-                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => loadAuditLog(inv.id)}>
-                                  History
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+                              )}
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => loadAuditLog(inv.id)}>
+                                History
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ])}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>

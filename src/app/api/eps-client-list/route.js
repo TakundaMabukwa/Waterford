@@ -39,7 +39,7 @@ export async function GET() {
     while (true) {
       const { data, error } = await supabase
         .from('eps_client_list')
-        .select('id, name, address, city, state, country, client_id, contact_person, contact_phone, contact_email, email, phone, status, industry, credit_limit, dormant_flag, postal_code, fax_number, registration_number, registration_name, ck_number, tax_number, vat_number, vat_type, operating_hours, capacity, notes, coordinates, coords, blocked, notification_period, notification_groups, invoice_email_groups, created_at, updated_at')
+        .select('id, name, address, city, state, country, client_id, contact_person, contact_phone, contact_email, email, phone, status, industry, credit_limit, dormant_flag, postal_code, fax_number, registration_number, registration_name, ck_number, tax_number, vat_number, vat_type, operating_hours, capacity, notes, coordinates, coords, blocked, notification_period, notification_groups, invoice_email_groups, pod_required, created_at, updated_at')
         .order('name')
         .range(from, from + batchSize - 1)
       
@@ -125,6 +125,7 @@ export async function POST(request) {
       dropoff_locations: Array.isArray(payload.dropoff_locations) ? payload.dropoff_locations : [],
       notification_groups: Array.isArray(payload.notification_groups) ? payload.notification_groups : [],
       invoice_email_groups: Array.isArray(payload.invoice_email_groups) ? payload.invoice_email_groups : [],
+      pod_required: Boolean(payload.pod_required),
       updated_at: new Date().toISOString(),
     }
 
@@ -156,6 +157,33 @@ export async function POST(request) {
     })
 
     return NextResponse.json({ data }, { status: 201 })
+  } catch (error) {
+    console.error('API error:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
+
+export async function DELETE(request) {
+  try {
+    const supabase = await createClient()
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json({ error: 'Client ID is required for deletion.' }, { status: 400 })
+    }
+
+    const { error } = await supabase
+      .from('eps_client_list')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Supabase delete error:', error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true }, { status: 200 })
   } catch (error) {
     console.error('API error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -231,6 +259,7 @@ export async function PUT(request) {
       dropoff_locations: payload.dropoff_locations !== undefined ? (Array.isArray(payload.dropoff_locations) ? payload.dropoff_locations : []) : existing.dropoff_locations,
       notification_groups: payload.notification_groups !== undefined ? (Array.isArray(payload.notification_groups) ? payload.notification_groups : []) : existing.notification_groups,
       invoice_email_groups: payload.invoice_email_groups !== undefined ? (Array.isArray(payload.invoice_email_groups) ? payload.invoice_email_groups : []) : existing.invoice_email_groups,
+      pod_required: payload.pod_required !== undefined ? Boolean(payload.pod_required) : existing.pod_required,
       updated_at: new Date().toISOString(),
     }
 
