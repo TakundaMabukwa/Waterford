@@ -25,8 +25,8 @@ export function TripReportsSection({ cancelledOnly = false }: { cancelledOnly?: 
         const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
         const statusFilter = cancelledOnly
-          ? 'statusnotes.like.%TRIP CANCELLED%,status_notes.like.%TRIP CANCELLED%,status.eq.cancelled'
-          : 'statusnotes.like.%TRIP CANCELLED%,status_notes.like.%TRIP CANCELLED%,status.in.(completed,delivered,cancelled)'
+          ? 'statusnotes.ilike.%cancel%,status_notes.ilike.%cancel%,status.eq.cancelled'
+          : 'status.in.(completed,delivered,stopped)'
 
         const { data, error } = await supabase
           .from('trips')
