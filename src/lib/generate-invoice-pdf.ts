@@ -289,44 +289,42 @@ export async function generateInvoicePdf(
   doc.text(amountDueLabel, sL, y)
   doc.text(formatNum(amountDue), sV, y, { align: 'right' })
 
-  // ── BANK DETAILS — page break if needed ─────────────────────────
+  // ── BANK DETAILS — anchored to bottom of last page ──────────────
   const pageH = doc.internal.pageSize.getHeight()
-  const bankDetailsHeight = 100
-  const bankDetailsY = y + 10
+  const bankBlockH = 82 // total height of bank details block
+  const afterSummaryY = y + 10
 
-  if (bankDetailsY + bankDetailsHeight > pageH - 15) {
+  // Check if summary + bank block fits on current page
+  if (afterSummaryY + bankBlockH > pageH - 12) {
     doc.addPage()
-    y = 20
-  } else {
-    y = bankDetailsY
   }
 
-  const footerStartY = y
+  const bankY = pageH - bankBlockH - 12
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(12)
   doc.setTextColor(0, 0, 0)
-  doc.text(`Invoice Due Date: ${formatDisplayDate(dueDate)}`, ml, footerStartY)
+  doc.text(`Invoice Due Date: ${formatDisplayDate(dueDate)}`, ml, bankY)
 
   doc.setFontSize(9)
-  doc.text('Bank accounts:', ml, footerStartY + 8)
+  doc.text('Bank accounts:', ml, bankY + 8)
 
   doc.setFont('helvetica', 'bold')
-  doc.text('South African Rand (ZAR)', ml, footerStartY + 15)
+  doc.text('South African Rand (ZAR)', ml, bankY + 15)
   doc.setFont('helvetica', 'normal')
-  doc.text('Bank: First National Bank (FNB)', ml, footerStartY + 20)
-  doc.text('Branch: 210554', ml, footerStartY + 25)
-  doc.text('Account number: 62878278946', ml, footerStartY + 30)
+  doc.text('Bank: First National Bank (FNB)', ml, bankY + 20)
+  doc.text('Branch: 210554', ml, bankY + 24)
+  doc.text('Account number: 62878278946', ml, bankY + 28)
 
   doc.setFont('helvetica', 'bold')
-  doc.text('Global account (USD)', ml, footerStartY + 38)
+  doc.text('Global account (USD)', ml, bankY + 35)
   doc.setFont('helvetica', 'normal')
-  doc.text('Bank: Capitec Bank', ml, footerStartY + 43)
-  doc.text('Swift: CABLZAJJ', ml, footerStartY + 48)
-  doc.text('Branch: 450105', ml, footerStartY + 53)
-  doc.text('Account number: 5000040384', ml, footerStartY + 58)
-  doc.text('Acc type CFC Call Account', ml, footerStartY + 63)
-  doc.text('142 West Street, Sandton, Johannesburg, 2196', ml, footerStartY + 68)
+  doc.text('Bank: Capitec Bank', ml, bankY + 40)
+  doc.text('Swift: CABLZAJJ', ml, bankY + 44)
+  doc.text('Branch: 450105', ml, bankY + 48)
+  doc.text('Account number: 5000040384', ml, bankY + 52)
+  doc.text('Acc type CFC Call Account', ml, bankY + 56)
+  doc.text('142 West Street, Sandton, Johannesburg, 2196', ml, bankY + 60)
 
   // ── FOOTER ─────────────────────────────────────────────────────
   doc.setFontSize(7)
@@ -335,7 +333,7 @@ export async function generateInvoicePdf(
   doc.text(
     'Company Registration No: 2020/601042/07.  Registered Office: 96 CAVALEROS DRIVE, INDUSTRIES WEST, GERMISTON, GERMISTON, GAUTENG, 1401, SOUTH AFRICA',
     ml,
-    footerStartY + 77
+    bankY + 72
   )
 
   const fileName = `${invoiceNumber || 'invoice'}.pdf`

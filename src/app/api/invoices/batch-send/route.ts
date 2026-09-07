@@ -215,6 +215,7 @@ export async function POST(request: NextRequest) {
             html: buildEmailHtml(invoice),
             attachments,
           }),
+          signal: AbortSignal.timeout(15000),
         })
 
         if (!emailRes.ok) {
