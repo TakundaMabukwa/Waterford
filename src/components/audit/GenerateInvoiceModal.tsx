@@ -725,6 +725,7 @@ export default function GenerateInvoiceModal({
       // Show preview in overlay
       const previewUrl = URL.createObjectURL(pdfBlob)
       setPreviewPdfUrl(previewUrl)
+      setGenerating(false)
       toast.success(`Draft ${createdInvoice.invoice_number} created — preview below`)
       onInvoiced?.(invoiceRate, detectedCurrency)
       return
