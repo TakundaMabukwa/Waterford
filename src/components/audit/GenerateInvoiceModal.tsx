@@ -275,7 +275,7 @@ export default function GenerateInvoiceModal({
   const isDollarClient = rawClientName.startsWith('($)') || rawClientName.startsWith('$')
   const cleanClientName = isDollarClient ? rawClientName.replace(/^\(\$?\)\s*/, '').replace(/^\$\s*/, '').trim() : rawClientName
 
-  const orderNum = record?.ordernumber || record?.trip_id || ''
+  const orderNum = record?.ordernumber || ''
 
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().split('T')[0])
   const [dueDate, setDueDate] = useState(() => calculateDueDate(new Date().toISOString().split('T')[0]))
@@ -388,6 +388,8 @@ export default function GenerateInvoiceModal({
         ...item,
         quantity: String(item.quantity ?? ''),
         unitPrice: String(item.unitPrice ?? ''),
+        vehicle: item.vehicle || '',
+        driver: item.driver || '',
       })))
     }
   }, [open, record?.id])
@@ -410,6 +412,8 @@ export default function GenerateInvoiceModal({
         ...item,
         quantity: String(item.quantity ?? ''),
         unitPrice: String(item.unitPrice ?? ''),
+        vehicle: item.vehicle || '',
+        driver: item.driver || '',
       })))
     }
   }, [open, mode, draftData])
@@ -1058,6 +1062,8 @@ export default function GenerateInvoiceModal({
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-16">Qty</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Unit Price</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Sales Code</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Vehicle</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Driver</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">VAT</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Amount</th>
                     <th className="px-4 py-3 w-8"></th>
@@ -1107,6 +1113,26 @@ export default function GenerateInvoiceModal({
                             </option>
                           ))}
                         </select>
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          value={item.vehicle}
+                          onChange={(e) => updateLine(item.id, 'vehicle', e.target.value)}
+                          placeholder="Vehicle"
+                          className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-xs shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
+                          disabled={!!record?.is_invoiced}
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          value={item.driver}
+                          onChange={(e) => updateLine(item.id, 'driver', e.target.value)}
+                          placeholder="Driver"
+                          className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-xs shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
+                          disabled={!!record?.is_invoiced}
+                        />
                       </td>
                       <td className="px-4 py-2">
                         <Select
