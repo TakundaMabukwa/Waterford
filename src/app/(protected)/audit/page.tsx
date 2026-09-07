@@ -676,6 +676,7 @@ export default function AuditPage() {
   const handleEditDraft = (draft: any) => {
     setEditDraftId(draft.id)
     setEditDraftData(draft)
+    setEditModalMode('edit')
     setShowEditModal(true)
   }
 

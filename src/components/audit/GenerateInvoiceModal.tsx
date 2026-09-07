@@ -297,6 +297,7 @@ export default function GenerateInvoiceModal({
 
   const [clients, setClients] = useState<any[]>([])
   const [selectedClientId, setSelectedClientId] = useState('')
+  const [clientVatType, setClientVatType] = useState<string>('zero')
 
   useEffect(() => {
     async function fetchClients() {
@@ -349,6 +350,7 @@ export default function GenerateInvoiceModal({
     // Apply client defaults: vat type across all lines + per-line sales code
     const clientVatType = client.vat_type
     if (clientVatType && ['zero', 'standard', 'exempt', 'zero_export'].includes(clientVatType)) {
+      setClientVatType(clientVatType)
       setLineItems((prev) => prev.map((l) => ({ ...l, vatType: clientVatType as any })))
     }
     if (client.industry_code) {
@@ -486,7 +488,7 @@ export default function GenerateInvoiceModal({
         vehicle,
         driver,
         salesCode: '200',
-        vatType: 'zero' as const,
+        vatType: (clientVatType as any) || 'zero',
       },
     ])
   }
