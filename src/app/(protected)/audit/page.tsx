@@ -1803,11 +1803,9 @@ export default function AuditPage() {
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex justify-end gap-1">
-                          {inv.invoice_url && (
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
-                              <Download className="h-3 w-3" />
-                            </Button>
-                          )}
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleDownloadInvoice(inv)}>
+                            <Download className="h-3 w-3" />
+                          </Button>
                           <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleEditDraft(inv)}>
                             Edit
                           </Button>

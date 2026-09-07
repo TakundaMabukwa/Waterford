@@ -677,9 +677,15 @@ export default function GenerateInvoiceModal({
         throw new Error(err.error || 'Failed to create draft')
       }
 
-      // Generate preview PDF
-      const { blob: pdfBlob } = await generateInvoicePdf({
-        invoiceNumber: 'DRAFT PREVIEW',
+      const createResJson = await res.json()
+      const createdInvoice = createResJson.data
+      if (!createdInvoice?.id || !createdInvoice?.invoice_number) {
+        throw new Error('Draft created but missing invoice data')
+      }
+
+      // Generate and upload PDF with real invoice number
+      const { blob: pdfBlob, fileName } = await generateInvoicePdf({
+        invoiceNumber: createdInvoice.invoice_number,
         customerName: cleanName,
         customerAddress,
         customerVat,
@@ -701,9 +707,19 @@ export default function GenerateInvoiceModal({
         totalAmount: totalZar,
         amountDue,
       })
+      const pdfUrl = await uploadInvoicePdf(createdInvoice.invoice_number, pdfBlob)
+      if (pdfUrl) {
+        await fetch(`/api/invoices/${createdInvoice.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoice_url: pdfUrl }),
+        }).catch(() => {})
+      }
+
+      // Show preview in overlay
       const previewUrl = URL.createObjectURL(pdfBlob)
       setPreviewPdfUrl(previewUrl)
-      toast.success('Draft created — preview below')
+      toast.success(`Draft ${createdInvoice.invoice_number} created — preview below`)
       onInvoiced?.(invoiceRate, detectedCurrency)
       return
     }
