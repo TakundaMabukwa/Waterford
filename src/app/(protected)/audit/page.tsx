@@ -107,8 +107,6 @@ export default function AuditPage() {
 
   const [records, setRecords] = useState<any[]>([])
   const [filteredRecords, setFilteredRecords] = useState<any[]>([])
-  const [incompleteRecords, setIncompleteRecords] = useState<any[]>([])
-  const [incompleteLoading, setIncompleteLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('all')
   const [invoicedFilter, setInvoicedFilter] = useState<'all' | 'invoiced' | 'not_invoiced'>('all')
@@ -118,7 +116,7 @@ export default function AuditPage() {
   const [tripDocuments, setTripDocuments] = useState<any[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState<'trips' | 'incomplete' | 'drafts' | 'invoices' | 'reports'>('trips')
+  const [activeTab, setActiveTab] = useState<'trips' | 'drafts' | 'invoices' | 'reports'>('trips')
   const [showSundryModal, setShowSundryModal] = useState(false)
   const [draftInvoices, setDraftInvoices] = useState<any[]>([])
   const [draftLoading, setDraftLoading] = useState(false)
@@ -455,30 +453,6 @@ export default function AuditPage() {
   }, [activeTab])
 
   useEffect(() => {
-    if (activeTab !== 'incomplete') return
-    const fetchIncomplete = async () => {
-      setIncompleteLoading(true)
-      try {
-        const params = new URLSearchParams()
-        params.set('from', appliedDateFrom)
-        params.set('to', appliedDateTo)
-        const res = await fetch(`/api/audit/trips?${params.toString()}`)
-        const result = await res.json()
-        const allTrips = result.data || []
-        const incomplete = allTrips.filter((r: any) =>
-          r.status !== 'delivered' && r.status !== 'completed' && r.status !== 'breakdown'
-        )
-        setIncompleteRecords(incomplete)
-      } catch (err) {
-        console.error('Error fetching incomplete trips:', err)
-      } finally {
-        setIncompleteLoading(false)
-      }
-    }
-    fetchIncomplete()
-  }, [activeTab, appliedDateFrom, appliedDateTo])
-
-  useEffect(() => {
     if (activeTab !== 'drafts') return
     const fetchDrafts = async () => {
       setDraftLoading(true)
@@ -541,17 +515,6 @@ export default function AuditPage() {
 
     setFilteredRecords(next)
   }, [records, statusFilter, invoicedFilter, searchTerm, activeTab])
-
-  const filteredIncompleteRecords = useMemo(() => {
-    if (!searchTerm) return incompleteRecords
-    const query = searchTerm.toLowerCase()
-    return incompleteRecords.filter(
-      (record) =>
-        record.ordernumber?.toLowerCase().includes(query) ||
-        record.origin?.toLowerCase().includes(query) ||
-        record.destination?.toLowerCase().includes(query)
-    )
-  }, [incompleteRecords, searchTerm])
 
   const summary = useMemo(() => {
     const totalTrips = filteredRecords.length
@@ -1078,12 +1041,12 @@ export default function AuditPage() {
   }
 
   return (
-    <div className="container mx-auto space-y-6 p-6">
+    <div className="w-full max-w-none space-y-4 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Audit Dashboard</h1>
+        <h1 className="text-2xl font-bold">Audit Dashboard</h1>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Trips</CardTitle>
@@ -1134,14 +1097,6 @@ export default function AuditPage() {
           Trip Invoices
         </button>
         <button
-          onClick={() => setActiveTab('incomplete')}
-          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === 'incomplete' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          Incomplete Trips
-        </button>
-        <button
           onClick={() => setActiveTab('drafts')}
           className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === 'drafts' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
@@ -1169,7 +1124,7 @@ export default function AuditPage() {
 
       {activeTab === 'trips' && (
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="p-4">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-bold text-[#001e42]">Trip Invoices</h3>
             <Button onClick={() => setShowSundryModal(true)} className="bg-[#001e42] text-white hover:bg-[#0b2955]">
@@ -1211,35 +1166,35 @@ export default function AuditPage() {
             <table className="w-full border-collapse text-left">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Trip</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Client</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Cargo</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Route</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Vehicle</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Driver</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Created</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                  <th className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Trip</th>
+                  <th className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Client</th>
+                  <th className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Cargo</th>
+                  <th className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Route</th>
+                  <th className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Vehicle</th>
+                  <th className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Driver</th>
+                  <th className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Created</th>
+                  <th className="px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-600">Invoice</th>
+                  <th className="px-2 py-1.5 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-600">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredRecords.map((record) => (
                   <tr key={record.id} className="border-t hover:bg-slate-50">
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5">
                       <div className="font-medium text-slate-900">{record.ordernumber || '—'}</div>
                     </td>
-                    <td className="px-3 py-2 text-sm text-slate-700">{getClientName(record)}</td>
-                    <td className="px-3 py-2 text-sm text-slate-700">{record.cargo || 'N/A'}</td>
-                    <td className="px-3 py-2 text-sm text-slate-700">
-                      <div className="max-w-xs">
+                    <td className="px-2 py-1.5 text-xs text-slate-700">{getClientName(record)}</td>
+                    <td className="px-2 py-1.5 text-xs text-slate-700">{record.cargo || 'N/A'}</td>
+                    <td className="px-2 py-1.5 text-xs text-slate-700">
+                      <div className="max-w-[170px]">
                         <div className="truncate">{record.origin || 'N/A'}</div>
                         <div className="truncate text-xs text-slate-500">→ {record.destination || 'N/A'}</div>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-sm text-slate-700">{getVehicleReg(record)}</td>
-                    <td className="px-3 py-2 text-sm text-slate-700">{getDriverName(record)}</td>
-                    <td className="px-3 py-2 text-sm text-slate-700">{record.created_at ? new Date(record.created_at).toLocaleDateString('en-ZA') : '—'}</td>
-                    <td className="px-3 py-2 text-center">
+                    <td className="px-2 py-1.5 text-xs text-slate-700">{getVehicleReg(record)}</td>
+                    <td className="px-2 py-1.5 text-xs text-slate-700">{getDriverName(record)}</td>
+                    <td className="px-2 py-1.5 text-xs text-slate-700">{record.created_at ? new Date(record.created_at).toLocaleDateString('en-ZA') : '—'}</td>
+                    <td className="px-2 py-1.5 text-center">
                       {record.is_invoiced ? (
                         <div className="flex items-center justify-center gap-1.5">
                           <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Invoiced</Badge>
@@ -1259,7 +1214,7 @@ export default function AuditPage() {
                         <Badge variant="outline" className="text-[10px] px-2 py-0.5 text-slate-400">Pending</Badge>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2 py-1.5 text-right">
                       <div className="flex justify-end gap-1">
                         <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => router.push(`/audit/${record.trip_id}`)}>
                           View
@@ -1292,120 +1247,9 @@ export default function AuditPage() {
       </Card>
       )}
 
-      {activeTab === 'incomplete' && (
-      <Card>
-        <CardContent className="pt-6">
-          {incompleteLoading ? (
-            <div className="py-8 text-center text-sm text-slate-500">Loading incomplete trips...</div>
-          ) : (
-          <>
-          <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center">
-            <Input
-              placeholder="Search by trip, order, origin, or destination..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="md:max-w-sm"
-            />
-            <div className="ml-auto flex items-center gap-2">
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-40"
-              />
-              <span className="text-sm text-slate-500">to</span>
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-40"
-              />
-              <Button onClick={handleSearch} className="bg-[#001e42] text-white hover:bg-[#0b2955]">
-                Search
-              </Button>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full border-collapse text-left">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Trip</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Client</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
-                  <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Route</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice</th>
-                  <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredIncompleteRecords.map((record) => (
-                  <tr key={record.id} className="border-t hover:bg-slate-50">
-                    <td className="px-3 py-2">
-                      <div className="font-medium text-slate-900">{record.ordernumber || '—'}</div>
-                    </td>
-                    <td className="px-3 py-2 text-sm text-slate-700">{getClientName(record)}</td>
-                    <td className="px-3 py-2 text-center">
-                      <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] px-2 py-0.5">
-                        <AlertTriangle className="h-3 w-3 mr-1" />
-                        {record.status || 'incomplete'}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2 text-sm text-slate-700">
-                      <div className="max-w-xs">
-                        <div className="truncate">{record.origin || 'N/A'}</div>
-                        <div className="truncate text-xs text-slate-500">→ {record.destination || 'N/A'}</div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      {record.is_invoiced ? (
-                        <div className="flex items-center justify-center gap-1.5">
-                          <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Invoiced</Badge>
-                          {record.invoice_url && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                              onClick={() => window.open(record.invoice_url, '_blank')}
-                              title="Download Invoice"
-                            >
-                              <FileText className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px] px-2 py-0.5 text-slate-400">Pending</Badge>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-xs"
-                        disabled={record.is_invoiced}
-                        onClick={() => router.push(`/audit/${record.trip_id}`)}
-                      >
-                        View
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {filteredIncompleteRecords.length === 0 && (
-            <div className="py-8 text-center text-sm text-slate-500">No incomplete trips found.</div>
-          )}
-          </>
-          )}
-        </CardContent>
-      </Card>
-      )}
-
       {activeTab === 'invoiced' && (
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="p-4">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-bold text-[#001e42]">All Invoiced</h3>
           </div>
@@ -1430,35 +1274,35 @@ export default function AuditPage() {
                     <table className="w-full border-collapse text-left">
                       <thead className="bg-slate-50">
                         <tr>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Trip</th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Client</th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Cargo</th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Route</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Planned</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actual</th>
-                          <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
-                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice</th>
-                          <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                          <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Trip</th>
+                          <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Client</th>
+                          <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Cargo</th>
+                          <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Route</th>
+                          <th className="px-2 py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Planned</th>
+                          <th className="px-2 py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actual</th>
+                          <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
+                          <th className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice</th>
+                          <th className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {searched.map((record) => (
                           <tr key={record.id} className="border-t hover:bg-slate-50">
-                            <td className="px-3 py-2">
+                            <td className="px-2 py-1.5">
                               <div className="font-medium text-slate-900">{record.ordernumber || '—'}</div>
                             </td>
-                            <td className="px-3 py-2 text-sm text-slate-700">{getClientName(record)}</td>
-                            <td className="px-3 py-2 text-sm text-slate-700">{record.cargo || '—'}</td>
-                            <td className="px-3 py-2 text-sm text-slate-700">
-                              <div className="max-w-xs">
+                            <td className="px-2 py-1.5 text-xs text-slate-700">{getClientName(record)}</td>
+                            <td className="px-2 py-1.5 text-xs text-slate-700">{record.cargo || '—'}</td>
+                            <td className="px-2 py-1.5 text-xs text-slate-700">
+                              <div className="max-w-[170px]">
                                 <div className="truncate">{record.origin || 'N/A'}</div>
                                 <div className="truncate text-xs text-slate-500">→ {record.destination || 'N/A'}</div>
                               </div>
                             </td>
-                            <td className="px-3 py-2 text-right text-sm text-slate-700">{currency(toNumber(record.planned_total_cost))}</td>
-                            <td className="px-3 py-2 text-right text-sm text-slate-700">{currency(toNumber(record.actual_total_cost))}</td>
-                            <td className="px-3 py-2 text-sm text-slate-700 font-medium">{record.invoice_number || '—'}</td>
-                            <td className="px-3 py-2 text-center">
+                            <td className="px-2 py-1.5 text-right text-sm text-slate-700">{currency(toNumber(record.planned_total_cost))}</td>
+                            <td className="px-2 py-1.5 text-right text-sm text-slate-700">{currency(toNumber(record.actual_total_cost))}</td>
+                            <td className="px-2 py-1.5 text-xs text-slate-700 font-medium">{record.invoice_number || '—'}</td>
+                            <td className="px-2 py-1.5 text-center">
                               <div className="flex items-center justify-center gap-1.5">
                                 <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Invoiced</Badge>
                                 {record.invoice_url && (
@@ -1468,7 +1312,7 @@ export default function AuditPage() {
                                 )}
                               </div>
                             </td>
-                            <td className="px-3 py-2 text-center">
+                            <td className="px-2 py-1.5 text-center">
                               <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => router.push(`/audit/${record.trip_id}`)}>
                                 View
                               </Button>
@@ -1488,7 +1332,7 @@ export default function AuditPage() {
 
       {activeTab === 'drafts' && (
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="p-4">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-bold text-[#001e42]">Invoice Drafts</h3>
             <div className="flex items-center gap-2">
@@ -1527,7 +1371,7 @@ export default function AuditPage() {
               <table className="w-full border-collapse text-left">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 w-10">
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600 w-10">
                       <input
                         type="checkbox"
                         checked={selectedDraftIds.size === draftInvoices.length && draftInvoices.length > 0}
@@ -1541,14 +1385,14 @@ export default function AuditPage() {
                         className="h-4 w-4 rounded border-slate-300"
                       />
                     </th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Order</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Reference</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Order</th>
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Reference</th>
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
+                    <th className="px-2 py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
+                    <th className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
+                    <th className="px-2 py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1559,7 +1403,7 @@ export default function AuditPage() {
                       .filter(Boolean).join(' ').toLowerCase().includes(needle)
                   }).map((inv: any) => (
                     <tr key={inv.id} className="border-t hover:bg-slate-50">
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-1.5">
                         <input
                           type="checkbox"
                           checked={selectedDraftIds.has(inv.id)}
@@ -1572,22 +1416,22 @@ export default function AuditPage() {
                           className="h-4 w-4 rounded border-slate-300"
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-1.5">
                         <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-1.5">
                         <div className="text-sm text-slate-700">{inv.ordernumber || inv.trip_id || '—'}</div>
                       </td>
-                      <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
-                      <td className="px-3 py-2 text-sm text-slate-700">{inv.reference_number || '-'}</td>
-                      <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
-                      <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
+                      <td className="px-2 py-1.5 text-xs text-slate-700">{inv.customer_name || '-'}</td>
+                      <td className="px-2 py-1.5 text-xs text-slate-700">{inv.reference_number || '-'}</td>
+                      <td className="px-2 py-1.5 text-xs text-slate-700">{inv.invoice_date || '-'}</td>
+                      <td className="px-2 py-1.5 text-right text-sm font-medium text-slate-900">
                         {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-3 py-2 text-center">
+                      <td className="px-2 py-1.5 text-center">
                         <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-2 py-1.5 text-right">
                         <div className="flex justify-end gap-1">
                           <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleDownloadInvoice(inv)}>
                             <Download className="h-3 w-3" />
@@ -1612,7 +1456,7 @@ export default function AuditPage() {
 
       {activeTab === 'invoices' && (
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="p-4">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-bold text-[#001e42]">Finalized Invoices</h3>
             <div className="flex items-center gap-2">
@@ -1692,7 +1536,7 @@ export default function AuditPage() {
               <table className="w-full border-collapse text-left">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 w-10">
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600 w-10">
                       <input
                         type="checkbox"
                         checked={finalizedInvoices.length > 0 && finalizedInvoices.every((inv: any) => selectedInvoiceIds.has(inv.id))}
@@ -1705,15 +1549,15 @@ export default function AuditPage() {
                         className="h-4 w-4 rounded border-slate-300"
                       />
                     </th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Order</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Reference</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Order</th>
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Reference</th>
+                    <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
+                    <th className="px-2 py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
+                    <th className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
+                    <th className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
+                    <th className="px-2 py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1744,7 +1588,7 @@ export default function AuditPage() {
                       </tr>,
                       ...group.invoices.map((inv: any) => (
                         <tr key={inv.id} className="border-t hover:bg-slate-50">
-                          <td className="px-3 py-2">
+                          <td className="px-2 py-1.5">
                             <input
                               type="checkbox"
                               checked={selectedInvoiceIds.has(inv.id)}
@@ -1757,27 +1601,27 @@ export default function AuditPage() {
                               className="h-4 w-4 rounded border-slate-300"
                             />
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-2 py-1.5">
                             <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
                           </td>
-                          <td className="px-3 py-2 text-sm text-slate-700">{inv.ordernumber || inv.trip_id || '—'}</td>
-                          <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
-                          <td className="px-3 py-2 text-sm text-slate-700">{inv.reference_number || '-'}</td>
-                          <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
-                          <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
+                          <td className="px-2 py-1.5 text-xs text-slate-700">{inv.ordernumber || inv.trip_id || '—'}</td>
+                          <td className="px-2 py-1.5 text-xs text-slate-700">{inv.customer_name || '-'}</td>
+                          <td className="px-2 py-1.5 text-xs text-slate-700">{inv.reference_number || '-'}</td>
+                          <td className="px-2 py-1.5 text-xs text-slate-700">{inv.invoice_date || '-'}</td>
+                          <td className="px-2 py-1.5 text-right text-sm font-medium text-slate-900">
                             {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
                           </td>
-                          <td className="px-3 py-2 text-center">
+                          <td className="px-2 py-1.5 text-center">
                             <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
                           </td>
-                          <td className="px-3 py-2 text-center">
+                          <td className="px-2 py-1.5 text-center">
                             {inv.is_locked ? (
                               <Badge className="bg-red-100 text-red-800 border-red-200 text-[10px] px-2 py-0.5">Locked</Badge>
                             ) : (
                               <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Finalized</Badge>
                             )}
                           </td>
-                          <td className="px-3 py-2 text-right">
+                          <td className="px-2 py-1.5 text-right">
                             <div className="flex justify-end gap-1">
                               {inv.invoice_url && (
                                 <>
@@ -1823,7 +1667,7 @@ export default function AuditPage() {
 
       {activeTab === 'reports' && (
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="p-4">
             <TripReportsSection cancelledOnly />
           </CardContent>
         </Card>
@@ -1927,21 +1771,21 @@ export default function AuditPage() {
                     <table className="w-full text-sm">
                       <thead className="bg-slate-50">
                         <tr>
-                          <th className="px-3 py-2 text-left text-xs font-semibold">Description</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold">Qty</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold">Unit Price</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold">VAT Type</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold">Amount</th>
+                          <th className="px-2 py-1.5 text-left text-xs font-semibold">Description</th>
+                          <th className="px-2 py-1.5 text-right text-xs font-semibold">Qty</th>
+                          <th className="px-2 py-1.5 text-right text-xs font-semibold">Unit Price</th>
+                          <th className="px-2 py-1.5 text-right text-xs font-semibold">VAT Type</th>
+                          <th className="px-2 py-1.5 text-right text-xs font-semibold">Amount</th>
                         </tr>
                       </thead>
                       <tbody>
                         {finalizePreview.line_items.map((item: any, idx: number) => (
                           <tr key={idx} className="border-t">
-                            <td className="px-3 py-2">{item.description}</td>
-                            <td className="px-3 py-2 text-right">{item.quantity}</td>
-                            <td className="px-3 py-2 text-right">{item.unitPrice}</td>
-                            <td className="px-3 py-2 text-right">{item.vatType || 'zero'}</td>
-                            <td className="px-3 py-2 text-right font-medium">
+                            <td className="px-2 py-1.5">{item.description}</td>
+                            <td className="px-2 py-1.5 text-right">{item.quantity}</td>
+                            <td className="px-2 py-1.5 text-right">{item.unitPrice}</td>
+                            <td className="px-2 py-1.5 text-right">{item.vatType || 'zero'}</td>
+                            <td className="px-2 py-1.5 text-right font-medium">
                               {finalizePreview.currency === 'USD' ? '$' : 'R'}{((item.quantity || 0) * (item.unitPrice || 0)).toFixed(2)}
                             </td>
                           </tr>
@@ -1998,7 +1842,7 @@ export default function AuditPage() {
                     {finalizeDocs.map((doc: any, idx: number) => {
                       const docUrl = doc.file_url || (doc.file_path ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/invoice-documents/${doc.file_path}` : null)
                       return (
-                        <div key={idx} className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                        <div key={idx} className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
                           <FileText className="h-4 w-4 text-slate-400" />
                           <span className="flex-1 truncate text-sm text-slate-700">{doc.file_name || doc.fileName || 'Document'}</span>
                           {docUrl && (
@@ -2177,7 +2021,7 @@ export default function AuditPage() {
           </DialogHeader>
 
           <div className="rounded-md border">
-            <div className="grid grid-cols-12 gap-2 border-b bg-slate-50 px-3 py-2 text-xs font-semibold">
+            <div className="grid grid-cols-12 gap-2 border-b bg-slate-50 px-2 py-1.5 text-xs font-semibold">
               <div className="col-span-3">Type</div>
               <div className="col-span-5">File Path</div>
               <div className="col-span-2">Created</div>
@@ -2192,7 +2036,7 @@ export default function AuditPage() {
               ) : (
                 <div className="divide-y">
                   {tripDocuments.map((doc) => (
-                    <div key={doc.id} className="grid grid-cols-12 items-center gap-2 px-3 py-2 text-sm">
+                    <div key={doc.id} className="grid grid-cols-12 items-center gap-2 px-2 py-1.5 text-xs">
                       <div className="col-span-3">
                         <Badge variant="secondary">{doc.doc_type || 'document'}</Badge>
                       </div>
@@ -2280,7 +2124,7 @@ export default function AuditPage() {
                                   <span className="w-20 shrink-0 text-xs font-bold uppercase tracking-wider text-red-600">
                                     From
                                   </span>
-                                  <span className="min-w-0 flex-1 break-words whitespace-pre-wrap rounded bg-white px-3 py-2 text-sm text-red-700 line-through">
+                                  <span className="min-w-0 flex-1 break-words whitespace-pre-wrap rounded bg-white px-2 py-1.5 text-xs text-red-700 line-through">
                                     {oldFormatted}
                                   </span>
                                 </div>
@@ -2290,7 +2134,7 @@ export default function AuditPage() {
                                   <span className="w-20 shrink-0 text-xs font-bold uppercase tracking-wider text-emerald-600">
                                     To
                                   </span>
-                                  <span className="min-w-0 flex-1 break-words whitespace-pre-wrap rounded bg-white px-3 py-2 text-sm text-emerald-700">
+                                  <span className="min-w-0 flex-1 break-words whitespace-pre-wrap rounded bg-white px-2 py-1.5 text-xs text-emerald-700">
                                     {newFormatted}
                                   </span>
                                 </div>
