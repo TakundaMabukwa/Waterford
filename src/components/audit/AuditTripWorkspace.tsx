@@ -556,7 +556,7 @@ export default function AuditTripWorkspace({
   return (
     <div className="flex flex-col bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
-        <div className="flex items-start justify-between gap-4 px-5 py-4">
+        <div className="flex items-start justify-between gap-4 px-3 py-3">
           <div className="flex min-w-0 items-start gap-3">
             {onBack ? (
               <Button variant="ghost" size="icon" onClick={onBack} className="mt-0.5 h-8 w-8 shrink-0">
@@ -590,7 +590,7 @@ export default function AuditTripWorkspace({
         </div>
       </header>
 
-      <div className="px-5 py-4">
+      <div className="px-3 py-3">
         <section className="mb-4 grid grid-cols-2 gap-3 xl:grid-cols-5">
           <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
             <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Planned Rate</div>
@@ -635,7 +635,7 @@ export default function AuditTripWorkspace({
 
         {activeTab === 'summary' && (
           <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <h3 className="text-lg font-black tracking-tight text-[#001e42]">Planned Cost Breakdown</h3>
               <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
                 <div className="rounded-lg bg-slate-50 p-4">
@@ -662,11 +662,11 @@ export default function AuditTripWorkspace({
         {activeTab === 'split' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 xl:grid-cols-12">
-              <div className="rounded-lg bg-slate-50 p-4 sm:p-5 xl:col-span-3">
+              <div className="rounded-lg bg-slate-50 p-4 sm:p-4 xl:col-span-3">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Planned Rate</div>
                 <div className="mt-2 text-2xl font-black text-slate-900">{currency(plannedRate)}</div>
               </div>
-              <div className="rounded-lg border border-slate-200 p-4 sm:p-5 xl:col-span-3">
+              <div className="rounded-lg border border-slate-200 p-4 sm:p-4 xl:col-span-3">
                 <div className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Invoice Rate</div>
                 <div className="space-y-2">
                   <input
@@ -697,7 +697,7 @@ export default function AuditTripWorkspace({
                   </div>
                 </div>
               </div>
-              <div className="rounded-lg bg-slate-50 p-4 sm:p-5 xl:col-span-3">
+              <div className="rounded-lg bg-slate-50 p-4 sm:p-4 xl:col-span-3">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">My Rate</div>
                 <div className={`mt-2 text-2xl font-black ${myRate != null && myRate >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
                   {fxLoading ? 'Loading...' : myRate == null ? 'Currency mismatch' : currency(myRate, invoiceCurrency)}
@@ -755,7 +755,7 @@ export default function AuditTripWorkspace({
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <h3 className="text-lg font-black tracking-tight text-[#001e42]">Planned Cost Breakdown</h3>
               <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
                 <div className="rounded-lg bg-slate-50 p-4">
@@ -837,24 +837,24 @@ export default function AuditTripWorkspace({
                   ) : null}
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                  <table className="min-w-[1140px] w-full border-collapse text-left">
+                  <table className="w-full border-collapse text-left">
                     <thead className="border-b border-slate-200 bg-slate-50">
                       <tr>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Driver</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Vehicle Set</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Category</th>
-                        <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-slate-500">Role</th>
-                        <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Base Rate</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Split Type</th>
-                        <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Allocation</th>
-                        <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Total</th>
-                        <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Action</th>
+                        <th className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Driver</th>
+                        <th className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Vehicle Set</th>
+                        <th className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Category</th>
+                        <th className="px-3 py-2 text-center text-[10px] font-black uppercase tracking-widest text-slate-500">Role</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Base Rate</th>
+                        <th className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Split Type</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Allocation</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Total</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {visibleSplitRows.map((row, index) => (
                         <tr key={row.id} className={`hover:bg-slate-50 ${row.rowType === 'custom' ? 'bg-amber-50/40' : ''}`}>
-                          <td className="px-6 py-4">
+                          <td className="px-3 py-2">
                             <div className="flex items-center gap-3">
                               <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${row.rowType === 'custom' ? 'bg-amber-100' : 'bg-blue-100'}`}>
                                 <User className={`h-4 w-4 ${row.rowType === 'custom' ? 'text-amber-700' : 'text-[#001e42]'}`} />
@@ -880,7 +880,7 @@ export default function AuditTripWorkspace({
                               </div>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-sm text-slate-600">
+                          <td className="px-3 py-2 text-sm text-slate-600">
                             {row.rowType === 'custom' ? (
                               <Input
                                 value={row.vehicleLabel}
@@ -899,7 +899,7 @@ export default function AuditTripWorkspace({
                               </>
                             )}
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-3 py-2">
                             <div className="flex items-center gap-2">
                               <Select
                                 value={row.categoryKey || 'driver_cost'}
@@ -941,7 +941,7 @@ export default function AuditTripWorkspace({
                               </Button>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-center">
+                          <td className="px-3 py-2 text-center">
                             <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
                               row.role === 'Primary'
                                 ? 'bg-emerald-100 text-emerald-700'
@@ -952,7 +952,7 @@ export default function AuditTripWorkspace({
                               {row.role}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-3 py-2 text-right">
                             <Input
                               type="text"
                               inputMode="decimal"
@@ -964,7 +964,7 @@ export default function AuditTripWorkspace({
                               className="ml-auto h-10 w-28 border border-slate-200 bg-white text-right text-sm font-bold tabular-nums shadow-sm focus-visible:ring-1 focus-visible:ring-[#001e42]"
                             />
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-3 py-2">
                             <Select
                               value={row.splitType}
                               onValueChange={(value: AuditSplitType) => {
@@ -981,7 +981,7 @@ export default function AuditTripWorkspace({
                               </SelectContent>
                             </Select>
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-3 py-2 text-right">
                             <Input
                               type="text"
                               inputMode="decimal"
@@ -993,8 +993,8 @@ export default function AuditTripWorkspace({
                               className="ml-auto h-10 w-28 border border-slate-200 bg-white text-right text-sm font-bold tabular-nums shadow-sm focus-visible:ring-1 focus-visible:ring-[#001e42]"
                             />
                           </td>
-                          <td className="px-6 py-4 text-right text-sm font-bold tabular-nums text-[#001e42]">{currency(calcSplitTotal(row), actualCurrency)}</td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-3 py-2 text-right text-sm font-bold tabular-nums text-[#001e42]">{currency(calcSplitTotal(row), actualCurrency)}</td>
+                          <td className="px-3 py-2 text-right">
                             {row.rowType === 'custom' ? (
                               <Button
                                 type="button"
@@ -1053,18 +1053,18 @@ export default function AuditTripWorkspace({
               <table className="w-full border-collapse text-left">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Category</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Group</th>
-                    <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Planned</th>
-                    <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Actual</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Notes</th>
-                    <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Action</th>
+                    <th className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Category</th>
+                    <th className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Group</th>
+                    <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Planned</th>
+                    <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Actual</th>
+                    <th className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Notes</th>
+                    <th className="px-3 py-2 text-right text-[10px] font-black uppercase tracking-widest text-slate-500">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {effectiveFinanceEntries.map((entry) => (
                     <tr key={entry.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4">
+                      <td className="px-3 py-2">
                         <Input
                           value={entry.label}
                           onChange={(e) => {
@@ -1076,7 +1076,7 @@ export default function AuditTripWorkspace({
                           className="border-0 bg-transparent px-0 font-semibold text-[#001e42] shadow-none"
                         />
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-3 py-2">
                         <Select
                           value={entry.group}
                           onValueChange={(value: AuditFinanceEntry['group']) => {
@@ -1097,8 +1097,8 @@ export default function AuditTripWorkspace({
                           </SelectContent>
                         </Select>
                       </td>
-                      <td className="px-6 py-4 text-right text-sm font-medium text-slate-700">{currency(entry.plannedAmount)}</td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-3 py-2 text-right text-sm font-medium text-slate-700">{currency(entry.plannedAmount)}</td>
+                      <td className="px-3 py-2 text-right">
                         <Input
                           type="number"
                           step="0.01"
@@ -1112,7 +1112,7 @@ export default function AuditTripWorkspace({
                           className="ml-auto w-32 border-0 bg-transparent text-right font-bold shadow-none"
                         />
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-3 py-2">
                         <Input
                           value={entry.notes || ''}
                           onChange={(e) => {
@@ -1125,7 +1125,7 @@ export default function AuditTripWorkspace({
                           className="border-0 bg-transparent px-0 text-sm shadow-none"
                         />
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-3 py-2 text-right">
                         {entry.source === 'custom' ? (
                           <Button
                             type="button"
@@ -1151,19 +1151,19 @@ export default function AuditTripWorkspace({
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fuel Cost</div>
                 <div className="mt-3 text-2xl font-black text-rose-700">{currency(actualCostSummary.actualFuelCost)}</div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Vehicle Cost</div>
                 <div className="mt-3 text-2xl font-black text-sky-700">{currency(actualCostSummary.actualVehicleCost)}</div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Driver Cost</div>
                 <div className="mt-3 text-2xl font-black text-emerald-700">{currency(actualCostSummary.actualDriverCost)}</div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Total Actual Cost</div>
                 <div className="mt-3 text-2xl font-black text-[#001e42]">{currency(actualTotalCost)}</div>
               </div>
@@ -1193,19 +1193,19 @@ export default function AuditTripWorkspace({
             <TripRouteMap routePoints={routePoints} />
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Trip Window Start</div>
                 <div className="mt-3 text-sm font-bold text-slate-900">{fmtDateTime(routeData?.trip_window?.start_at || record?.accepted_at)}</div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Trip Window End</div>
                 <div className="mt-3 text-sm font-bold text-slate-900">{fmtDateTime(routeData?.trip_window?.end_at || record?.actual_finish_time)}</div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual Distance</div>
                 <div className="mt-3 text-2xl font-black text-[#001e42]">{numberFmt(record?.actual_distance || record?.planned_distance, ' km')}</div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Duration</div>
                 <div className="mt-3 text-2xl font-black text-[#001e42]">{minutesToText(record?.actual_duration_minutes)}</div>
               </div>
@@ -1224,7 +1224,7 @@ export default function AuditTripWorkspace({
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {handovers.length ? (
                 handovers.map((log) => (
-                  <div key={log.id} className="relative overflow-hidden rounded-xl border-l-4 border-blue-300 bg-slate-100 p-5 shadow-sm">
+                  <div key={log.id} className="relative overflow-hidden rounded-xl border-l-4 border-blue-300 bg-slate-100 p-4 shadow-sm">
                     <div className="mb-6 flex items-center justify-between">
                       <span className="rounded bg-blue-100 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-blue-700">Segment: {log.segmentId}</span>
                       <span className="text-xs font-bold text-slate-500">{log.weightPercent.toFixed(1)}% Weight</span>
@@ -1261,7 +1261,7 @@ export default function AuditTripWorkspace({
 
       <footer className="border-t border-slate-200 bg-white px-5 py-3">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-5">
+          <div className="flex flex-wrap items-center gap-4">
             <div>
               <div className="text-xs font-black uppercase tracking-widest text-slate-500">Planned Cost</div>
               <div className="text-lg font-black text-[#001e42]">{currency(plannedTotalCost)}</div>
