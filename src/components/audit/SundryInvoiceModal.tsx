@@ -2,13 +2,14 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Plus, Trash2, Loader2, Upload } from 'lucide-react'
+import { X, Plus, Trash2, Loader2, Upload, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
-import { calculateDueDate } from '@/lib/generate-invoice-pdf'
+import { generateInvoicePdf, uploadInvoicePdf, calculateDueDate } from '@/lib/generate-invoice-pdf'
+import { AuditCurrencyCode } from '@/lib/audit-utils'
 
 const supabase = createClient()
 
@@ -182,6 +183,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
   const [customerVat, setCustomerVat] = useState('')
   const [currency, setCurrency] = useState('ZAR')
   const [generating, setGenerating] = useState(false)
+  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null)
+  const [previewInvoiceNumber, setPreviewInvoiceNumber] = useState('')
 
   const [clients, setClients] = useState<any[]>([])
   const [selectedClientId, setSelectedClientId] = useState('')
@@ -362,7 +365,50 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       }
 
       toast.success('Sundry invoice saved as draft')
-      onClose()
+
+      // Generate + upload PDF, then show preview overlay (Download + Close)
+      try {
+        const cleanName = customerName.replace(/^\(\$\)\s*/, '').replace(/^\$\s*/, '').trim() || customerName
+        const pdfCurrency = (currency === 'USD' ? 'USD' : 'ZAR') as AuditCurrencyCode
+        const { blob: pdfBlob } = await generateInvoicePdf({
+          invoiceNumber: generatedInvoiceNumber,
+          customerName: cleanName,
+          customerAddress,
+          customerVat,
+          invoiceDate,
+          dueDate,
+          referenceNumber: referenceNumber || invoiceNumber || '',
+          salesCode,
+          currency: pdfCurrency,
+          lineItems: lineItems.map((item) => ({
+            description: item.description,
+            quantity: Number(item.quantity) || 0,
+            unitPrice: Number(item.unitPrice) || 0,
+            vatType: item.vatType,
+          })),
+          subtotal,
+          vatAmount: totalVat,
+          totalAmount: totalZar,
+          amountDue,
+        })
+        const pdfUrl = await uploadInvoicePdf(generatedInvoiceNumber, pdfBlob)
+        if (pdfUrl) {
+          await fetch(`/api/invoices/${invoiceId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invoice_url: pdfUrl }),
+          }).catch(() => {})
+        }
+
+        const previewUrl = URL.createObjectURL(pdfBlob)
+        setPreviewInvoiceNumber(generatedInvoiceNumber)
+        setPreviewPdfUrl(previewUrl)
+        setGenerating(false)
+      } catch (pdfErr) {
+        console.error('Error generating sundry PDF preview:', pdfErr)
+        setGenerating(false)
+        onClose()
+      }
     } catch (err: any) {
       console.error('Error saving sundry draft:', err)
       toast.error(err.message || 'Failed to save draft')
@@ -666,6 +712,41 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           </Button>
         </div>
       </div>
+
+      {/* Invoice Preview Overlay */}
+      {previewPdfUrl && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70" onClick={() => {
+          URL.revokeObjectURL(previewPdfUrl)
+          setPreviewPdfUrl(null)
+          onClose()
+        }}>
+          <div className="relative flex h-[90vh] w-[90vw] max-w-5xl flex-col rounded-lg bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+              <h3 className="text-sm font-bold text-slate-900">Invoice Preview</h3>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewPdfUrl}
+                  download={`${previewInvoiceNumber || 'invoice'}.pdf`}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <Download className="h-4 w-4" />
+                  Download
+                </a>
+                <Button variant="outline" size="sm" onClick={() => {
+                  URL.revokeObjectURL(previewPdfUrl)
+                  setPreviewPdfUrl(null)
+                  onClose()
+                }}>
+                  Close
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <iframe src={previewPdfUrl} className="h-full w-full border-0" title="Invoice Preview" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

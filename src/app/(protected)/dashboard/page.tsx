@@ -64,8 +64,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { X, FileEdit } from "lucide-react";import { cn } from "@/lib/utils";
 import { FuelGaugesView } from "@/components/fuelGauge/FuelGaugesView";
 import FuelCanBusDisplay from "@/components/FuelCanBusDisplay";
 import DriverPerformanceDashboard from "@/components/dashboard/DriverPerformanceDashboard";
@@ -113,6 +112,9 @@ const matchVehicleByPlate = (vehicles: any[], plate: string) => {  const target 
 
   return fuzzy?.v || null
 }
+
+// Module-level Supabase client (shared across dashboard components)
+const supabase = createClient()
 
 // Realtime telemetry alert styling per alert kind
 const TELEMETRY_ALERT_STYLES: Record<string, { dot: string; text: string; sub: string }> = {
@@ -374,6 +376,69 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [noteTarget, setNoteTarget] = useState<'driver' | 'client'>('driver')
 
+  // Fuel review note modal state
+  const [fuelNoteOpen, setFuelNoteOpen] = useState(false)
+  const [fuelNoteAlert, setFuelNoteAlert] = useState<any>(null)
+  const [fuelNoteFields, setFuelNoteFields] = useState({
+    vehicleReg: '',
+    reviewDate: '',
+    actionType: 'fill' as 'fill' | 'theft',
+    notes: '',
+    driverValue: '',
+    reviewedBy: '',
+  })
+  const [fuelNoteSaving, setFuelNoteSaving] = useState(false)
+
+  const openFuelNote = (alert: any) => {
+    const fallbackDate = alert?.locTime ? String(alert.locTime).slice(0, 10) : new Date().toISOString().split('T')[0]
+    ;(async () => {
+      let email = ''
+      try {
+        const { data } = await supabase.auth.getUser()
+        email = data?.user?.email || ''
+      } catch {}
+      setFuelNoteFields({
+        vehicleReg: alert?.plate || '',
+        reviewDate: fallbackDate || new Date().toISOString().split('T')[0],
+        actionType: alert?.kind === 'fuel_theft' ? 'theft' : 'fill',
+        notes: '',
+        driverValue: '',
+        reviewedBy: email,
+      })    })()
+    setFuelNoteAlert(alert)
+    setFuelNoteOpen(true)
+  }
+
+  const saveFuelNote = async () => {
+    if (!fuelNoteAlert) return
+    setFuelNoteSaving(true)
+    try {
+      const res = await fetch('/api/fuel-review-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vehicle_reg: fuelNoteFields.vehicleReg.trim(),
+          review_date: fuelNoteFields.reviewDate,
+          action_type: fuelNoteFields.actionType,
+          notes: fuelNoteFields.notes.trim() || null,
+          probe_value: null,
+          driver_value: fuelNoteFields.driverValue.trim() || null,
+          reviewed_by: fuelNoteFields.reviewedBy.trim() || null,
+        }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Failed to save note')
+      alert('Fuel review note saved')
+      setFuelNoteOpen(false)
+    } catch (err: any) {
+      console.error('Fuel note save error:', err)
+      alert('Failed to save note: ' + err.message)
+    } finally {
+      setFuelNoteSaving(false)
+    }
+  }
+
+
   // Check for unauthorized stops and trigger flash animation
   useEffect(() => {
     if (trip.unauthorized_stops_count > 0) {
@@ -563,6 +628,16 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
                         {[alert.locTime, alert.speed ? `${alert.speed} km/h` : ''].filter(Boolean).join(' • ')}
                       </div>
                     </div>
+                    {(alert.kind === 'fuel_fill' || alert.kind === 'fuel_theft') && (
+                      <button
+                        onClick={() => openFuelNote(alert)}
+                        className="flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 bg-blue-100 hover:bg-blue-200"
+                        title="Add fuel review note"
+                      >
+                        <FileEdit className="h-3.5 w-3.5 inline mr-0.5" />
+                        Note
+                      </button>
+                    )}
                     <button
                       onClick={() => onDismissTelemetryAlert(cardPlateKey, alert.id)}
                       className="flex-shrink-0 text-slate-400 hover:text-slate-700"
@@ -1080,6 +1155,109 @@ const DriverCard = memo(function DriverCard({ trip, userRole, handleViewMap, set
         vehicleInfo={vehicleInfo}
         vehicleLocation={vehicleLocation}
       />
+
+      {/* Fuel Review Note Modal */}
+      {fuelNoteOpen && fuelNoteAlert && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+              <h3 className="text-sm font-bold text-slate-900">
+                Fuel Review Note — {fuelNoteAlert.label || 'Possible Fuel Event'}
+              </h3>
+              <button
+                onClick={() => setFuelNoteOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4 p-5">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Vehicle Reg</label>
+                  <input
+                    value={fuelNoteFields.vehicleReg}
+                    onChange={(e) => setFuelNoteFields((f) => ({ ...f, vehicleReg: e.target.value }))}
+                    className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Review Date</label>
+                  <input
+                    type="date"
+                    value={fuelNoteFields.reviewDate}
+                    onChange={(e) => setFuelNoteFields((f) => ({ ...f, reviewDate: e.target.value }))}
+                    className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Action Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFuelNoteFields((f) => ({ ...f, actionType: 'fill' }))}
+                    className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                      fuelNoteFields.actionType === 'fill'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Fill
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFuelNoteFields((f) => ({ ...f, actionType: 'theft' }))}
+                    className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                      fuelNoteFields.actionType === 'theft'
+                        ? 'border-red-500 bg-red-50 text-red-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Theft
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Driver Value</label>
+                  <input
+                    value={fuelNoteFields.driverValue}
+                    onChange={(e) => setFuelNoteFields((f) => ({ ...f, driverValue: e.target.value }))}
+                    placeholder="e.g. 90L"
+                    className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Notes</label>
+                <textarea
+                  value={fuelNoteFields.notes}
+                  onChange={(e) => setFuelNoteFields((f) => ({ ...f, notes: e.target.value }))}
+                  rows={3}
+                  placeholder="Enter details about the fuel event…"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-[#001e42] focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Reviewed By</label>
+                <input
+                  value={fuelNoteFields.reviewedBy}
+                  onChange={(e) => setFuelNoteFields((f) => ({ ...f, reviewedBy: e.target.value }))}
+                  placeholder="user@example.com"
+                  className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-3">
+              <Button variant="outline" onClick={() => setFuelNoteOpen(false)} disabled={fuelNoteSaving}>Cancel</Button>
+              <Button onClick={saveFuelNote} disabled={fuelNoteSaving || !fuelNoteFields.vehicleReg.trim() || !fuelNoteFields.reviewDate}>
+                {fuelNoteSaving ? 'Saving…' : 'Save Note'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 });

@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { X, Plus, Trash2, Download, Loader2, Upload, FileText, Image, FileSpreadsheet } from 'lucide-react'
 import JSZip from 'jszip'
 import { generateInvoicePdf, uploadInvoicePdf, calculateDueDate } from '@/lib/generate-invoice-pdf'
@@ -356,6 +357,7 @@ export default function GenerateInvoiceModal({
   draftData,
   closeParentOnSuccess = false,
 }: Props) {
+  const router = useRouter()
   const getClientName = () => {
     let name = ''
     if (record?.selectedclient || record?.selected_client) {
@@ -842,6 +844,7 @@ export default function GenerateInvoiceModal({
 
       // Show preview in overlay
       const previewUrl = URL.createObjectURL(pdfBlob)
+      setInvoiceNumber(createdInvoice.invoice_number)
       setPreviewPdfUrl(previewUrl)
       setGenerating(false)
       toast.success(`Draft ${createdInvoice.invoice_number} created — preview below`)
@@ -1395,18 +1398,28 @@ export default function GenerateInvoiceModal({
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70" onClick={() => {
           URL.revokeObjectURL(previewPdfUrl)
           setPreviewPdfUrl(null)
-          onClose({ status: 'draft' })
+          router.push('/audit')
         }}>
           <div className="relative flex h-[90vh] w-[90vw] max-w-5xl flex-col rounded-lg bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <h3 className="text-sm font-bold text-slate-900">Invoice Preview</h3>
-              <Button variant="outline" size="sm" onClick={() => {
-                URL.revokeObjectURL(previewPdfUrl)
-                setPreviewPdfUrl(null)
-                onClose({ status: 'draft' })
-              }}>
-                Close
-              </Button>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewPdfUrl}
+                  download={`${invoiceNumber || 'invoice'}.pdf`}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <Download className="h-4 w-4" />
+                  Download
+                </a>
+                <Button variant="outline" size="sm" onClick={() => {
+                  URL.revokeObjectURL(previewPdfUrl)
+                  setPreviewPdfUrl(null)
+                  router.push('/audit')
+                }}>
+                  Close
+                </Button>
+              </div>
             </div>
             <div className="flex-1 overflow-hidden">
               <iframe src={previewPdfUrl} className="h-full w-full border-0" title="Invoice Preview" />
