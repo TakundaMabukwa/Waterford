@@ -8,10 +8,19 @@ type InvoiceEmailData = {
   currency: string
   invoiceDate: string
   invoicePdfUrl: string
+  attachments?: { name: string; url: string }[]
 }
 
 export function buildInvoiceEmailHtml(data: InvoiceEmailData): string {
-  const { orderNumber, origin, destination, customerName, customerAddress, amount, currency, invoiceDate, invoicePdfUrl } = data
+  const { orderNumber, origin, destination, customerName, customerAddress, amount, currency, invoiceDate, invoicePdfUrl, attachments } = data
+
+  const attachmentRows = (attachments || []).filter(a => a && a.name && a.url).map(a =>
+    `<tr>
+      <td style="padding: 6px 4px;">
+        <a href="${a.url}" style="display: inline-block; background: #0C1E3D; color: #ffffff; padding: 8px 14px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 12px;">Download: ${a.name}</a>
+      </td>
+    </tr>`
+  ).join('')
 
   return `<!DOCTYPE html>
 <html>
@@ -78,6 +87,15 @@ export function buildInvoiceEmailHtml(data: InvoiceEmailData): string {
       <div style="text-align: center; margin: 20px 0;">
         <a href="${invoicePdfUrl}" style="display: inline-block; background: #0C1E3D; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px;">Download Invoice</a>
       </div>
+
+      ${attachmentRows ? `
+      <!-- Attached Documents -->
+      <div style="background: #f8f6f2; padding: 14px 16px; margin: 0 0 20px 0; border-radius: 10px; border-left: 4px solid #0C1E3D;">
+        <p style="color: #0C1E3D; font-size: 14px; font-weight: 700; margin: 0 0 10px 0;">Attached Documents</p>
+        <table style="width: 100%; border-collapse: collapse;">
+          ${attachmentRows}
+        </table>
+      </div>` : ''}
 
       <p style="color: #9ca3af; font-size: 12px; margin: 20px 0 0 0; text-align: center;">
         If you have any questions, please contact us at <a href="mailto:notifications@waterfordcarriers.co.za" style="color: #E79B54;">notifications@waterfordcarriers.co.za</a>

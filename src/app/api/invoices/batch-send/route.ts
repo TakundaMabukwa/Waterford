@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { buildInvoiceEmailHtml } from '@/lib/invoice-email-template'
 
 type PerInvoiceRecipient = {
   id: number
   recipients: string[]
 }
 
+// Resolve any stored reference into a full, downloadable URL.
+// - http(s) URLs are returned as-is.
+// - Otherwise treat as a storage path and try a public URL (or signed URL).
 async function resolveTripDocUrl(supabase: any, filePath: string): Promise<string | null> {
   if (/^https?:\/\//i.test(filePath)) return filePath
 
@@ -20,11 +24,28 @@ async function resolveTripDocUrl(supabase: any, filePath: string): Promise<strin
     { bucket: 'uploads', path: filePath }
   )
 
+  const storageBase = process.env.NEXT_PUBLIC_SUPABASE_URL!
+
   for (const c of candidates) {
-    const { data } = await supabase.storage.from(c.bucket).createSignedUrl(c.path, 0)
-    if (data?.signedUrl) return data.signedUrl
+    // 1. Public URL (stable) if the bucket is public
+    const { data: pub } = supabase.storage.from(c.bucket).getPublicUrl(c.path)
+    if (pub?.publicUrl && /https?:\/\//i.test(pub.publicUrl)) return pub.publicUrl
+
+    // 2. Signed URL fallback (works for private buckets)
+    const { data: sig } = await supabase.storage.from(c.bucket).createSignedUrl(c.path, 3600)
+    if (sig?.signedUrl) return sig.signedUrl
   }
+
+  // Last resort: if nothing resolved, return the storage-relative path prefixed with the base URL
+  if (storageBase) return `${storageBase}/storage/v1/object/public/trip-documents/${filePath}`
   return null
+}
+
+// Derive a clean display name from the end of a path/URL (never show the raw storage URL).
+function displayNameFromUrl(url: string, fallback: string): string {
+  const decoded = decodeURIComponent(url)
+  const last = decoded.split('#')[0].split('?')[0].split('/').filter(Boolean).pop()
+  return last || fallback
 }
 
 export async function POST(request: NextRequest) {
@@ -70,13 +91,12 @@ export async function POST(request: NextRequest) {
 
     if (fetchError) throw fetchError
 
-    // Build pod_required map with normalized name matching (handles ($)/$ prefix)
-    const normalize = (s: string) =>
-      (s || '').replace(/^\(\$\)\s*/, '').replace(/^\$\s*/, '').replace(/[()]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+    // Build pod_required map — exact name match ($/($) prefix IS part of the client identity)
     const { data: allClients } = await supabase.from('eps_client_list').select('name, pod_required')
-    const podRequiredByNorm: Record<string, boolean> = {}
+    const podRequiredByName: Record<string, boolean> = {}
     for (const c of allClients || []) {
-      podRequiredByNorm[normalize(c.name)] = Boolean(c.pod_required)
+      const key = (c.name || '').trim()
+      podRequiredByName[key] = Boolean(c.pod_required)
     }
 
     // Pre-fetch all unique trip string IDs to get numeric row IDs
@@ -87,13 +107,15 @@ export async function POST(request: NextRequest) {
     )]
 
     let tripRowIdMap: Record<string, number> = {}
+    let tripDetailsMap: Record<string, any> = {}
     if (uniqueTripIds.length > 0) {
       const { data: trips } = await supabase
         .from('trips')
-        .select('trip_id, id')
+        .select('trip_id, id, origin, destination, ordernumber')
         .in('trip_id', uniqueTripIds)
       for (const t of trips || []) {
         tripRowIdMap[t.trip_id] = t.id
+        tripDetailsMap[t.trip_id] = t
       }
     }
 
@@ -139,8 +161,8 @@ export async function POST(request: NextRequest) {
           },
         ]
 
-        // Check pod_required for this client (normalized)
-        const podRequired = podRequiredByNorm[normalize(invoice.customer_name)] || false
+        // Check pod_required — exact name match (client name on invoice = name in eps_client_list)
+        const podRequired = podRequiredByName[(invoice.customer_name || '').trim()] || false
 
         if (podRequired && invoice.trip_id) {
           // Trip invoice with pod_required — fetch documents from both sources
@@ -174,36 +196,60 @@ export async function POST(request: NextRequest) {
             .from('invoice_documents')
             .select('documents')
             .eq('trip_id', invoice.trip_id)
-            .single()
+            .maybeSingle()
           const invDocs = invDocsData?.documents || []
           for (const doc of invDocs) {
-            if (doc.file_url && doc.file_name) {
-              attachments.push({ filename: doc.file_name, path: doc.file_url })
+            const rawUrl = String(doc.file_url || doc.file_path || '').trim()
+            if (!rawUrl) continue
+            const url = await resolveTripDocUrl(supabase, rawUrl)
+            if (url) {
+              attachments.push({ filename: displayNameFromUrl(url, doc.file_name || `document-${Date.now()}`), path: url })
             }
           }
         } else if (podRequired && !invoice.trip_id) {
-          // Sundry invoice with pod_required — only invoice_documents
+          // Sundry invoice with pod_required — only invoice_documents via sundry_invoice_id
           const { data: invDocsData } = await supabase
             .from('invoice_documents')
             .select('documents')
             .eq('sundry_invoice_id', invoice.id)
-            .single()
+            .maybeSingle()
           const invDocs = invDocsData?.documents || []
           for (const doc of invDocs) {
-            if (doc.file_url && doc.file_name) {
-              attachments.push({ filename: doc.file_name, path: doc.file_url })
+            const rawUrl = String(doc.file_url || doc.file_path || '').trim()
+            if (!rawUrl) continue
+            const url = await resolveTripDocUrl(supabase, rawUrl)
+            if (url) {
+              attachments.push({ filename: displayNameFromUrl(url, doc.file_name || `document-${Date.now()}`), path: url })
             }
           }
         }
         // If pod_required is false, only invoice PDF is attached (already added above)
 
-        const emailRes = await fetch(`${emailServiceUrl}/api/send`, {
+        // Use the finalize email template (uniform HTML for all sends)
+        const tripDetail = invoice.trip_id ? tripDetailsMap[invoice.trip_id] : null
+        const orderNumber = invoice.reference_number || invoice.ordernumber || invoice.trip_id || invoice.invoice_number || ''
+        const origin = tripDetail?.origin || ''
+        const destination = tripDetail?.destination || ''
+        const emailHtml = buildInvoiceEmailHtml({
+          orderNumber,
+          origin,
+          destination,
+          customerName: invoice.customer_name || '',
+          customerAddress: invoice.customer_address || '',
+          amount: Number(invoice.total_amount || invoice.amount_due || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 }),
+          currency: invoice.currency || 'ZAR',
+          invoiceDate: invoice.invoice_date || '',
+          invoicePdfUrl: invoice.invoice_url || '',
+          attachments: attachments.slice(1).map(a => ({ name: a.filename, url: a.path })), // skip invoice PDF
+        })
+
+        const emailRes = await fetch(`${emailServiceUrl}/api/send-invoice`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             to: recipients,
             subject: `Invoice ${invoice.invoice_number || ''} - ${invoice.customer_name || 'Waterford Carriers'}`,
-            html: buildEmailHtml(invoice),
+            html: emailHtml,
             attachments,
           }),
           signal: AbortSignal.timeout(15000),
@@ -229,32 +275,4 @@ export async function POST(request: NextRequest) {
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
-}
-
-function buildEmailHtml(invoice: any): string {
-  const currency = invoice.currency || 'ZAR'
-  const symbol = currency === 'USD' ? '$' : 'R'
-  const total = Number(invoice.total_amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })
-
-  return `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: #001e42; color: white; padding: 20px; text-align: center;">
-        <img src="https://waterfordcarriers.online/waterford%20logo.png" alt="Waterford Carriers" style="height: 40px; margin-bottom: 8px;" />
-        <h1 style="margin: 0; font-size: 24px;">WATERFORD carriers</h1>
-      </div>
-      <div style="padding: 20px; border: 1px solid #e5e7eb;">
-        <h2 style="color: #001e42;">Invoice ${invoice.invoice_number || ''}</h2>
-        <p>Dear ${invoice.customer_name || 'Valued Customer'},</p>
-        <p>Please find attached your invoice for ${symbol}${total}.</p>
-        <p><strong>Invoice Number:</strong> ${invoice.invoice_number || 'N/A'}</p>
-        <p><strong>Invoice Date:</strong> ${invoice.invoice_date || 'N/A'}</p>
-        <p><strong>Due Date:</strong> ${invoice.due_date || 'N/A'}</p>
-        <p><strong>Amount Due:</strong> ${symbol}${total}</p>
-        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
-        <p style="font-size: 12px; color: #666;">
-          Waterford Carriers (Pty) Ltd | 96 Cavaleros Drive, Industries West, Germiston, 1401, South Africa | Tel: +27 (10) 300 8398
-        </p>
-      </div>
-    </div>
-  `
 }
