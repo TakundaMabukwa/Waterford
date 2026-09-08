@@ -31,26 +31,30 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Trip ID required' }, { status: 400 })
     }
 
-    // Fetch trip record to get both id (PK) and trip_id (string identifier).
-    // The routing server historically expected one or the other; resolve to whichever is present.
+    // Always resolve to the string trip_id — routing server expects trip_id, not numeric PK
     let resolvedTripId: string = tripId
     let resolvedTripPk: string | null = null
     if (supabase) {
       const { data: trip } = await supabase
         .from('trips')
         .select('id, trip_id')
-        .or(`id.eq.${Number.isFinite(Number(tripId)) ? tripId : -1},trip_id.eq.${tripId}`)
+        .eq('trip_id', tripId)
         .maybeSingle()
-      if (trip) {
+      // Fallback to numeric lookup only if trip_id lookup fails (legacy)
+      if (!trip && Number.isFinite(Number(tripId))) {
+        const { data: byPk } = await supabase.from('trips').select('id, trip_id').eq('id', Number(tripId)).maybeSingle()
+        if (byPk) {
+          resolvedTripPk = String(byPk.id)
+          resolvedTripId = byPk.trip_id || String(byPk.id)
+        }
+      } else if (trip) {
         resolvedTripPk = String(trip.id)
-        resolvedTripId = trip.trip_id || String(trip.id)
+        resolvedTripId = trip.trip_id
       }
     }
 
-    // Try the string trip_id first, then the numeric id as a fallback
-    const candidates = resolvedTripPk && resolvedTripPk !== resolvedTripId
-      ? [resolvedTripId, resolvedTripPk]
-      : [resolvedTripId]
+    // Only use the string trip_id for routing server
+    const candidates = [resolvedTripId]
 
     let data: any = null
     let lastError: string | null = null
@@ -88,7 +92,7 @@ export async function GET(request: Request) {
     const { data: trip, error } = await supabase
       .from('trips')
       .select('id, status, accepted_at, actual_end_time')
-      .eq('id', Number(resolvedTripPk ?? tripId))
+      .eq('trip_id', resolvedTripId)
       .single()
 
     if (error || !trip?.accepted_at) {

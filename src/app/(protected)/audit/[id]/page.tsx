@@ -173,11 +173,9 @@ export default function AuditTripDetailPage() {
           setRecord(merged)
         }
 
-        if (tripData?.id) {
+        if (tripData?.trip_id) {
           setRouteLoading(true)
-          // Prefer the string trip_id (matches the routing-server's identifier).
-          // The API also accepts the numeric PK as a fallback.
-          const routeKey = tripData.trip_id || String(tripData.id)
+          const routeKey = tripData.trip_id
           const response = await fetch(`/api/trip-route?tripId=${encodeURIComponent(routeKey)}`)
           if (response.ok) {
             const routePayload = await response.json()
