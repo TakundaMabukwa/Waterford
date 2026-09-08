@@ -287,6 +287,7 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
           referenceNumber,
           salesCode,
           lineItems: lineItems.map((item) => ({
+            id: item.id,
             description: item.description,
             quantity: Number(item.quantity) || 0,
             unitPrice: Number(item.unitPrice) || 0,

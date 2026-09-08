@@ -65,7 +65,35 @@ export async function GET(request: NextRequest) {
       invoice_email_groups: inv.invoice_email_groups || clientEmailMap[inv.customer_name] || [],
     }))
 
-    return NextResponse.json({ data: enrichedWithGroups })
+    // Attach document counts — sundry invoices keyed by sundry_invoice_id, trips by trip_id
+    const tripInvoiceIds = enrichedWithGroups.filter((inv: any) => inv.trip_id).map((inv: any) => inv.trip_id)
+    const sundryInvoiceIds = enrichedWithGroups.filter((inv: any) => !inv.trip_id).map((inv: any) => inv.id)
+    let docCountMap: Record<string, number> = {}
+    if (tripInvoiceIds.length > 0) {
+      const { data: tripDocs } = await supabase
+        .from('invoice_documents')
+        .select('trip_id, documents')
+        .in('trip_id', tripInvoiceIds)
+      ;(tripDocs || []).forEach((d: any) => {
+        docCountMap[`trip:${d.trip_id}`] = d.documents?.length || 0
+      })
+    }
+    if (sundryInvoiceIds.length > 0) {
+      const { data: sundryDocs } = await supabase
+        .from('invoice_documents')
+        .select('sundry_invoice_id, documents')
+        .in('sundry_invoice_id', sundryInvoiceIds)
+      ;(sundryDocs || []).forEach((d: any) => {
+        docCountMap[`sundry:${d.sundry_invoice_id}`] = d.documents?.length || 0
+      })
+    }
+
+    const withDocCounts = enrichedWithGroups.map((inv: any) => ({
+      ...inv,
+      document_count: inv.trip_id ? docCountMap[`trip:${inv.trip_id}`] || 0 : docCountMap[`sundry:${inv.id}`] || 0,
+    }))
+
+    return NextResponse.json({ data: withDocCounts })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
             }
           }
         } else if (podRequired && !invoice.trip_id) {
-          // Sundry invoice with pod_required — only invoice_documents via sundry_invoice_id
+          // Sundry invoice with pod_required — docs stored under sundry_invoice_id
           const { data: invDocsData } = await supabase
             .from('invoice_documents')
             .select('documents')

@@ -481,7 +481,12 @@ export default function GenerateInvoiceModal({
     if (!open || !record?.id) return
     const fetchDocs = async () => {
       try {
-        const res = await fetch(`/api/invoice-documents?audit_id=${record.id}`)
+        // Trip invoices store their documents under both audit_id and trip_id;
+        // sundry invoices (no trip_id) store documents keyed by sundry_invoice_id.
+        const query = record.trip_id
+          ? `trip_id=${encodeURIComponent(record.trip_id)}`
+          : `sundry_invoice_id=${record.id}`
+        const res = await fetch(`/api/invoice-documents?${query}`)
         const result = await res.json()
         if (result.data?.documents) {
           setUploadedDocs(result.data.documents)
@@ -505,8 +510,9 @@ export default function GenerateInvoiceModal({
       if (d.customerVat) setCustomerVat(d.customerVat)
       if (d.referenceNumber) setReferenceNumber(d.referenceNumber)
       if (d.salesCode) setSalesCode(d.salesCode)
-      if (d.lineItems?.length) setLineItems(d.lineItems.map((item: any) => ({
+      if (d.lineItems?.length) setLineItems(d.lineItems.map((item: any, i: number) => ({
         ...item,
+        id: item.id || `line-load-${i}-${Date.now()}`,
         quantity: String(item.quantity ?? ''),
         unitPrice: String(item.unitPrice ?? ''),
         vehicle: item.vehicle || '',
@@ -529,8 +535,9 @@ export default function GenerateInvoiceModal({
     if (d.reference_number) setReferenceNumber(d.reference_number)
     if (d.sales_code) setSalesCode(d.sales_code)
     if (d.line_items?.length) {
-      setLineItems(d.line_items.map((item: any) => ({
+      setLineItems(d.line_items.map((item: any, i: number) => ({
         ...item,
+        id: item.id || `line-load-${i}-${Date.now()}`,
         quantity: String(item.quantity ?? ''),
         unitPrice: String(item.unitPrice ?? ''),
         vehicle: item.vehicle || '',
@@ -640,7 +647,7 @@ export default function GenerateInvoiceModal({
       }
       setUploading(true)
       try {
-        const folderId = record.trip_id || 'unknown'
+        const folderId = record.trip_id || `sundry-${record.id}`
         const filePath = `invoice-docs/${folderId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
 
         // Upload directly to Supabase storage via browser client
@@ -656,24 +663,29 @@ export default function GenerateInvoiceModal({
         const { data: urlData } = supabase.storage.from('invoice-documents').getPublicUrl(filePath)
         const publicUrl = urlData?.publicUrl || ''
 
-        // Save metadata only to API
+        // Save metadata only to API — sundry invoices are keyed by sundry_invoice_id
+        const docBody: Record<string, any> = {
+          ordernumber: record.ordernumber || '',
+          invoice_number: invoiceNumber || '',
+          uploaded_by: '',
+          document: {
+            fileName: file.name,
+            filePath,
+            fileUrl: publicUrl,
+            fileType: file.type,
+            fileSize: file.size,
+          },
+        }
+        if (record.trip_id) {
+          docBody.audit_id = record.id
+          docBody.trip_id = record.trip_id
+        } else {
+          docBody.sundry_invoice_id = record.id
+        }
         const res = await fetch('/api/invoice-documents', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            audit_id: record.id,
-            trip_id: record.trip_id || '',
-            ordernumber: record.ordernumber || '',
-            invoice_number: invoiceNumber || '',
-            uploaded_by: '',
-            document: {
-              fileName: file.name,
-              filePath,
-              fileUrl: publicUrl,
-              fileType: file.type,
-              fileSize: file.size,
-            },
-          }),
+          body: JSON.stringify(docBody),
         })
         const result = await res.json()
         if (!res.ok) {
@@ -692,7 +704,10 @@ export default function GenerateInvoiceModal({
   const handleDeleteDoc = async (docId: string) => {
     if (!record?.id) return
     try {
-      const res = await fetch(`/api/invoice-documents?audit_id=${record.id}&doc_id=${docId}`, { method: 'DELETE' })
+      const query = record.trip_id
+        ? `trip_id=${encodeURIComponent(record.trip_id)}`
+        : `sundry_invoice_id=${record.id}`
+      const res = await fetch(`/api/invoice-documents?${query}&doc_id=${docId}`, { method: 'DELETE' })
       if (res.ok) {
         setUploadedDocs((prev) => prev.filter((d) => d.id !== docId))
       }

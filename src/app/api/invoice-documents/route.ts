@@ -96,6 +96,7 @@ export async function POST(request: Request) {
         insertRow.trip_id = trip_id || ''
       }
       if (sundry_invoice_id) {
+        insertRow.trip_id = `sundry-${Number(sundry_invoice_id)}`
         insertRow.sundry_invoice_id = Number(sundry_invoice_id)
       }
       const { error: insertError } = await supabase
@@ -122,17 +123,22 @@ export async function DELETE(request: Request) {
     )
     const { searchParams } = new URL(request.url)
     const auditId = searchParams.get('audit_id')
+    const tripId = searchParams.get('trip_id')
+    const sundryInvoiceId = searchParams.get('sundry_invoice_id')
     const docId = searchParams.get('doc_id')
 
-    if (!auditId || !docId) {
-      return NextResponse.json({ error: 'audit_id and doc_id are required' }, { status: 400 })
+    if ((!auditId && !tripId && !sundryInvoiceId) || !docId) {
+      return NextResponse.json({ error: 'audit_id, trip_id, or sundry_invoice_id and doc_id are required' }, { status: 400 })
     }
 
-    const { data: existing, error: fetchError } = await supabase
+    let docQuery = supabase
       .from('invoice_documents')
       .select('id, documents')
-      .eq('audit_id', Number(auditId))
-      .single()
+    if (auditId) docQuery = docQuery.eq('audit_id', Number(auditId))
+    if (tripId) docQuery = docQuery.eq('trip_id', tripId)
+    if (sundryInvoiceId) docQuery = docQuery.eq('sundry_invoice_id', Number(sundryInvoiceId))
+
+    const { data: existing, error: fetchError } = await docQuery.single()
 
     if (fetchError || !existing) {
       return NextResponse.json({ error: 'Record not found' }, { status: 404 })

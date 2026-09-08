@@ -728,20 +728,19 @@ export default function AuditPage() {
     setFinalizedInvoiceUrl(null)
     setShowFinalizePreview(true)
 
-    // Fetch attached documents for this trip
-    if (draft.trip_id) {
-      setFinalizeDocsLoading(true)
-      try {
-        const res = await fetch(`/api/invoice-documents?trip_id=${draft.trip_id}`)
-        const result = await res.json()
-        setFinalizeDocs(result.data?.documents || [])
-      } catch {
-        setFinalizeDocs([])
-      } finally {
-        setFinalizeDocsLoading(false)
-      }
-    } else {
+    // Fetch attached documents for this trip (or sundry invoice)
+    setFinalizeDocsLoading(true)
+    try {
+      const query = draft.trip_id
+        ? `trip_id=${encodeURIComponent(draft.trip_id)}`
+        : `sundry_invoice_id=${draft.id}`
+      const res = await fetch(`/api/invoice-documents?${query}`)
+      const result = await res.json()
+      setFinalizeDocs(result.data?.documents || [])
+    } catch {
       setFinalizeDocs([])
+    } finally {
+      setFinalizeDocsLoading(false)
     }
 
     // Fetch client's invoice email groups
@@ -1354,6 +1353,7 @@ export default function AuditPage() {
                     <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
                     <th className="px-2 py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
                     <th className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
+                    <th className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Docs</th>
                     <th className="px-2 py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
                   </tr>
                 </thead>
@@ -1380,6 +1380,9 @@ export default function AuditPage() {
                       </td>
                       <td className="px-2 py-1.5">
                         <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
+                        {!inv.trip_id && (
+                          <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">Sundry</div>
+                        )}
                       </td>
                       <td className="px-2 py-1.5">
                         <div className="text-sm text-slate-700">{inv.ordernumber || inv.trip_id || '—'}</div>
@@ -1392,6 +1395,14 @@ export default function AuditPage() {
                       </td>
                       <td className="px-2 py-1.5 text-center">
                         <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        {inv.document_count > 0 && (
+                          <span className="inline-flex items-center gap-1 text-xs text-slate-600" title={`${inv.document_count} document(s)`}>
+                            <Paperclip className="h-3.5 w-3.5" />
+                            <span>{inv.document_count}</span>
+                          </span>
+                        )}
                       </td>
                       <td className="px-2 py-1.5 text-right">
                         <div className="flex justify-end gap-1">
@@ -1518,6 +1529,7 @@ export default function AuditPage() {
                     <th className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
                     <th className="px-2 py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</th>
                     <th className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</th>
+                    <th className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Docs</th>
                     <th className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
                     <th className="px-2 py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
                   </tr>
@@ -1544,7 +1556,7 @@ export default function AuditPage() {
                     }, [])
                     .flatMap((group: any, gIdx: number) => [
                       <tr key={`group-${group.customer}-${gIdx}`} className="bg-slate-100 border-t">
-                        <td colSpan={10} className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-slate-600">
+                        <td colSpan={11} className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-slate-600">
                           {group.customer}
                         </td>
                       </tr>,
@@ -1565,6 +1577,9 @@ export default function AuditPage() {
                           </td>
                           <td className="px-2 py-1.5">
                             <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
+                            {!inv.trip_id && (
+                              <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">Sundry</div>
+                            )}
                           </td>
                           <td className="px-2 py-1.5 text-xs text-slate-700">{inv.ordernumber || inv.trip_id || '—'}</td>
                           <td className="px-2 py-1.5 text-xs text-slate-700">{inv.customer_name || '-'}</td>
@@ -1575,6 +1590,14 @@ export default function AuditPage() {
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
+                          </td>
+                          <td className="px-2 py-1.5 text-center">
+                            {inv.document_count > 0 && (
+                              <span className="inline-flex items-center gap-1 text-xs text-slate-600" title={`${inv.document_count} document(s)`}>
+                                <Paperclip className="h-3.5 w-3.5" />
+                                <span>{inv.document_count}</span>
+                              </span>
+                            )}
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             {inv.is_locked ? (
