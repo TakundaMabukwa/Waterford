@@ -343,8 +343,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                audit_id: invoiceId,
-                invoice_number: '',
+                sundry_invoice_id: invoiceId,
+                invoice_number: generatedInvoiceNumber || '',
                 uploaded_by: '',
                 document: {
                   fileName: file.name,
