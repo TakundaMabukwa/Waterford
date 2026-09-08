@@ -604,7 +604,7 @@ export default function AuditTripWorkspace({
           <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
             <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">My Rate</div>
             {myRate == null ? (
-              <div className="mt-1 text-sm font-bold text-slate-500">Currency mismatch</div>
+              <div className="mt-1 text-xs font-bold text-slate-500">Currency mismatch</div>
             ) : (
               <div className={`mt-1 text-lg font-extrabold ${myRate >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
                 {currency(myRate, invoiceCurrency)}
@@ -810,7 +810,7 @@ export default function AuditTripWorkspace({
                   <Button variant="outline" onClick={handleDistributeEvenly}>Distribute Evenly</Button>
                   <div className="flex items-center gap-2">
                     <Select value={pendingSplitCategory} onValueChange={setPendingSplitCategory}>
-                      <SelectTrigger className="h-10 min-w-[240px] border-slate-200 bg-white text-sm font-medium text-slate-700">
+                      <SelectTrigger className="h-10 min-w-[140px] border-slate-200 bg-white text-xs font-medium text-slate-700">
                         <SelectValue placeholder="Select category" />
                       </SelectTrigger>
                       <SelectContent>
@@ -867,11 +867,11 @@ export default function AuditTripWorkspace({
                                       const next = e.target.value
                                       setSplitRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, driverName: next } : item)))
                                     }}
-                                    className="h-9 min-w-[180px] border-slate-200 bg-white text-sm font-bold text-[#001e42]"
+                                    className="h-9 min-w-[110px] border-slate-200 bg-white text-xs font-bold text-[#001e42]"
                                   />
                                 ) : (
                                   <>
-                                    <div className="text-sm font-bold text-[#001e42]">{row.driverName}</div>
+                                    <div className="text-xs font-bold text-[#001e42]">{row.driverName}</div>
                                     <div className="text-xs text-slate-500">
                                       Fuel used: {numberFmt(row.fuelUsedLiters, ' L')} | Current fuel: {numberFmt(row.currentFuelLiters, ' L')}
                                     </div>
@@ -888,7 +888,7 @@ export default function AuditTripWorkspace({
                                   const next = e.target.value
                                   setSplitRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, vehicleLabel: next } : item)))
                                 }}
-                                className="h-9 min-w-[180px] border-slate-200 bg-white text-sm font-medium text-slate-800"
+                                className="h-9 min-w-[110px] border-slate-200 bg-white text-xs font-medium text-slate-800"
                               />
                             ) : (
                               <>
@@ -918,7 +918,7 @@ export default function AuditTripWorkspace({
                                   )
                                 }}
                               >
-                                <SelectTrigger className="h-10 min-w-[220px] border-slate-200 bg-white text-sm font-medium text-slate-700">
+                                <SelectTrigger className="h-10 min-w-[130px] border-slate-200 bg-white text-xs font-medium text-slate-700">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -961,7 +961,7 @@ export default function AuditTripWorkspace({
                                 const next = parseEditableNumber(e.target.value)
                                 setSplitRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, baseRate: next } : item)))
                               }}
-                              className="ml-auto h-10 w-28 border border-slate-200 bg-white text-right text-sm font-bold tabular-nums shadow-sm focus-visible:ring-1 focus-visible:ring-[#001e42]"
+                              className="ml-auto h-10 w-20 border border-slate-200 bg-white text-right text-xs font-bold tabular-nums shadow-sm focus-visible:ring-1 focus-visible:ring-[#001e42]"
                             />
                           </td>
                           <td className="px-3 py-2">
@@ -990,10 +990,10 @@ export default function AuditTripWorkspace({
                                 const next = parseEditableNumber(e.target.value)
                                 setSplitRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, allocationValue: next } : item)))
                               }}
-                              className="ml-auto h-10 w-28 border border-slate-200 bg-white text-right text-sm font-bold tabular-nums shadow-sm focus-visible:ring-1 focus-visible:ring-[#001e42]"
+                              className="ml-auto h-10 w-20 border border-slate-200 bg-white text-right text-xs font-bold tabular-nums shadow-sm focus-visible:ring-1 focus-visible:ring-[#001e42]"
                             />
                           </td>
-                          <td className="px-3 py-2 text-right text-sm font-bold tabular-nums text-[#001e42]">{currency(calcSplitTotal(row), actualCurrency)}</td>
+                          <td className="px-3 py-2 text-right text-xs font-bold tabular-nums text-[#001e42]">{currency(calcSplitTotal(row), actualCurrency)}</td>
                           <td className="px-3 py-2 text-right">
                             {row.rowType === 'custom' ? (
                               <Button
@@ -1097,7 +1097,7 @@ export default function AuditTripWorkspace({
                           </SelectContent>
                         </Select>
                       </td>
-                      <td className="px-3 py-2 text-right text-sm font-medium text-slate-700">{currency(entry.plannedAmount)}</td>
+                      <td className="px-3 py-2 text-right text-xs font-medium text-slate-700">{currency(entry.plannedAmount)}</td>
                       <td className="px-3 py-2 text-right">
                         <Input
                           type="number"
@@ -1195,11 +1195,11 @@ export default function AuditTripWorkspace({
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Trip Window Start</div>
-                <div className="mt-3 text-sm font-bold text-slate-900">{fmtDateTime(routeData?.trip_window?.start_at || record?.accepted_at)}</div>
+                <div className="mt-3 text-xs font-bold text-slate-900">{fmtDateTime(routeData?.trip_window?.start_at || record?.accepted_at)}</div>
               </div>
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Trip Window End</div>
-                <div className="mt-3 text-sm font-bold text-slate-900">{fmtDateTime(routeData?.trip_window?.end_at || record?.actual_finish_time)}</div>
+                <div className="mt-3 text-xs font-bold text-slate-900">{fmtDateTime(routeData?.trip_window?.end_at || record?.actual_finish_time)}</div>
               </div>
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual Distance</div>
@@ -1285,7 +1285,7 @@ export default function AuditTripWorkspace({
 
           <div className="flex items-center gap-3">
             {Math.abs(unallocated) >= 0.01 ? (
-              <div className="text-sm font-medium text-amber-700">
+              <div className="text-xs font-medium text-amber-700">
                 Remaining {currency(unallocated, actualCurrency)} will be saved under Unallocated Funds.
               </div>
             ) : null}
