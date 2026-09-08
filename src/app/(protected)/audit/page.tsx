@@ -118,9 +118,7 @@ export default function AuditPage() {
   const [tripDocuments, setTripDocuments] = useState<any[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState<'trips' | 'sundry' | 'incomplete' | 'drafts' | 'invoices' | 'reports'>('trips')
-  const [sundryInvoices, setSundryInvoices] = useState<any[]>([])
-  const [sundryLoading, setSundryLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<'trips' | 'incomplete' | 'drafts' | 'invoices' | 'reports'>('trips')
   const [showSundryModal, setShowSundryModal] = useState(false)
   const [draftInvoices, setDraftInvoices] = useState<any[]>([])
   const [draftLoading, setDraftLoading] = useState(false)
@@ -457,25 +455,6 @@ export default function AuditPage() {
   }, [activeTab])
 
   useEffect(() => {
-    if (activeTab !== 'sundry' && activeTab !== 'invoiced') return
-    const fetchSundry = async () => {
-      setSundryLoading(true)
-      try {
-        const res = await fetch('/api/invoices')
-        const result = await res.json()
-        const allInvoices = result.data || []
-        const sundryOnly = allInvoices.filter((inv: any) => !inv.trip_id)
-        setSundryInvoices(sundryOnly)
-      } catch (err) {
-        console.error('Error fetching sundry invoices:', err)
-      } finally {
-        setSundryLoading(false)
-      }
-    }
-    fetchSundry()
-  }, [activeTab])
-
-  useEffect(() => {
     if (activeTab !== 'incomplete') return
     const fetchIncomplete = async () => {
       setIncompleteLoading(true)
@@ -535,16 +514,19 @@ export default function AuditPage() {
 
   useEffect(() => {
     let next = records
-    
-    if (statusFilter !== 'all') {
-      next = next.filter((record) => record.status === statusFilter)
-    } else {
-      next = next.filter((record) => record.status === 'delivered' || record.status === 'completed')
-    }
 
-    // Trips tab: only show NOT invoiced and no invoice draft
     if (activeTab === 'trips') {
+      // Trip Invoices: show ALL trips in range (not just delivered/completed)
+      if (statusFilter !== 'all') {
+        next = next.filter((record) => record.status === statusFilter)
+      }
       next = next.filter((record) => !record.is_invoiced && !record.has_invoice_draft)
+    } else {
+      if (statusFilter !== 'all') {
+        next = next.filter((record) => record.status === statusFilter)
+      } else {
+        next = next.filter((record) => record.status === 'delivered' || record.status === 'completed')
+      }
     }
 
     if (searchTerm) {
@@ -1152,14 +1134,6 @@ export default function AuditPage() {
           Trip Invoices
         </button>
         <button
-          onClick={() => setActiveTab('sundry')}
-          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === 'sundry' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          Sundry Invoices
-        </button>
-        <button
           onClick={() => setActiveTab('incomplete')}
           className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === 'incomplete' ? 'bg-[#001e42] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
@@ -1196,6 +1170,12 @@ export default function AuditPage() {
       {activeTab === 'trips' && (
       <Card>
         <CardContent className="pt-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-lg font-bold text-[#001e42]">Trip Invoices</h3>
+            <Button onClick={() => setShowSundryModal(true)} className="bg-[#001e42] text-white hover:bg-[#0b2955]">
+              <Plus className="mr-2 h-4 w-4" /> New Sundry Invoice
+            </Button>
+          </div>
           <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center">
             <Input
               placeholder="Search by trip, order, origin, or destination..."
@@ -1308,107 +1288,6 @@ export default function AuditPage() {
           {filteredRecords.length === 0 ? (
             <div className="py-8 text-center text-sm text-slate-500">No audit records found matching your filters.</div>
           ) : null}
-        </CardContent>
-      </Card>
-      )}
-
-      {activeTab === 'sundry' && (
-      <Card>
-        <CardContent className="pt-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-lg font-bold text-[#001e42]">Sundry Invoices</h3>
-            <Button onClick={() => setShowSundryModal(true)} className="bg-[#001e42] text-white hover:bg-[#0b2955]">
-              <Plus className="mr-2 h-4 w-4" /> New Sundry Invoice
-            </Button>
-          </div>
-
-          {sundryLoading ? (
-            <div className="py-8 text-center text-sm text-slate-500">Loading sundry invoices...</div>
-          ) : sundryInvoices.length === 0 ? (
-            <div className="py-8 text-center text-sm text-slate-500">No sundry invoices found.</div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border">
-              <table className="w-full border-collapse text-left">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
-                    <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Due Date</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount Due</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sundryInvoices.map((inv: any) => (
-                    <tr key={inv.id} className="border-t hover:bg-slate-50">
-                      <td className="px-3 py-2">
-                        {inv.is_draft ? (
-                          <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-2 py-0.5">Draft</Badge>
-                        ) : (
-                          <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px] px-2 py-0.5">Finalized</Badge>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-slate-900">{inv.invoice_number || '-'}</div>
-                      </td>
-                      <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
-                      <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
-                      <td className="px-3 py-2 text-sm text-slate-700">{inv.due_date || 'On Receipt'}</td>
-                      <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
-                        {currency(toNumber(inv.amount_due))}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {inv.is_draft ? (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => handleDownloadInvoice(inv)}
-                                title="Download (regenerates PDF if missing)"
-                              >
-                                <Download className="h-3 w-3" />
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => handleEditDraft(inv)}>
-                                Edit
-                              </Button>
-                              <Button size="sm" className="h-7 px-2 text-xs bg-[#001e42] text-white hover:bg-[#0b2955]" onClick={() => handleFinalizeDraft(inv)}>
-                                Finalize
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => handleDownloadInvoice(inv)}
-                                title="Download (regenerates PDF if missing)"
-                              >
-                                <Download className="mr-1 h-3 w-3" /> Download
-                              </Button>
-                              <Button
-                                size="sm"
-                                className="h-7 px-2 text-xs bg-emerald-600 text-white hover:bg-emerald-700"
-                                onClick={() => handleSingleSend(inv)}
-                                disabled={sendingEmail}
-                                title="Send this invoice to the client's email group"
-                              >
-                                <Mail className="mr-1 h-3 w-3" /> Send
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </CardContent>
       </Card>
       )}
@@ -1601,100 +1480,6 @@ export default function AuditPage() {
                   </div>
                 )
               })()
-            )}
-          </div>
-
-          {/* Invoiced Sundry Invoices */}
-          <div>
-            <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Sundry Invoices</h4>
-            {invoicesLoading ? (
-              <div className="py-8 text-center text-sm text-slate-500">Loading sundry invoices...</div>
-            ) : finalizedInvoices.filter((inv: any) => !inv.trip_id).length === 0 ? (
-              <div className="py-4 text-center text-sm text-slate-500">No sundry invoices found.</div>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border">
-                <table className="w-full border-collapse text-left">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice #</th>
-                      <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Customer</th>
-                      <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Date</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Amount Due</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {finalizedInvoices.filter((inv: any) => !inv.trip_id).map((inv: any) => (
-                      <tr key={inv.id} className="border-t hover:bg-slate-50">
-                        <td className="px-3 py-2">
-                          <div className="font-medium text-slate-900">{inv.invoice_number}</div>
-                        </td>
-                        <td className="px-3 py-2 text-sm text-slate-700">{inv.customer_name || '-'}</td>
-                        <td className="px-3 py-2 text-sm text-slate-700">{inv.invoice_date || '-'}</td>
-                        <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
-                          {currency(toNumber(inv.amount_due))}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs"
-                              onClick={() => handleDownloadInvoice(inv)}
-                              title={inv.invoice_url ? 'View in new tab' : 'Will regenerate PDF on click'}
-                            >
-                              <FileText className="mr-1 h-3 w-3" /> View
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs"
-                              onClick={() => {
-                                if (!inv.invoice_url) {
-                                  handleDownloadInvoice(inv)
-                                  return
-                                }
-                                const a = document.createElement('a')
-                                a.href = inv.invoice_url
-                                a.download = `${inv.invoice_number || 'invoice'}.pdf`
-                                document.body.appendChild(a)
-                                a.click()
-                                document.body.removeChild(a)
-                              }}
-                              title="Download PDF"
-                            >
-                              <Download className="mr-1 h-3 w-3" /> Download
-                            </Button>
-                            {inv.invoice_email_groups?.length > 0 && (
-                              <Button
-                                size="sm"
-                                className="h-7 px-2 text-xs bg-emerald-600 text-white hover:bg-emerald-700"
-                                disabled={sendingEmail}
-                                onClick={() => handleSingleSend(inv)}
-                                title="Send this invoice to the client's email group"
-                              >
-                                <Mail className="mr-1 h-3 w-3" /> Send
-                              </Button>
-                            )}
-                            {(!inv.invoice_email_groups || inv.invoice_email_groups.length === 0) && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                disabled={sendingEmail}
-                                onClick={() => alert('No email groups configured for this client. Add groups in the Clients page.')}
-                                title="No email groups configured"
-                              >
-                                <Mail className="mr-1 h-3 w-3" /> No Groups
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
             )}
           </div>
         </CardContent>
@@ -2046,12 +1831,8 @@ export default function AuditPage() {
 
       <SundryInvoiceModal open={showSundryModal} onClose={() => {
         setShowSundryModal(false)
-        if (activeTab === 'sundry') {
-          fetch('/api/invoices').then(r => r.json()).then(result => {
-            const allInvoices = result.data || []
-            setSundryInvoices(allInvoices.filter((inv: any) => !inv.trip_id))
-          })
-        }
+        fetch('/api/invoices?draft=true').then(r => r.json()).then(result => setDraftInvoices(result.data || []))
+        fetch('/api/invoices?finalized=true').then(r => r.json()).then(result => setFinalizedInvoices(result.data || []))
       }} />
 
       {/* Edit Draft Modal */}
