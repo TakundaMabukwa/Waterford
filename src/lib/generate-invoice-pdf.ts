@@ -206,7 +206,7 @@ export async function generateInvoicePdf(
     ]
   })
 
-  const amountHeader = params.currency === 'USD' ? 'Amount USD' : 'Amount ZAR'
+  const amountHeader = 'Amount'
 
   autoTable(doc, {
     startY: y,
@@ -234,7 +234,7 @@ export async function generateInvoicePdf(
       0: { cellWidth: 55, halign: 'left' },
       1: { cellWidth: 14, halign: 'right' },
       2: { cellWidth: 22, halign: 'right' },
-      3: { cellWidth: 22, halign: 'left', overflow: 'linebreak' },
+      3: { cellWidth: 22, halign: 'right', overflow: 'linebreak' },
       4: { cellWidth: 22, halign: 'right' },
     },
     didDrawCell: (data) => {
@@ -266,24 +266,12 @@ export async function generateInvoicePdf(
   doc.text(formatNum(vatAmount), sV, y, { align: 'right' })
   y += 5
 
-  doc.setDrawColor(180, 180, 180)
-  doc.setLineWidth(0.3)
-  doc.line(sL, y, sV, y)
-  y += 5
-
-  const totalLabel = params.currency === 'USD' ? 'TOTAL USD' : 'TOTAL ZAR'
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(10)
-  doc.text(totalLabel, sL, y)
-  doc.text(formatNum(totalAmount), sV, y, { align: 'right' })
-  y += 6
-
   doc.setDrawColor(0, 0, 0)
   doc.setLineWidth(0.3)
   doc.line(sL, y, sV, y)
   y += 5
 
-  const amountDueLabel = params.currency === 'USD' ? 'AMOUNT DUE USD' : 'AMOUNT DUE ZAR'
+  const amountDueLabel = 'AMOUNT DUE'
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
   doc.text(amountDueLabel, sL, y)

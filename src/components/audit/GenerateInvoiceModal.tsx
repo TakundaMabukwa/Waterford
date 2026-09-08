@@ -716,6 +716,7 @@ export default function GenerateInvoiceModal({
   const generatePdf = async () => {
     setGenerating(true)
     let finalInvoiceUrl: string | undefined = undefined
+    let draftCreated = false
     try {
 
     // In draft mode, save to invoices table then generate preview PDF
@@ -813,6 +814,7 @@ export default function GenerateInvoiceModal({
       setPreviewPdfUrl(previewUrl)
       setGenerating(false)
       toast.success(`Draft ${createdInvoice.invoice_number} created — preview below`)
+      draftCreated = true
       return
     }
 
@@ -1032,6 +1034,10 @@ export default function GenerateInvoiceModal({
   } finally {
     setGenerating(false)
     onInvoiced?.(invoiceRate, detectedCurrency)
+    if (draftCreated) {
+      // Draft was created and preview is showing — do NOT close the modal
+      return
+    }
     if (finalInvoiceUrl) {
       onClose({ finalizedInvoiceUrl: finalInvoiceUrl, status: 'success' })
     } else if (closeParentOnSuccess) {
@@ -1272,13 +1278,7 @@ export default function GenerateInvoiceModal({
               </div>
               <div className="border-t pt-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-lg font-bold">TOTAL {detectedCurrency}</span>
-                  <span className="text-lg font-bold">{formatCurrency(totalZar, detectedCurrency)}</span>
-                </div>
-              </div>
-              <div className="border-t pt-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-lg font-bold text-[#001e42]">AMOUNT DUE {detectedCurrency}</span>
+                  <span className="text-lg font-bold text-[#001e42]">AMOUNT DUE</span>
                   <span className="text-lg font-bold text-[#001e42]">{formatCurrency(amountDue, detectedCurrency)}</span>
                 </div>
               </div>

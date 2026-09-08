@@ -566,15 +566,9 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                 <span className="text-slate-600">TOTAL VAT</span>
                 <span className="font-medium">{formatCurrency(totalVat, currency)}</span>
               </div>
-              <div className="border-t border-slate-300 pt-2">
-                <div className="flex justify-between">
-                  <span className="text-sm font-bold">TOTAL {currency}</span>
-                  <span className="text-lg font-bold">{formatCurrency(totalZar, currency)}</span>
-                </div>
-              </div>
               <div className="border-t border-[#001e42] pt-2">
                 <div className="flex justify-between">
-                  <span className="text-sm font-bold text-[#001e42]">AMOUNT DUE {currency}</span>
+                  <span className="text-sm font-bold text-[#001e42]">AMOUNT DUE</span>
                   <span className="text-lg font-bold text-[#001e42]">{formatCurrency(amountDue, currency)}</span>
                 </div>
               </div>
