@@ -70,22 +70,13 @@ export async function POST(request: NextRequest) {
 
     if (fetchError) throw fetchError
 
-    // Pre-fetch all unique client names to get pod_required flags
-    const uniqueClientNames = [...new Set(
-      (invoices || [])
-        .map((inv: any) => inv.customer_name)
-        .filter(Boolean)
-    )]
-
-    let podRequiredMap: Record<string, boolean> = {}
-    if (uniqueClientNames.length > 0) {
-      const { data: clients } = await supabase
-        .from('eps_client_list')
-        .select('name, pod_required')
-        .in('name', uniqueClientNames)
-      for (const c of clients || []) {
-        podRequiredMap[c.name] = Boolean(c.pod_required)
-      }
+    // Build pod_required map with normalized name matching (handles ($)/$ prefix)
+    const normalize = (s: string) =>
+      (s || '').replace(/^\(\$\)\s*/, '').replace(/^\$\s*/, '').replace(/[()]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+    const { data: allClients } = await supabase.from('eps_client_list').select('name, pod_required')
+    const podRequiredByNorm: Record<string, boolean> = {}
+    for (const c of allClients || []) {
+      podRequiredByNorm[normalize(c.name)] = Boolean(c.pod_required)
     }
 
     // Pre-fetch all unique trip string IDs to get numeric row IDs
@@ -148,8 +139,8 @@ export async function POST(request: NextRequest) {
           },
         ]
 
-        // Check pod_required for this client
-        const podRequired = podRequiredMap[invoice.customer_name] || false
+        // Check pod_required for this client (normalized)
+        const podRequired = podRequiredByNorm[normalize(invoice.customer_name)] || false
 
         if (podRequired && invoice.trip_id) {
           // Trip invoice with pod_required — fetch documents from both sources

@@ -829,7 +829,24 @@ export default function AuditPage() {
       fetch('/api/invoices?finalized=true').then(r => r.json()).then(result => setFinalizedInvoices(result.data || []))
 
       if (sendEmailGroups.length > 0 && pdfUrl) {
-        await sendInvoiceEmail(updatedInvoice, sendEmailGroups)
+        // Unified send path — same as Send button: goes via batch-send so HTML + docs are uniform
+        const recipients: string[] = []
+        for (const g of sendEmailGroups) {
+          if (g.emails) recipients.push(...(g.emails as string[]).filter((e: string) => e.trim()).map((e: string) => e.trim()))
+        }
+        if (recipients.length > 0) {
+          try {
+            const res = await fetch('/api/invoices/batch-send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ perInvoiceRecipients: [{ id: updatedInvoice.id, recipients }] }),
+            })
+            const result = await res.json()
+            if (!res.ok) throw new Error(result.error || 'Send failed')
+          } catch (e: any) {
+            console.error('Finalize auto-send failed:', e)
+          }
+        }
       }
     } catch (err: any) {
       alert(err.message)
@@ -838,17 +855,19 @@ export default function AuditPage() {
     }
   }
 
+  // Unified send — delegates to batch-send so HTML + POD attachments are identical
+  // whether sending from Finalize modal, single Send, or Send Selected.
   const sendInvoiceEmail = async (invoice: any, selectedGroups: any[]) => {
-    if (!selectedGroups.length || !invoice.invoice_url) {
+    if (!selectedGroups.length || !invoice.invoice_url || !invoice.id) {
       alert('No email groups selected or no invoice PDF available.')
       return
     }
     setSendingEmail(true)
     try {
-      const recipients = []
+      const recipients: string[] = []
       for (const group of selectedGroups) {
         if (group.emails) {
-          recipients.push(...group.emails.filter((e: string) => e.trim()))
+          recipients.push(...(group.emails as string[]).filter((e: string) => e.trim()).map((e: string) => e.trim()))
         }
       }
       if (recipients.length === 0) {
@@ -856,74 +875,17 @@ export default function AuditPage() {
         return
       }
 
-      let origin = ''
-      let destination = ''
-      if (invoice.trip_id) {
-        try {
-          const tripRes = await fetch(`/api/trips/${invoice.trip_id}`)
-          const tripResult = await tripRes.json()
-          if (tripResult.data) {
-            origin = tripResult.data.origin || ''
-            destination = tripResult.data.destination || ''
-          }
-        } catch { /* fallback to empty */ }
-      }
-
-      const { buildInvoiceEmailHtml } = await import('@/lib/invoice-email-template')
-      const html = buildInvoiceEmailHtml({
-        orderNumber: invoice.ordernumber || invoice.trip_id || '',
-        origin,
-        destination,
-        customerName: invoice.customer_name || '',
-        customerAddress: invoice.customer_address || '',
-        amount: toNumber(invoice.total_amount || invoice.amount_due).toLocaleString('en-ZA', { minimumFractionDigits: 2 }),
-        currency: invoice.currency || 'ZAR',
-        invoiceDate: invoice.invoice_date || '',
-        invoicePdfUrl: invoice.invoice_url || '',
-      })
-
-      const subject = `Invoice ${invoice.invoice_number || ''} - Waterford Carriers`
-
-      // Build attachments list - include invoice PDF and PODs (Proof of Delivery)
-      const attachments: { filename: string; path: string }[] = [
-        {
-          filename: `${invoice.invoice_number || 'invoice'}.pdf`,
-          path: invoice.invoice_url || '',
-        },
-      ]
-
-      // Fetch PODs from invoice_documents
-      try {
-        const docQueryParam = invoice.trip_id
-          ? `trip_id=${invoice.trip_id}`
-          : `sundry_invoice_id=${invoice.id}`
-        const docsRes = await fetch(`/api/invoice-documents?${docQueryParam}`)
-        const docsResult = await docsRes.json()
-        const docs = docsResult.data?.documents || []
-        for (const doc of docs) {
-          if (doc.file_url && doc.file_name) {
-            attachments.push({
-              filename: doc.file_name,
-              path: doc.file_url,
-            })
-          }
-        }
-      } catch {
-        // PODs are optional; proceed without them if fetch fails
-      }
-
-      const res = await fetch('/api/send-invoice-email', {
+      // Delegate to uniform batch-send endpoint (builds HTML + resolves trip_documents + invoice_documents based on pod_required)
+      const res = await fetch('/api/invoices/batch-send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipients, subject, html, attachments }),
+        body: JSON.stringify({ perInvoiceRecipients: [{ id: invoice.id, recipients }] }),
       })
-
       const result = await res.json()
-      if (!res.ok || !result.success) {
-        throw new Error(result.error || 'Failed to send email')
-      }
-
-      alert(`Invoice email sent to ${recipients.length} recipient(s)!`)
+      if (!res.ok) throw new Error(result.error || 'Send failed')
+      const ok = (result.results || []).filter((r: any) => r.success).length
+      if (ok) alert(`Invoice email sent to ${recipients.length} recipient(s)!`)
+      else throw new Error((result.results || [])[0]?.error || 'Send failed')
     } catch (err: any) {
       console.error('Send invoice email error:', err)
       alert(`Failed to send email: ${err.message}`)
@@ -1580,8 +1542,8 @@ export default function AuditPage() {
                       }
                       return groups
                     }, [])
-                    .flatMap((group: any) => [
-                      <tr key={`group-${group.customer}`} className="bg-slate-100 border-t">
+                    .flatMap((group: any, gIdx: number) => [
+                      <tr key={`group-${group.customer}-${gIdx}`} className="bg-slate-100 border-t">
                         <td colSpan={10} className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-slate-600">
                           {group.customer}
                         </td>
@@ -1813,15 +1775,7 @@ export default function AuditPage() {
                   </div>
                   <div className="border-t pt-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-lg font-bold">TOTAL {finalizePreview.currency || 'ZAR'}</span>
-                      <span className="text-lg font-bold">
-                        {finalizePreview.currency === 'USD' ? '$' : 'R'}{toNumber(finalizePreview.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="border-t pt-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-lg font-bold text-[#001e42]">AMOUNT DUE {finalizePreview.currency || 'ZAR'}</span>
+                      <span className="text-lg font-bold text-[#001e42]">AMOUNT DUE</span>
                       <span className="text-lg font-bold text-[#001e42]">
                         {finalizePreview.currency === 'USD' ? '$' : 'R'}{toNumber(finalizePreview.amount_due).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
                       </span>
