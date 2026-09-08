@@ -188,6 +188,8 @@ function SearchableClientSelect({
 }
 
 // Generic searchable select for vehicle/driver (free-text + suggestions from a list)
+// Dropdown uses fixed positioning so it is not clipped by the table's overflow-x-auto container.
+// It opens ABOVE the input (bottom-full) per request to avoid being cut off at the bottom.
 function SearchableFieldSelect({
   value,
   options,
@@ -204,6 +206,8 @@ function SearchableFieldSelect({
   const [query, setQuery] = useState(value)
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null)
 
   useEffect(() => { setQuery(value) }, [value])
 
@@ -216,6 +220,28 @@ function SearchableFieldSelect({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
 
+  const updateCoords = () => {
+    if (!inputRef.current) return
+    const r = inputRef.current.getBoundingClientRect()
+    setCoords({ top: r.top, left: r.left, width: r.width })
+  }
+
+  const handleFocus = () => {
+    updateCoords()
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onScrollOrResize = () => updateCoords()
+    window.addEventListener('scroll', onScrollOrResize, true)
+    window.addEventListener('resize', onScrollOrResize)
+    return () => {
+      window.removeEventListener('scroll', onScrollOrResize, true)
+      window.removeEventListener('resize', onScrollOrResize)
+    }
+  }, [open])
+
   const q = query.trim().toLowerCase()
   const filtered = q
     ? options.filter((o) => o.toLowerCase().includes(q)).slice(0, 20)
@@ -224,20 +250,25 @@ function SearchableFieldSelect({
   return (
     <div ref={wrapRef} className="relative">
       <input
+        ref={inputRef}
         type="text"
         value={query}
         placeholder={placeholder}
         disabled={disabled}
         onChange={(e) => {
           setQuery(e.target.value)
+          updateCoords()
           setOpen(true)
           onChange(e.target.value)
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={handleFocus}
         className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-xs shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42] disabled:bg-slate-50 disabled:text-slate-500"
       />
-      {open && filtered.length > 0 && (
-        <div className="absolute z-30 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+      {open && filtered.length > 0 && coords && (
+        <div
+          style={{ top: coords.top - 4, left: coords.left, width: Math.max(coords.width, 160), transform: 'translateY(-100%)' }}
+          className="fixed z-[60] max-h-48 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg"
+        >
           {filtered.map((opt) => (
             <button
               key={opt}

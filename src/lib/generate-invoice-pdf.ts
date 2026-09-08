@@ -231,11 +231,11 @@ export async function generateInvoicePdf(
       borderColor: [255, 255, 255],
     },
     columnStyles: {
-      0: { cellWidth: 55, halign: 'left' },
-      1: { cellWidth: 14, halign: 'right' },
-      2: { cellWidth: 22, halign: 'right' },
-      3: { cellWidth: 22, halign: 'right', overflow: 'linebreak' },
-      4: { cellWidth: 22, halign: 'right' },
+      0: { cellWidth: 90, halign: 'left' },
+      1: { cellWidth: 15, halign: 'right' },
+      2: { cellWidth: 25, halign: 'right' },
+      3: { cellWidth: 25, halign: 'right', overflow: 'linebreak' },
+      4: { cellWidth: 25, halign: 'right' },
     },
     didDrawCell: (data) => {
       const { doc: d } = data
