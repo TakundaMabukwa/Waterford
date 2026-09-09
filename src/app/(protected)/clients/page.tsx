@@ -413,28 +413,25 @@ export default function ClientsPage() {
             <CardContent className="p-0">
               <div className="w-full overflow-x-auto">
                 <Table className="w-full text-xs table-fixed">
-                  <colgroup>
-                    <col className="w-[20%]" />
+<colgroup>
+                    <col className="w-[24%]" />
+                    <col className="w-[18%]" />
                     <col className="w-[14%]" />
-                    <col className="w-[22%]" />
-                    <col className="w-[10%]" />
-                    <col className="w-[26%]" />
-                    <col className="w-[8%]" />
+                    <col className="w-[30%]" />
+                    <col className="w-[14%]" />
                   </colgroup>
-                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="text-xs">Stop</TableHead><TableHead className="text-xs">Geozone</TableHead><TableHead className="text-xs">Contact</TableHead><TableHead className="text-xs">Fuel Price</TableHead><TableHead className="text-xs">Prescribed Value</TableHead><TableHead className="text-xs">Address</TableHead><TableHead className="text-right text-xs">Actions</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow className="bg-slate-50"><TableHead className="text-xs">Stop</TableHead><TableHead className="text-xs">Geozone</TableHead><TableHead className="text-xs">Fuel Price</TableHead><TableHead className="text-xs">Prescribed Value</TableHead><TableHead className="text-right text-xs">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {isLoadingStops ? (
-                      <TableRow><TableCell colSpan={7} className="py-6 text-center text-sm text-slate-500">Loading stops...</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-slate-500">Loading stops...</TableCell></TableRow>
                     ) : filteredStops.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="py-6 text-center text-sm text-slate-500">No stop rows found.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-slate-500">No stop rows found.</TableCell></TableRow>
                     ) : filteredStops.map((stop) => (
                       <TableRow key={stop.id} className="border-b border-slate-100">
-                        <TableCell className="py-1.5"><div className="flex items-center gap-1 text-xs text-slate-700"><MapPinned className="h-3 w-3 shrink-0 text-slate-400" /><div className="min-w-0"><div className="truncate font-medium text-slate-900">{stop.name || stop.name2 || "-"}</div><div className="text-[11px] text-slate-500 truncate">{stop.type || "fuel_station"}</div></div></div></TableCell>
+                        <TableCell className="py-1.5"><div className="flex items-center gap-1 text-xs text-slate-700"><MapPinned className="h-3 w-3 shrink-0 text-slate-400" /><div className="min-w-0"><div className="truncate font-medium text-slate-900">{stop.name || stop.name2 || "-"}</div><div className="text-[11px] text-slate-500 truncate">{stop.type === "fuel_station" ? "Fuel Stop" : stop.type || "Fuel Stop"}</div></div></div></TableCell>
                         <TableCell className="py-1.5"><div className="truncate text-xs text-slate-700">{stop.geozone_name || "-"}</div></TableCell>
-                        <TableCell className="py-1.5"><div className="space-y-0.5 text-xs text-slate-700"><div className="flex items-center gap-1 truncate"><User2 className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{stop.contact_person || "-"}</span></div><div className="flex items-center gap-1 truncate"><Phone className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{stop.contact_phone || "-"}</span></div><div className="flex items-center gap-1 truncate"><Mail className="h-3 w-3 shrink-0 text-slate-400" /><span className="truncate">{stop.contact_email || "-"}</span></div></div></TableCell>
                         <TableCell className="py-1.5"><div className="text-xs font-medium text-slate-900">{stop.fuel_price_per_liter ? `R${Number(stop.fuel_price_per_liter).toFixed(2)}` : "-"}</div></TableCell>
                         <TableCell className="py-1.5"><div className="text-xs font-medium text-slate-900">{stop.prescribed_value ? `${Number(stop.prescribed_value).toFixed(2)}` : "-"}</div></TableCell>
-                        <TableCell className="py-1.5"><div className="truncate text-xs text-slate-700">{[stop.address || stop.street, stop.city, stop.state, stop.country].filter(Boolean).join(", ") || "-"}</div></TableCell>
                         <TableCell className="py-1.5 text-right">
                           <div className="flex items-center justify-end gap-0.5">
                             {(stop.geozone_coordinates || stop.location_coordinates || stop.coordinates) && (

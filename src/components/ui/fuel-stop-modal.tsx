@@ -51,6 +51,7 @@ export function FuelStopForm({
   const [isLocating, setIsLocating] = useState(false)
   const [locationQuery, setLocationQuery] = useState('')
   const [selectedLocation, setSelectedLocation] = useState<LocationLookupSelection | null>(null)
+  const [stopType, setStopType] = useState('Fuel Stop')
   const [name, setName] = useState('')
   const [geozoneName, setGeozoneName] = useState('')
   const [address, setAddress] = useState('')
@@ -362,6 +363,7 @@ export function FuelStopForm({
   const resetForm = () => {
     setLocationQuery('')
     setSelectedLocation(null)
+    setStopType('Fuel Stop')
     setName('')
     setGeozoneName('')
     setAddress('')
@@ -390,6 +392,7 @@ export function FuelStopForm({
 
     setLocationQuery(initialRecord.name || initialRecord.name2 || '')
     setSelectedLocation(null)
+    setStopType(initialRecord.type === 'fuel_station' ? 'Fuel Stop' : initialRecord.type || 'Fuel Stop')
     setName(initialRecord.name || initialRecord.name2 || '')
     setGeozoneName(initialRecord.geozone_name || initialRecord.name || initialRecord.name2 || '')
     setAddress(initialRecord.address || '')
@@ -440,7 +443,7 @@ export function FuelStopForm({
       const payload = {
         name,
         name2: name,
-        type: 'fuel_station',
+        type: stopType,
         address,
         city,
         state,
@@ -523,6 +526,18 @@ export function FuelStopForm({
                     {isLocating ? 'Locating...' : 'Locate'}
                   </Button>
                 </div>
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label>Type</Label>
+                <select
+                  value={stopType}
+                  onChange={(event) => setStopType(event.target.value)}
+                  className="flex h-9 w-full rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
+                >
+                  <option value="Fuel Stop">Fuel Stop</option>
+                  <option value="Border Post">Border Post</option>
+                </select>
               </div>
 
               <div className="space-y-2">
@@ -644,7 +659,7 @@ export function FuelStopForm({
               </div>
               <div className="rounded-lg border border-slate-200 bg-white p-3">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Type</div>
-                <div className="mt-1 text-sm font-medium text-slate-900">Fuel Station</div>
+                <div className="mt-1 text-sm font-medium text-slate-900">{stopType}</div>
               </div>
             </div>
           </div>
