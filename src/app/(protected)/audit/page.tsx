@@ -793,6 +793,7 @@ export default function AuditPage() {
       const invoiceNumber = result.invoiceNumber
 
       const { generateAndUploadInvoicePdf } = await import('@/lib/generate-invoice-pdf')
+      const isCreditNote = !!finalizePreview.is_credit_note
       const { pdfUrl } = await generateAndUploadInvoicePdf({
         invoiceNumber,
         customerName: finalizePreview.customer_name || '',
@@ -815,6 +816,8 @@ export default function AuditPage() {
         vatAmount: Number(finalizePreview.vat_amount) || 0,
         totalAmount: Number(finalizePreview.total_amount) || 0,
         amountDue: Number(finalizePreview.amount_due) || 0,
+        title: isCreditNote ? 'CREDIT NOTE' : undefined,
+        negative: isCreditNote || undefined,
       })
 
       if (pdfUrl) {

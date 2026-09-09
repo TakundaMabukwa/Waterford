@@ -9,7 +9,6 @@ import {
   Building2,
   Car,
   ChartBar,
-  DollarSign,
   Phone,
   PlusSquare,
   QrCode,
@@ -92,7 +91,6 @@ const roleNavigation = {
     { name: "Video Feeds", href: "/video-feeds", Icon: <Video /> },
     { name: "Drivers", href: "/drivers", Icon: <Users /> },
     { name: "Vehicles", href: "/vehicles", Icon: <Truck /> },
-    { name: "Cost Centers", href: "/ccenter", Icon: <DollarSign /> },
     { name: "Financials", href: "/audit", Icon: <Settings2Icon /> },
     {
       name: "Inspections",
@@ -138,7 +136,6 @@ const roleNavigation = {
       Icon: <Truck />,
     },
     { name: "Workshops", href: "/callcenter/clients", Icon: <Users /> },
-    // { name: "Qoute Management", href: "/ccenter", Icon: <Building2 /> },
     { name: "System Settings", href: "/settings", Icon: <Settings /> },
   ],
   customer: [
@@ -154,12 +151,6 @@ const roleNavigation = {
   ],
   "cost centre": [
     { name: "Dashboard", href: "/dashboard", Icon: <ChartBar /> },
-    { name: "Cost", href: "/ccenter", Icon: <Building2 /> },
-    // {
-    //   name: "Qoute Management",
-    //   href: "/ccenter/create-qoutation",
-    //   Icon: <DollarSign />,
-    // },
     { name: "System Settings", href: "/settings", Icon: <Settings /> },
   ],
 };
@@ -219,7 +210,6 @@ export default function ProtectedLayout({ children }: ProtectedLayoutProps) {
         clients: { name: "Clients", href: "/clients", Icon: <Building2 /> },
         drivers: { name: "Drivers", href: "/drivers", Icon: <Users /> },
         vehicles: { name: "Vehicles", href: "/vehicles", Icon: <Truck /> },
-        costCenters: { name: "Cost Centers", href: "/ccenter", Icon: <DollarSign /> },
         financials: { name: "Financials", href: "/audit", Icon: <Settings2Icon /> },
         fuelComparison: { name: "Fuel Comparison", href: "/fuel-comparison", Icon: <Fuel /> },
         inspections: { name: "Inspections", href: "/fleetManager/inspections", Icon: <QrCode /> },

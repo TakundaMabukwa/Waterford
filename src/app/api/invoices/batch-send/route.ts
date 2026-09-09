@@ -228,18 +228,14 @@ export async function POST(request: NextRequest) {
         // Use the finalize email template (uniform HTML for all sends)
         const tripDetail = invoice.trip_id ? tripDetailsMap[invoice.trip_id] : null
         const orderNumber = invoice.reference_number || invoice.ordernumber || invoice.trip_id || invoice.invoice_number || ''
-        const origin = tripDetail?.origin || ''
-        const destination = tripDetail?.destination || ''
         const emailHtml = buildInvoiceEmailHtml({
           orderNumber,
-          origin,
-          destination,
           customerName: invoice.customer_name || '',
-          customerAddress: invoice.customer_address || '',
-          amount: Number(invoice.total_amount || invoice.amount_due || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 }),
+          amount: `${invoice.is_credit_note ? '-' : ''}${Number(invoice.total_amount || invoice.amount_due || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`,
           currency: invoice.currency || 'ZAR',
           invoiceDate: invoice.invoice_date || '',
           invoicePdfUrl: invoice.invoice_url || '',
+          isCreditNote: invoice.is_credit_note,
           attachments: attachments.slice(1).map(a => ({ name: a.filename, url: a.path })), // skip invoice PDF
         })
 

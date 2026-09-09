@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     const {
       vehicle_reg, review_date, action_type,
       confirmed, investigated, reviewed_by, notes,
-      probe_value, driver_value, type,
+      probe_value, driver_value, type, invoiced_value,
     } = body
 
     if (!vehicle_reg || !review_date || !action_type) {
@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
           probe_value: probe_value || null,
           driver_value: driver_value || null,
           type: type || null,
+          invoiced_value: invoiced_value || null,
         },
         { onConflict: 'vehicle_reg,review_date,action_type' }
       )
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json()
-    const { id, confirmed, investigated, reviewed_by, notes, probe_value, driver_value, type } = body
+    const { id, confirmed, investigated, reviewed_by, notes, probe_value, driver_value, type, invoiced_value } = body
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -96,6 +97,7 @@ export async function PATCH(request: NextRequest) {
     if (probe_value !== undefined) update.probe_value = probe_value
     if (driver_value !== undefined) update.driver_value = driver_value
     if (type !== undefined) update.type = type
+    if (invoiced_value !== undefined) update.invoiced_value = invoiced_value
     if (confirmed || investigated) {
       update.reviewed_at = new Date().toISOString()
     }

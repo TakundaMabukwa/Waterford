@@ -23,6 +23,7 @@ interface FuelRecord {
   reviewed_by: string | null;
   probe_value: string | null;
   driver_value: string | null;
+  invoiced_value: string | null;
   notes: string | null;
 }
 
@@ -55,6 +56,8 @@ export function FuelComparisonView({ onBack, initialDate }: FuelComparisonViewPr
   const [userEmail, setUserEmail] = useState<string>('');
   const [editingDriverValue, setEditingDriverValue] = useState<string | null>(null);
   const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
+  const [editingInvoiceValue, setEditingInvoiceValue] = useState<string | null>(null);
+  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [editingNoteValue, setEditingNoteValue] = useState<string | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [closingId, setClosingId] = useState<string | null>(null);
@@ -177,6 +180,59 @@ export function FuelComparisonView({ onBack, initialDate }: FuelComparisonViewPr
         className="cursor-pointer rounded px-1 py-0.5 hover:bg-gray-100"
       >
         {record.driver_value || <span className="text-gray-400">Click to edit</span>}
+      </span>
+    );
+  };
+
+  const handleSaveInvoiceValue = async (record: FuelRecord) => {
+    const newValue = editingInvoiceValue ?? record.invoiced_value;
+
+    if (newValue === record.invoiced_value) {
+      setEditingInvoiceId(null);
+      return;
+    }
+
+    try {
+      await patchRecord(record.id, { invoiced_value: newValue || null });
+      setEditingInvoiceId(null);
+    } catch (err) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to save invoice value',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const renderInvoiceValue = (record: FuelRecord) => {
+    if (editingInvoiceId === record.id) {
+      return (
+        <input
+          autoFocus
+          type="text"
+          value={editingInvoiceValue ?? ''}
+          onChange={(e) => setEditingInvoiceValue(e.target.value)}
+          onBlur={() => handleSaveInvoiceValue(record)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSaveInvoiceValue(record);
+            if (e.key === 'Escape') setEditingInvoiceId(null);
+          }}
+          placeholder="e.g. R1 234,56"
+          className="w-full rounded border border-blue-400 bg-white px-1 py-0.5 text-xs outline-none focus:ring-1 focus:ring-blue-400"
+        />
+      );
+    }
+
+    return (
+      <span
+        onClick={() => {
+          setEditingInvoiceId(record.id);
+          setEditingInvoiceValue(record.invoiced_value || '');
+        }}
+        className="cursor-pointer rounded px-1 py-0.5 text-xs hover:bg-gray-100"
+        title="Click to edit"
+      >
+        {record.invoiced_value || <span className="text-gray-400">Enter value</span>}
       </span>
     );
   };
@@ -491,13 +547,14 @@ export function FuelComparisonView({ onBack, initialDate }: FuelComparisonViewPr
   const fillsHeaders = (
     <TableHeader>
       <TableRow className="bg-slate-50">
-        <TableHead className="font-medium text-xs">Reg</TableHead>
-        <TableHead className="font-medium text-xs">Fuel Probe Value</TableHead>
-        <TableHead className="font-medium text-xs">Driver Value</TableHead>
-        <TableHead className="font-medium text-xs">Slip</TableHead>
-        <TableHead className="font-medium text-xs">Notes</TableHead>
-        <TableHead className="font-medium text-xs">Reviewed By</TableHead>
-        <TableHead className="font-medium text-xs text-center">Actions</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Reg</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Fuel Probe Value</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Driver Value</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Invoice Value</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Slip</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Notes</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Reviewed By</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs text-center">Actions</TableHead>
       </TableRow>
     </TableHeader>
   );
@@ -505,12 +562,13 @@ export function FuelComparisonView({ onBack, initialDate }: FuelComparisonViewPr
   const theftsHeaders = (
     <TableHeader>
       <TableRow className="bg-slate-50">
-        <TableHead className="font-medium text-xs">Reg</TableHead>
-        <TableHead className="font-medium text-xs">Fuel Probe Value</TableHead>
-        <TableHead className="font-medium text-xs">Driver Value</TableHead>
-        <TableHead className="font-medium text-xs">Notes</TableHead>
-        <TableHead className="font-medium text-xs">Reviewed By</TableHead>
-        <TableHead className="font-medium text-xs text-center">Actions</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Reg</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Fuel Probe Value</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Driver Value</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Invoice Value</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Notes</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs">Reviewed By</TableHead>
+        <TableHead className="sticky top-0 z-10 bg-slate-50 font-medium text-xs text-center">Actions</TableHead>
       </TableRow>
     </TableHeader>
   );
@@ -519,7 +577,7 @@ export function FuelComparisonView({ onBack, initialDate }: FuelComparisonViewPr
     if (fills.length === 0) {
       return (
         <TableRow>
-          <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+          <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
             No fuel fills found for {appliedDate}
           </TableCell>
         </TableRow>
@@ -531,6 +589,7 @@ export function FuelComparisonView({ onBack, initialDate }: FuelComparisonViewPr
         <TableCell className="font-medium">{record.vehicle_reg}</TableCell>
         <TableCell>{record.probe_value || '-'}</TableCell>
         <TableCell>{renderDriverValue(record)}</TableCell>
+        <TableCell>{renderInvoiceValue(record)}</TableCell>
         <TableCell>{renderSlip(record)}</TableCell>
         <TableCell>{renderNotes(record)}</TableCell>
         <TableCell className="text-xs text-gray-500">{record.reviewed_by || '-'}</TableCell>
@@ -543,7 +602,7 @@ export function FuelComparisonView({ onBack, initialDate }: FuelComparisonViewPr
     if (thefts.length === 0) {
       return (
         <TableRow>
-          <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+          <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
             No fuel thefts found for {appliedDate}
           </TableCell>
         </TableRow>
@@ -555,6 +614,7 @@ export function FuelComparisonView({ onBack, initialDate }: FuelComparisonViewPr
         <TableCell className="font-medium">{record.vehicle_reg}</TableCell>
         <TableCell>{record.probe_value || '-'}</TableCell>
         <TableCell>{renderDriverValue(record)}</TableCell>
+        <TableCell>{renderInvoiceValue(record)}</TableCell>
         <TableCell>{renderNotes(record)}</TableCell>
         <TableCell className="text-xs text-gray-500">{record.reviewed_by || '-'}</TableCell>
         <TableCell className="text-center">{renderActions(record)}</TableCell>
@@ -563,89 +623,54 @@ export function FuelComparisonView({ onBack, initialDate }: FuelComparisonViewPr
   };
 
   return (
-    <div className="space-y-4">
-      {/* Day Selector */}
-      <div className="flex items-end gap-3">
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Day</label>
-          <div className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2">
-            <Calendar className="h-4 w-4 text-gray-500" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent text-sm text-gray-700 outline-none"
-            />
+    <div className="space-y-3">
+      {/* Controls: Day selector + tabs in one responsive row */}
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex items-end gap-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Day</label>
+            <div className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2">
+              <Calendar className="h-4 w-4 text-gray-500" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="bg-transparent text-sm text-gray-700 outline-none"
+              />
+            </div>
           </div>
+          <Button onClick={handleApplyDate} size="sm">
+            <RefreshCw className="mr-2 h-4 w-4" /> Update
+          </Button>
         </div>
-        <Button onClick={handleApplyDate} size="sm">
-          <RefreshCw className="mr-2 h-4 w-4" /> Update
-        </Button>
-      </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
-        <button
-          onClick={() => setActiveTab('fills')}
-          className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === 'fills'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Fuel Fills ({fills.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('thefts')}
-          className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === 'thefts'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Fuel Thefts ({thefts.length})
-        </button>
+        {/* Tabs */}
+        <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
+          <button
+            onClick={() => setActiveTab('fills')}
+            className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === 'fills'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Fuel Fills ({fills.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('thefts')}
+            className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === 'thefts'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Fuel Thefts ({thefts.length})
+          </button>
+        </div>
       </div>
-
-      {/* Table */}
-      <div className="rounded-md border overflow-x-auto">
-        <Table className="min-w-[900px]">
-          {activeTab === 'fills' ? fillsHeaders : theftsHeaders}
-          <TableBody>
-            {activeTab === 'fills' ? renderFillRows() : renderTheftRows()}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Unmatched slips (same day) */}
-      {unmatchedSlips.length > 0 && (
-        <details className="rounded-md border bg-white px-4 py-3">
-          <summary className="cursor-pointer text-sm font-medium text-gray-700">
-            Unmatched slips for {appliedDate} ({unmatchedSlips.length})
-          </summary>
-          <div className="mt-3 flex flex-wrap gap-3">
-            {unmatchedSlips.map((slip) => (
-              <div key={slip.slip_id} className="flex items-center gap-2 rounded-md border px-2 py-1">
-                {slip.image_url && (
-                  <img
-                    src={slip.image_url}
-                    alt={`Fuel slip ${slip.slip_id}`}
-                    onClick={() => setViewingImage(slip.image_url)}
-                    className="h-10 w-10 cursor-pointer rounded border object-cover hover:opacity-80"
-                  />
-                )}
-                <div className="flex flex-col">
-                  <span className="text-sm font-medium">{slip.fuel_amount ?? '-'}</span>
-                  <span className="text-[11px] text-gray-500">{slip.fuel_type || ''}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <Card className="rounded-lg shadow-sm border-0 overflow-hidden">
           <div className="h-1 bg-green-500" />
           <CardContent className="p-3">
@@ -678,6 +703,18 @@ export function FuelComparisonView({ onBack, initialDate }: FuelComparisonViewPr
             <div className="text-xs text-gray-500">Under Investigation</div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-md border">
+        <div className="max-h-[calc(100vh-330px)] overflow-y-auto overflow-x-auto">
+          <Table className="min-w-[880px]">
+            {activeTab === 'fills' ? fillsHeaders : theftsHeaders}
+            <TableBody>
+              {activeTab === 'fills' ? renderFillRows() : renderTheftRows()}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       {/* Slip image lightbox */}

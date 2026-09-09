@@ -398,6 +398,7 @@ export default function GenerateInvoiceModal({
     : nameIsDollar ? 'USD' : invoiceCurrency
   // Preserve original name including ($ ) or $ prefix — it indicates USD currency
   const cleanName = customerName
+  const isCreditNote = mode === 'credit' || !!record?.is_credit_note || !!draftData?.is_credit_note
   const [referenceNumber, setReferenceNumber] = useState(orderNum)
   const [uploading, setUploading] = useState(false)
   const [uploadedDocs, setUploadedDocs] = useState<any[]>([])
@@ -1466,19 +1467,19 @@ export default function GenerateInvoiceModal({
 
           {/* Summary */}
           <div className="flex justify-end">
-            <div className="w-80 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
+<div className="w-80 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="flex justify-between text-sm">
                 <span className="text-slate-600">Subtotal</span>
-                <span className="font-medium">{formatCurrency(subtotal, detectedCurrency)}</span>
+                <span className="font-medium">{(isCreditNote ? '-' : '')}{formatCurrency(subtotal, detectedCurrency)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-500">TOTAL VAT</span>
-                <span className="font-medium">{formatCurrency(totalVat, detectedCurrency)}</span>
+                <span className="font-medium">{(isCreditNote ? '-' : '')}{formatCurrency(totalVat, detectedCurrency)}</span>
               </div>
               <div className="border-t pt-2">
 <div className="flex items-center justify-between">
-                  <span className="text-lg font-bold text-[#001e42]">{mode === 'credit' ? 'CREDIT AMOUNT' : 'AMOUNT DUE'}</span>
-                  <span className="text-lg font-bold text-[#001e42]">{formatCurrency(amountDue, detectedCurrency)}</span>
+                  <span className="text-lg font-bold text-[#001e42]">{isCreditNote ? 'CREDIT AMOUNT' : 'AMOUNT DUE'}</span>
+                  <span className="text-lg font-bold text-[#001e42]">{(isCreditNote ? '-' : '')}{formatCurrency(amountDue, detectedCurrency)}</span>
                 </div>
               </div>
             </div>

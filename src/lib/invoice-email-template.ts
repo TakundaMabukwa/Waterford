@@ -1,18 +1,17 @@
 type InvoiceEmailData = {
   orderNumber: string
-  origin: string
-  destination: string
   customerName: string
-  customerAddress: string
   amount: string
   currency: string
   invoiceDate: string
   invoicePdfUrl: string
+  isCreditNote?: boolean
   attachments?: { name: string; url: string }[]
 }
 
 export function buildInvoiceEmailHtml(data: InvoiceEmailData): string {
-  const { orderNumber, origin, destination, customerName, customerAddress, amount, currency, invoiceDate, invoicePdfUrl, attachments } = data
+  const { orderNumber, customerName, amount, currency, invoiceDate, invoicePdfUrl, isCreditNote, attachments } = data
+  const amountLabel = isCreditNote ? 'Credit Amount' : 'Amount Due'
 
   const attachmentRows = (attachments || []).filter(a => a && a.name && a.url).map(a =>
     `<tr>
@@ -43,41 +42,36 @@ export function buildInvoiceEmailHtml(data: InvoiceEmailData): string {
 
     <!-- Body -->
     <div style="padding: 0 24px 24px;">
-      <h2 style="color: #0C1E3D; font-size: 18px; margin: 0 0 16px 0; text-align: center;">Invoice Notification</h2>
+      <h2 style="color: #0C1E3D; font-size: 18px; margin: 0 0 16px 0; text-align: center;">${isCreditNote ? 'Credit Note Notification' : 'Invoice Notification'}</h2>
       
       <p style="color: #374151; font-size: 14px; margin: 0 0 16px 0;">
         Hello,
       </p>
       <p style="color: #374151; font-size: 14px; margin: 0 0 20px 0;">
-        A new invoice has been generated for the following trip. Please find the details below.
+        A new ${isCreditNote ? 'credit note' : 'invoice'} has been generated for the following trip. Please find the details below.
       </p>
 
       <!-- Trip Details Card -->
       <div style="background: #f8f6f2; padding: 18px; margin: 0 0 20px 0; border-radius: 10px; border-left: 4px solid #E79B54;">
         <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-          <tr>
-            <td style="padding: 6px 0; color: #5b6573; width: 120px;">Order Number</td>
+<tr>
+            <td style="padding: 6px 0; color: #5b6573;">Order Number</td>
             <td style="padding: 6px 0; color: #1f2937; font-weight: 600;">${orderNumber}</td>
-          </tr>
-          <tr>
-            <td style="padding: 6px 0; color: #5b6573;">Route</td>
-            <td style="padding: 6px 0; color: #1f2937; font-weight: 600;">${origin} → ${destination}</td>
           </tr>
           <tr>
             <td style="padding: 6px 0; color: #5b6573;">Client</td>
             <td style="padding: 6px 0; color: #1f2937; font-weight: 600;">${customerName}</td>
           </tr>
-          ${customerAddress ? `
           <tr>
             <td style="padding: 6px 0; color: #5b6573;">Address</td>
-            <td style="padding: 6px 0; color: #1f2937;">${customerAddress}</td>
-          </tr>` : ''}
+            <td style="padding: 6px 0; color: #1f2937;">96 Cavaleros Drive<br>Industries West<br>Germiston, 1401<br>SOUTH AFRICA</td>
+          </tr>
           <tr>
             <td style="padding: 6px 0; color: #5b6573;">Invoice Date</td>
             <td style="padding: 6px 0; color: #1f2937;">${invoiceDate}</td>
           </tr>
           <tr>
-            <td style="padding: 6px 0; color: #5b6573; border-top: 1px solid #e5e7eb;">Amount Due</td>
+            <td style="padding: 6px 0; color: #5b6573; border-top: 1px solid #e5e7eb;">${amountLabel}</td>
             <td style="padding: 6px 0; color: #0C1E3D; font-weight: 800; font-size: 16px; border-top: 1px solid #e5e7eb;">${currency} ${amount}</td>
           </tr>
         </table>
@@ -85,7 +79,7 @@ export function buildInvoiceEmailHtml(data: InvoiceEmailData): string {
 
       <!-- Download Button -->
       <div style="text-align: center; margin: 20px 0;">
-        <a href="${invoicePdfUrl}" style="display: inline-block; background: #0C1E3D; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px;">Download Invoice</a>
+        <a href="${invoicePdfUrl}" style="display: inline-block; background: #0C1E3D; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px;">Download ${isCreditNote ? 'Credit Note' : 'Invoice'}</a>
       </div>
 
       ${attachmentRows ? `
