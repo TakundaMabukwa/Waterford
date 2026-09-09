@@ -39,6 +39,25 @@ export async function PATCH(
     }
 
     if (existing.is_locked) {
+      // Allow setting credit_note_id even on locked invoices
+      const body = await request.json()
+      if (body.creditNoteId) {
+        const { error } = await supabase
+          .from('invoices')
+          .update({ credit_note_id: body.creditNoteId })
+          .eq('id', Number(id))
+        if (error) throw error
+        // Log credit note assignment
+        await supabase.from('invoice_audit_log').insert({
+          invoice_id: Number(id),
+          action: 'credited',
+          field_changed: 'credit_note_id',
+          old_value: null,
+          new_value: String(body.creditNoteId),
+          changed_by: changedBy,
+        })
+        return NextResponse.json({ data: { id: Number(id), credit_note_id: body.creditNoteId } })
+      }
       return NextResponse.json({ error: 'Invoice is locked and cannot be edited' }, { status: 403 })
     }
 
@@ -63,6 +82,7 @@ export async function PATCH(
       invoiceNumber: 'invoice_number',
       referenceNumber: 'reference_number',
       salesCode: 'sales_code',
+      creditNoteId: 'credit_note_id',
     }
 
     const updateData: any = { updated_at: new Date().toISOString() }

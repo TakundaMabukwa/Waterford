@@ -98,7 +98,7 @@ export function buildInvoiceEmailHtml(data: InvoiceEmailData): string {
       </div>` : ''}
 
       <p style="color: #9ca3af; font-size: 12px; margin: 20px 0 0 0; text-align: center;">
-        If you have any questions, please contact us at <a href="mailto:notifications@waterfordcarriers.co.za" style="color: #E79B54;">notifications@waterfordcarriers.co.za</a>
+        If you have any questions, please contact us at <a href="mailto:debtors@waterfordcarriers.co.za" style="color: #E79B54;">debtors@waterfordcarriers.co.za</a>
       </p>
     </div>
 

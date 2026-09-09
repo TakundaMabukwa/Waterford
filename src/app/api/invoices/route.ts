@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createClient as createServerClient } from '@/lib/supabase/server'
 
 export async function GET(request: NextRequest) {
   try {
@@ -107,12 +108,23 @@ export async function POST(request: NextRequest) {
     )
     const body = await request.json()
 
-    // Generate invoice number at draft creation
+    // Resolve user for created_by
+    let createdBy = 'unknown'
+    try {
+      const serverClient = await createServerClient()
+      if (serverClient) {
+        const { data: { user } } = await serverClient.auth.getUser()
+        if (user) createdBy = user.email || user.id || 'unknown'
+      }
+    } catch {}
+
+    // Generate invoice or credit note number
+    const rpcName = body.isCreditNote ? 'get_next_credit_note_number' : 'get_next_invoice_number'
     const { data: invoiceNumber, error: numError } = await supabase
-      .rpc('get_next_invoice_number')
+      .rpc(rpcName)
 
     if (numError || !invoiceNumber) {
-      return NextResponse.json({ error: 'Failed to generate invoice number' }, { status: 500 })
+      return NextResponse.json({ error: 'Failed to generate number' }, { status: 500 })
     }
 
     const insertData: any = {
@@ -120,6 +132,7 @@ export async function POST(request: NextRequest) {
       trip_id: body.tripId || null,
       sundry_invoice_id: body.sundryInvoiceId || null,
       is_draft: true,
+      is_credit_note: body.isCreditNote || false,
       customer_name: body.customerName || '',
       customer_address: body.customerAddress || '',
       customer_vat: body.customerVat || '',
@@ -134,6 +147,7 @@ export async function POST(request: NextRequest) {
       invoice_data: body.invoiceData || null,
       reference_number: body.referenceNumber || null,
       sales_code: body.salesCode || null,
+      created_by: createdBy,
     }
 
     const { data, error } = await supabase
@@ -143,6 +157,16 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (error) throw error
+
+    // Log creation in audit trail
+    await supabase.from('invoice_audit_log').insert({
+      invoice_id: data.id,
+      action: 'created',
+      field_changed: null,
+      old_value: null,
+      new_value: `Draft ${invoiceNumber} created`,
+      changed_by: createdBy,
+    })
 
     // Trip is marked as invoiced only when the draft is finalized, not at draft creation.
     // See: POST /api/invoices/[id]/finalize

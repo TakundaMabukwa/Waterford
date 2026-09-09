@@ -18,6 +18,8 @@ type InvoiceLineItem = {
   description: string
   quantity: string
   unitPrice: string
+  vehicle: string
+  driver: string
   salesCode: string
   vatType: 'zero' | 'standard' | 'exempt' | 'zero_export'
 }
@@ -193,6 +195,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [vehicleOptions, setVehicleOptions] = useState<string[]>([])
+  const [driverOptions, setDriverOptions] = useState<string[]>([])
 
   useEffect(() => {
     async function fetchClients() {
@@ -203,6 +207,18 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       } catch {}
     }
     fetchClients()
+  }, [])
+
+  useEffect(() => {
+    async function fetchVehiclesAndDrivers() {
+      try {
+        const { data: vData } = await supabase.from('vehiclesc').select('registration_number')
+        if (vData) setVehicleOptions(vData.map((v: any) => v.registration_number).filter(Boolean).sort())
+        const { data: dData } = await supabase.from('drivers').select('first_name, surname')
+        if (dData) setDriverOptions(dData.map((d: any) => `${d.first_name || ''} ${d.surname || ''}`.trim()).filter(Boolean).sort())
+      } catch {}
+    }
+    fetchVehiclesAndDrivers()
   }, [])
 
   const handleClientSelect = (clientId: string) => {
@@ -238,6 +254,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
       description: '',
       quantity: '1',
       unitPrice: '',
+      vehicle: '',
+      driver: '',
       salesCode: '200',
       vatType: 'zero' as const,
     },
@@ -257,6 +275,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
         description: '',
         quantity: '1',
         unitPrice: '',
+        vehicle: '',
+        driver: '',
         salesCode: '200',
         vatType: 'zero' as const,
       },
@@ -291,6 +311,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
             description: item.description,
             quantity: Number(item.quantity) || 0,
             unitPrice: Number(item.unitPrice) || 0,
+            vehicle: item.vehicle || '',
+            driver: item.driver || '',
             vatType: item.vatType,
           })),
           subtotal,
@@ -369,11 +391,10 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
 
       // Generate + upload PDF, then show preview overlay (Download + Close)
       try {
-        const cleanName = customerName.replace(/^\(\$\)\s*/, '').replace(/^\$\s*/, '').trim() || customerName
         const pdfCurrency = (currency === 'USD' ? 'USD' : 'ZAR') as AuditCurrencyCode
         const { blob: pdfBlob } = await generateInvoicePdf({
           invoiceNumber: generatedInvoiceNumber,
-          customerName: cleanName,
+          customerName: customerName,
           customerAddress,
           customerVat,
           invoiceDate,
@@ -523,6 +544,8 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-16">Qty</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Sales Code</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Unit Price</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Vehicle</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Driver</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">VAT</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Amount</th>
                     <th className="px-4 py-3 w-8"></th>
@@ -567,6 +590,26 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                           value={item.unitPrice}
                           onChange={(e) => updateLine(item.id, 'unitPrice', e.target.value)}
                           className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          value={item.vehicle}
+                          onChange={(e) => updateLine(item.id, 'vehicle', e.target.value)}
+                          placeholder="Vehicle"
+                          list="sundry-vehicles"
+                          className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          value={item.driver}
+                          onChange={(e) => updateLine(item.id, 'driver', e.target.value)}
+                          placeholder="Driver"
+                          list="sundry-drivers"
+                          className="h-9 w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-sm shadow-sm focus:border-[#001e42] focus:outline-none focus:ring-1 focus:ring-[#001e42]"
                         />
                       </td>
                       <td className="px-4 py-2">
@@ -620,6 +663,12 @@ export default function SundryInvoiceModal({ open, onClose }: Props) {
                 </div>
               </div>
             </div>
+            <datalist id="sundry-vehicles">
+              {vehicleOptions.map(v => <option key={v} value={v} />)}
+            </datalist>
+            <datalist id="sundry-drivers">
+              {driverOptions.map(d => <option key={d} value={d} />)}
+            </datalist>
           </div>
 
           {/* Documents */}

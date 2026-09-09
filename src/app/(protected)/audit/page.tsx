@@ -83,6 +83,7 @@ const FIELD_LABELS: Record<string, string> = {
   reference_number: 'Reference Number',
   sales_code: 'Sales Code',
   invoice_number: 'Invoice Number',
+  credit_note_id: 'Credit Note',
 }
 
 const getClientName = (record: any) => {
@@ -122,14 +123,12 @@ export default function AuditPage() {
   const [draftLoading, setDraftLoading] = useState(false)
   const [finalizedInvoices, setFinalizedInvoices] = useState<any[]>([])
   const [invoicesLoading, setInvoicesLoading] = useState(false)
-  const [lockMonth, setLockMonth] = useState(() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-  })
+  const [lockFrom, setLockFrom] = useState('')
+  const [lockTo, setLockTo] = useState('')
   const [editDraftId, setEditDraftId] = useState<number | null>(null)
   const [editDraftData, setEditDraftData] = useState<any>(null)
   const [showEditModal, setShowEditModal] = useState(false)
-  const [editModalMode, setEditModalMode] = useState<'edit' | 'finalize'>('edit')
+  const [editModalMode, setEditModalMode] = useState<'edit' | 'finalize' | 'credit'>('edit')
   const [finalizePreview, setFinalizePreview] = useState<any>(null)
   const [showFinalizePreview, setShowFinalizePreview] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
@@ -625,6 +624,14 @@ export default function AuditPage() {
     setShowEditModal(true)
   }
 
+  const handleCreditInvoice = (inv: any) => {
+    if (inv.credit_note_id) return
+    setEditDraftId(inv.id)
+    setEditDraftData(inv)
+    setEditModalMode('credit')
+    setShowEditModal(true)
+  }
+
   // Download invoice PDF. If the URL is missing (e.g. older draft whose PDF
   // was never uploaded), regenerate on-demand using the latest invoice data.
   const handleDownloadInvoice = async (inv: any) => {
@@ -638,6 +645,7 @@ export default function AuditPage() {
     }
     try {
       const { generateAndUploadInvoicePdf } = await import('@/lib/generate-invoice-pdf')
+      const isCN = !!inv.is_credit_note
       const { pdfUrl } = await generateAndUploadInvoicePdf({
         invoiceNumber: inv.invoice_number,
         customerName: inv.customer_name || '',
@@ -648,6 +656,8 @@ export default function AuditPage() {
         referenceNumber: inv.reference_number || '',
         salesCode: inv.sales_code || '200',
         currency: inv.currency || 'ZAR',
+        title: isCN ? 'CREDIT NOTE' : undefined,
+        negative: isCN || undefined,
         lineItems: (inv.line_items || []).map((item: any) => ({
           description: item.description || '',
           quantity: Number(item.quantity) || 0,
@@ -1358,12 +1368,32 @@ export default function AuditPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {draftInvoices.filter((inv: any) => {
-                    if (!draftSearch.trim()) return true
-                    const needle = draftSearch.trim().toLowerCase()
-                    return [inv.invoice_number?.toString(), inv.ordernumber, inv.trip_id?.toString(), inv.customer_name, inv.reference_number]
-                      .filter(Boolean).join(' ').toLowerCase().includes(needle)
-                  }).map((inv: any) => (
+                  {draftInvoices
+                    .filter((inv: any) => {
+                      if (!draftSearch.trim()) return true
+                      const needle = draftSearch.trim().toLowerCase()
+                      return [inv.invoice_number?.toString(), inv.ordernumber, inv.trip_id?.toString(), inv.customer_name, inv.reference_number]
+                        .filter(Boolean).join(' ').toLowerCase().includes(needle)
+                    })
+                    .slice()
+                    .sort((a: any, b: any) => (a.invoice_number || 0) - (b.invoice_number || 0))
+                    .reduce((groups: any[], inv: any) => {
+                      const customer = inv.customer_name || 'Unknown'
+                      const lastGroup = groups[groups.length - 1]
+                      if (lastGroup && lastGroup.customer === customer) {
+                        lastGroup.invoices.push(inv)
+                      } else {
+                        groups.push({ customer, invoices: [inv] })
+                      }
+                      return groups
+                    }, [])
+                    .flatMap((group: any, gIdx: number) => [
+                      <tr key={`group-${group.customer}-${gIdx}`} className="bg-slate-100 border-t">
+                        <td colSpan={10} className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-slate-600">
+                          {group.customer}
+                        </td>
+                      </tr>,
+                      ...group.invoices.map((inv: any) => (
                     <tr key={inv.id} className="border-t hover:bg-slate-50">
                       <td className="px-2 py-1.5">
                         <input
@@ -1380,9 +1410,11 @@ export default function AuditPage() {
                       </td>
                       <td className="px-2 py-1.5">
                         <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
-                        {!inv.trip_id && (
+                        {inv.is_credit_note ? (
+                          <div className="text-[10px] font-medium uppercase tracking-wide text-amber-600">Awaiting Approval</div>
+                        ) : !inv.trip_id ? (
                           <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">Sundry</div>
-                        )}
+                        ) : null}
                       </td>
                       <td className="px-2 py-1.5">
                         <div className="text-sm text-slate-700">{inv.ordernumber || inv.trip_id || '—'}</div>
@@ -1391,7 +1423,7 @@ export default function AuditPage() {
                       <td className="px-2 py-1.5 text-xs text-slate-700">{inv.reference_number || '-'}</td>
                       <td className="px-2 py-1.5 text-xs text-slate-700">{inv.invoice_date || '-'}</td>
                       <td className="px-2 py-1.5 text-right text-sm font-medium text-slate-900">
-                        {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                        {inv.is_credit_note ? '-' : ''}{inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-2 py-1.5 text-center">
                         <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
@@ -1418,7 +1450,8 @@ export default function AuditPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  ))
+                  ])}
                 </tbody>
               </table>
             </div>
@@ -1464,29 +1497,37 @@ export default function AuditPage() {
                 <Download className="mr-1 h-3 w-3" /> Export to Excel
               </Button>
               <Input
-                type="month"
-                value={lockMonth}
-                onChange={(e) => setLockMonth(e.target.value)}
+                type="date"
+                value={lockFrom}
+                onChange={(e) => setLockFrom(e.target.value)}
                 className="w-40"
+                placeholder="From"
+              />
+              <Input
+                type="date"
+                value={lockTo}
+                onChange={(e) => setLockTo(e.target.value)}
+                className="w-40"
+                placeholder="To"
               />
               <Button
                 variant="outline"
                 size="sm"
                 onClick={async () => {
-                  if (!lockMonth) return
-                  if (!confirm(`Lock all invoices for ${lockMonth}? This cannot be undone.`)) return
+                  if (!lockFrom || !lockTo) return
+                  if (!confirm(`Lock all finalized invoices from ${lockFrom} to ${lockTo}? This cannot be undone.`)) return
                   try {
                     const res = await fetch('/api/invoices/lock', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ month: lockMonth }),
+                      body: JSON.stringify({ from: lockFrom, to: lockTo }),
                     })
                     if (!res.ok) {
                       const err = await res.json()
                       throw new Error(err.error || 'Failed to lock')
                     }
                     const result = await res.json()
-                    alert(`Locked ${result.lockedCount} invoices for ${lockMonth}`)
+                    alert(`Locked ${result.lockedCount} invoices`)
                     const invRes = await fetch('/api/invoices?finalized=true')
                     const invResult = await invRes.json()
                     setFinalizedInvoices(invResult.data || [])
@@ -1495,7 +1536,7 @@ export default function AuditPage() {
                   }
                 }}
               >
-                Lock Month
+                Lock Range
               </Button>
             </div>
           </div>
@@ -1577,7 +1618,10 @@ export default function AuditPage() {
                           </td>
                           <td className="px-2 py-1.5">
                             <div className="font-medium text-slate-900">{inv.invoice_number || '—'}</div>
-                            {!inv.trip_id && (
+                            {inv.is_credit_note && (
+                              <div className="text-[10px] font-medium uppercase tracking-wide text-amber-600">Credit Note</div>
+                            )}
+                            {!inv.trip_id && !inv.is_credit_note && (
                               <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">Sundry</div>
                             )}
                           </td>
@@ -1586,7 +1630,7 @@ export default function AuditPage() {
                           <td className="px-2 py-1.5 text-xs text-slate-700">{inv.reference_number || '-'}</td>
                           <td className="px-2 py-1.5 text-xs text-slate-700">{inv.invoice_date || '-'}</td>
                           <td className="px-2 py-1.5 text-right text-sm font-medium text-slate-900">
-                            {inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                            {inv.is_credit_note ? '-' : ''}{inv.currency === 'USD' ? '$' : 'R'}{toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             <Badge variant="outline" className="text-[10px] px-2 py-0.5">{inv.currency}</Badge>
@@ -1611,9 +1655,6 @@ export default function AuditPage() {
                               {inv.invoice_url && (
                                 <>
                                   <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
-                                    <FileText className="mr-1 h-3 w-3" /> View
-                                  </Button>
-                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => window.open(inv.invoice_url, '_blank')}>
                                     <Download className="mr-1 h-3 w-3" /> Download
                                   </Button>
                                 </>
@@ -1623,6 +1664,27 @@ export default function AuditPage() {
                                   Edit
                                 </Button>
                               )}
+                              {!inv.is_credit_note && (inv.credit_note_id ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs text-red-600 border-red-300 cursor-not-allowed"
+                                  disabled
+                                  title="This invoice has already been credited"
+                                >
+                                  Credited
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs text-red-600 border-red-300 hover:bg-red-50"
+                                  onClick={() => handleCreditInvoice(inv)}
+                                  title="Credit this invoice"
+                                >
+                                  Credit
+                                </Button>
+                              ))}
                               {inv.invoice_email_groups?.length > 0 && (
                                 <Button
                                   size="sm"
@@ -2094,7 +2156,7 @@ export default function AuditPage() {
                               {entry.changed_at ? new Date(entry.changed_at).toLocaleString('en-ZA') : ''}
                             </span>
                           </div>
-                          {fieldLabel && (
+                          {(fieldLabel || entry.old_value || entry.new_value) && (
                             <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 px-5 py-4">
                               {oldFormatted && (
                                 <div className="flex items-start gap-4">
@@ -2193,7 +2255,7 @@ export default function AuditPage() {
                             </div>
                             <div className="mt-1 text-xs text-slate-500">
                               {inv.ordernumber || inv.trip_id || 'Sundry'} ·{' '}
-                              {inv.currency === 'USD' ? '$' : 'R'}
+                              {inv.is_credit_note ? '-' : ''}{inv.currency === 'USD' ? '$' : 'R'}
                               {toNumber(inv.total_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
                               {' '}· {totalSelected}/{totalForInv} recipient(s) selected
                             </div>
@@ -2303,22 +2365,24 @@ export default function AuditPage() {
           <DialogHeader>
             <DialogTitle className="text-[#001e42]">Export Invoices to Excel</DialogTitle>
             <DialogDescription>
-              Enter the invoice number range to export.
+              Enter the number range to export (both invoices and credit notes).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">From Invoice #</label>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">From Number</label>
               <Input
-                placeholder="e.g. INV20001"
+                type="number"
+                placeholder="e.g. 20001"
                 value={exportFromInvoice}
                 onChange={(e) => setExportFromInvoice(e.target.value)}
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">To Invoice #</label>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">To Number</label>
               <Input
-                placeholder="e.g. INV20051"
+                type="number"
+                placeholder="e.g. 20051"
                 value={exportToInvoice}
                 onChange={(e) => setExportToInvoice(e.target.value)}
               />
@@ -2340,7 +2404,7 @@ export default function AuditPage() {
                     const res = await fetch('/api/invoices/export', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ fromInvoiceNumber: exportFromInvoice, toInvoiceNumber: exportToInvoice }),
+                      body: JSON.stringify({ fromNumber: exportFromInvoice, toNumber: exportToInvoice }),
                     })
                     if (!res.ok) {
                       const err = await res.json()

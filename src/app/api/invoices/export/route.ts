@@ -89,7 +89,7 @@ function getTrackingFromTrip(trip: any): { vehicle: string; driver: string } {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { invoiceIds, month, fromInvoiceNumber, toInvoiceNumber } = body
+    const { invoiceIds, month, fromNumber, toNumber } = body
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -101,19 +101,31 @@ export async function POST(request: NextRequest) {
       .select('*')
       .order('invoice_number', { ascending: true })
 
-    if (fromInvoiceNumber && toInvoiceNumber) {
-      query = query
-        .gte('invoice_number', fromInvoiceNumber)
-        .lte('invoice_number', toInvoiceNumber)
-    } else if (invoiceIds && invoiceIds.length > 0) {
+    if (invoiceIds && invoiceIds.length > 0) {
       query = query.in('id', invoiceIds)
     } else if (month) {
       query = query.eq('lock_month', month)
     }
+    // Note: numeric range filtering happens after fetch below
 
-    const { data: invoices, error: invError } = await query
+    const { data: rawInvoices, error: invError } = await query
     if (invError) throw invError
-    if (!invoices || invoices.length === 0) {
+
+    // Apply numeric range filter if provided
+    let invoices = rawInvoices || []
+    if (fromNumber && toNumber) {
+      const extractNum = (s: string) => parseInt((s || '').replace(/\D/g, ''), 10)
+      const fromNum = extractNum(String(fromNumber))
+      const toNum = extractNum(String(toNumber))
+      if (!isNaN(fromNum) && !isNaN(toNum)) {
+        invoices = invoices.filter((inv) => {
+          const n = extractNum(inv.invoice_number)
+          return !isNaN(n) && n >= fromNum && n <= toNum
+        })
+      }
+    }
+
+    if (invoices.length === 0) {
       return NextResponse.json({ error: 'No invoices found' }, { status: 404 })
     }
 
@@ -191,6 +203,8 @@ export async function POST(request: NextRequest) {
       { header: 'Type', key: 'Type', width: 16 },
       { header: 'Sent', key: 'Sent', width: 10 },
       { header: 'Status', key: 'Status', width: 20 },
+      { header: 'CreatedBy', key: 'CreatedBy', width: 25 },
+      { header: 'CreatedAt', key: 'CreatedAt', width: 20 },
     ]
 
     const headerRow = sheet.getRow(1)
@@ -207,109 +221,62 @@ export async function POST(request: NextRequest) {
       const refParts = [orderNum, inv.reference_number].filter(Boolean)
       const reference = refParts.join(' - ') || orderNum || inv.trip_id || ''
 
-      if (lineItems.length === 0) {
-        sheet.addRow({
-          ContactName: inv.customer_name || '',
-          EmailAddress: clientEmail,
-          POAddressLine1: poAddress.line1,
-          POAddressLine2: poAddress.line2,
-          POAddressLine3: poAddress.line3,
-          POAddressLine4: poAddress.line4,
-          POCity: poAddress.city,
-          PORegion: poAddress.region,
-          POPostalCode: poAddress.postalCode,
-          POCountry: poAddress.country,
-          SAAddressLine1: WATERFORD_ADDRESS.line1,
-          SAAddressLine2: WATERFORD_ADDRESS.line2,
-          SAAddressLine3: WATERFORD_ADDRESS.line3,
-          SAAddressLine4: WATERFORD_ADDRESS.line4,
-          SACity: WATERFORD_ADDRESS.city,
-          SARegion: WATERFORD_ADDRESS.region,
-          SAPostalCode: WATERFORD_ADDRESS.postalCode,
-          SACountry: WATERFORD_ADDRESS.country,
-          InvoiceNumber: inv.invoice_number || '',
-          Reference: reference,
-          InvoiceDate: formatDate(inv.invoice_date || ''),
-          DueDate: formatDate(inv.due_date || ''),
-          PlannedDate: '',
-          Total: Number(inv.total_amount || 0).toFixed(4),
-          TaxTotal: Number(inv.vat_amount || 0).toFixed(4),
-          InvoiceAmountPaid: '0.0000',
-          InvoiceAmountDue: Number(inv.amount_due || 0).toFixed(4),
-          InventoryItemCode: '',
-          Description: '',
-          Quantity: '',
-          UnitAmount: '',
-          Discount: '',
-          LineAmount: '',
-          AccountCode: inv.sales_code || '200',
-          TaxType: '',
-          TaxAmount: '0.0000',
-          TrackingName1: 'Vehicles',
-          TrackingOption1: tracking.vehicle,
-          TrackingName2: 'Driver',
-          TrackingOption2: tracking.driver,
-          Currency: inv.currency || 'ZAR',
-          Type: 'Sales invoice',
-          Sent: '',
-          Status: 'Awaiting Payment',
-        })
-      } else {
-        for (const item of lineItems) {
-          const qty = Number(item.quantity) || 0
-          const unitPrice = Number(item.unitPrice || item.unit_price) || 0
-          const lineAmount = qty * unitPrice
-          const vatRate = item.vatType === 'standard' ? 0.15 : 0
-          const taxAmount = lineAmount * vatRate
+      // One row per invoice — concatenate line item descriptions
+      const descriptions = lineItems.map((item: any) => item.description || '').filter(Boolean)
+      const description = descriptions.join('; ') || ''
+      const totalQty = lineItems.reduce((sum: number, item: any) => sum + (Number(item.quantity) || 0), 0)
 
-          sheet.addRow({
-            ContactName: inv.customer_name || '',
-            EmailAddress: clientEmail,
-            POAddressLine1: poAddress.line1,
-            POAddressLine2: poAddress.line2,
-            POAddressLine3: poAddress.line3,
-            POAddressLine4: poAddress.line4,
-            POCity: poAddress.city,
-            PORegion: poAddress.region,
-            POPostalCode: poAddress.postalCode,
-            POCountry: poAddress.country,
-            SAAddressLine1: WATERFORD_ADDRESS.line1,
-            SAAddressLine2: WATERFORD_ADDRESS.line2,
-            SAAddressLine3: WATERFORD_ADDRESS.line3,
-            SAAddressLine4: WATERFORD_ADDRESS.line4,
-            SACity: WATERFORD_ADDRESS.city,
-            SARegion: WATERFORD_ADDRESS.region,
-            SAPostalCode: WATERFORD_ADDRESS.postalCode,
-            SACountry: WATERFORD_ADDRESS.country,
-            InvoiceNumber: inv.invoice_number || '',
-            Reference: reference,
-            InvoiceDate: formatDate(inv.invoice_date || ''),
-            DueDate: formatDate(inv.due_date || ''),
-            PlannedDate: '',
-            Total: Number(inv.total_amount || 0).toFixed(4),
-            TaxTotal: Number(inv.vat_amount || 0).toFixed(4),
-            InvoiceAmountPaid: '0.0000',
-            InvoiceAmountDue: Number(inv.amount_due || 0).toFixed(4),
-            InventoryItemCode: '',
-            Description: item.description || '',
-            Quantity: qty.toFixed(4),
-            UnitAmount: unitPrice.toFixed(4),
-            Discount: '',
-            LineAmount: lineAmount.toFixed(4),
-            AccountCode: inv.sales_code || '200',
-            TaxType: VAT_TYPE_MAP[item.vatType] || 'Zero Rate (Excluding Goods Exported)',
-            TaxAmount: taxAmount.toFixed(4),
-            TrackingName1: 'Vehicles',
-            TrackingOption1: tracking.vehicle,
-            TrackingName2: 'Driver',
-            TrackingOption2: tracking.driver,
-            Currency: inv.currency || 'ZAR',
-            Type: 'Sales invoice',
-            Sent: '',
-            Status: 'Awaiting Payment',
-          })
-        }
-      }
+      const isCN = !!inv.is_credit_note
+      const neg = (v: number) => (isCN ? -v : v)
+
+      sheet.addRow({
+        ContactName: inv.customer_name || '',
+        EmailAddress: clientEmail,
+        POAddressLine1: poAddress.line1,
+        POAddressLine2: poAddress.line2,
+        POAddressLine3: poAddress.line3,
+        POAddressLine4: poAddress.line4,
+        POCity: poAddress.city,
+        PORegion: poAddress.region,
+        POPostalCode: poAddress.postalCode,
+        POCountry: poAddress.country,
+        SAAddressLine1: WATERFORD_ADDRESS.line1,
+        SAAddressLine2: WATERFORD_ADDRESS.line2,
+        SAAddressLine3: WATERFORD_ADDRESS.line3,
+        SAAddressLine4: WATERFORD_ADDRESS.line4,
+        SACity: WATERFORD_ADDRESS.city,
+        SARegion: WATERFORD_ADDRESS.region,
+        SAPostalCode: WATERFORD_ADDRESS.postalCode,
+        SACountry: WATERFORD_ADDRESS.country,
+        InvoiceNumber: inv.invoice_number || '',
+        Reference: reference,
+        InvoiceDate: formatDate(inv.invoice_date || ''),
+        DueDate: formatDate(inv.due_date || ''),
+        PlannedDate: '',
+        Total: neg(Number(inv.total_amount || 0)).toFixed(4),
+        TaxTotal: neg(Number(inv.vat_amount || 0)).toFixed(4),
+        InvoiceAmountPaid: '0.0000',
+        InvoiceAmountDue: neg(Number(inv.amount_due || 0)).toFixed(4),
+        InventoryItemCode: '',
+        Description: description,
+        Quantity: totalQty > 0 ? String(totalQty) : '',
+        UnitAmount: '',
+        Discount: '',
+        LineAmount: neg(Number(inv.total_amount || 0)).toFixed(4),
+        AccountCode: inv.sales_code || '200',
+        TaxType: '',
+        TaxAmount: neg(Number(inv.vat_amount || 0)).toFixed(4),
+        TrackingName1: 'Vehicles',
+        TrackingOption1: tracking.vehicle,
+        TrackingName2: 'Driver',
+        TrackingOption2: tracking.driver,
+        Currency: inv.currency || 'ZAR',
+        Type: isCN ? 'Credit note' : 'Sales invoice',
+        Sent: '',
+        Status: 'Awaiting Payment',
+        CreatedBy: inv.created_by || '',
+        CreatedAt: inv.created_at ? formatDate(inv.created_at.split('T')[0]) : '',
+      })
     }
 
     const buffer = await workbook.xlsx.writeBuffer()

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createClient as createServerClient } from '@/lib/supabase/server'
 
 export async function POST(
   request: NextRequest,
@@ -22,6 +23,16 @@ export async function POST(
     if (fetchError || !draft) {
       return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
     }
+
+    // Resolve user for audit trail
+    let finalizedBy = 'unknown'
+    try {
+      const serverClient = await createServerClient()
+      if (serverClient) {
+        const { data: { user } } = await serverClient.auth.getUser()
+        if (user) finalizedBy = user.email || user.id || 'unknown'
+      }
+    } catch {}
 
     if (!draft.is_draft) {
       return NextResponse.json({ error: 'Already finalized' }, { status: 400 })
@@ -52,6 +63,16 @@ export async function POST(
       .single()
 
     if (error) throw error
+
+    // Log finalization in audit trail
+    await supabase.from('invoice_audit_log').insert({
+      invoice_id: Number(id),
+      action: 'finalized',
+      field_changed: null,
+      old_value: 'Draft',
+      new_value: `Finalized as ${invoiceNumber}`,
+      changed_by: finalizedBy,
+    })
 
     // Also update the trip record if it's a trip invoice
     if (draft.trip_id) {

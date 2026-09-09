@@ -27,6 +27,8 @@ export type InvoicePdfParams = {
   vatAmount: number
   totalAmount: number
   amountDue: number
+  title?: string
+  negative?: boolean
 }
 
 const SALES_CODES = [
@@ -47,6 +49,11 @@ const VAT_LABELS: Record<string, string> = {
 
 const formatNum = (value: number) =>
   new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
+
+const formatCurrency = (value: number, currency: AuditCurrencyCode) => {
+  const symbol = currency === 'USD' ? '$' : 'R'
+  return `${symbol}${formatNum(value)}`
+}
 
 const formatDisplayDate = (isoDate: string) => {
   if (!isoDate) return ''
@@ -96,11 +103,14 @@ export async function generateInvoicePdf(
     dueDate,
     referenceNumber,
     salesCode,
+    currency,
     lineItems,
     subtotal,
     vatAmount,
     totalAmount,
     amountDue,
+    title,
+    negative,
   } = params
 
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
@@ -134,7 +144,7 @@ export async function generateInvoicePdf(
   doc.setFontSize(22)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(0, 0, 0)
-  doc.text('TAX INVOICE', ml, y + 10)
+  doc.text(title || 'TAX INVOICE', ml, y + 10)
   y += 25
 
   // ── LEFT: Customer details ─────────────────────────────────────
@@ -197,12 +207,13 @@ export async function generateInvoicePdf(
   // ── LINE ITEMS TABLE ────────────────────────────────────────────
   const tableData = lineItems.map((item) => {
     const lineTotal = (item.quantity || 0) * (item.unitPrice || 0)
+    const signedTotal = negative ? -lineTotal : lineTotal
     return [
       item.description || '',
       String(item.quantity ? formatNum(item.quantity) : ''),
-      formatNum(item.unitPrice || 0),
+      formatCurrency(negative ? -(item.unitPrice || 0) : item.unitPrice || 0, currency),
       VAT_LABELS[item.vatType] || '',
-      formatNum(lineTotal),
+      formatCurrency(signedTotal, currency),
     ]
   })
 
@@ -258,12 +269,14 @@ export async function generateInvoicePdf(
   doc.setFontSize(10)
   doc.setTextColor(0, 0, 0)
 
+  const neg = (value: number) => (negative ? -value : value)
+
   doc.text('Subtotal', sL, y)
-  doc.text(formatNum(subtotal), sV, y, { align: 'right' })
+  doc.text(formatCurrency(neg(subtotal), currency), sV, y, { align: 'right' })
   y += 6
 
   doc.text('TOTAL VAT', sL, y)
-  doc.text(formatNum(vatAmount), sV, y, { align: 'right' })
+  doc.text(formatCurrency(neg(vatAmount), currency), sV, y, { align: 'right' })
   y += 5
 
   doc.setDrawColor(0, 0, 0)
@@ -271,11 +284,11 @@ export async function generateInvoicePdf(
   doc.line(sL, y, sV, y)
   y += 5
 
-  const amountDueLabel = 'AMOUNT DUE'
+  const amountDueLabel = negative ? 'CREDIT AMOUNT' : 'AMOUNT DUE'
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
   doc.text(amountDueLabel, sL, y)
-  doc.text(formatNum(amountDue), sV, y, { align: 'right' })
+  doc.text(formatCurrency(neg(amountDue), currency), sV, y, { align: 'right' })
 
   // ── BANK DETAILS — anchored to bottom of last page ──────────────
   const pageH = doc.internal.pageSize.getHeight()

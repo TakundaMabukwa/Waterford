@@ -315,7 +315,7 @@ const formatDisplayDate = (isoDate: string) => {
   return date.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 
-type InvoiceMode = 'draft' | 'edit' | 'finalize'
+type InvoiceMode = 'draft' | 'edit' | 'finalize' | 'credit'
 
 type ModalCloseResult = {
   finalizedInvoiceUrl?: string
@@ -323,7 +323,8 @@ type ModalCloseResult = {
   // 'cancel' = the user closed the modal without finalizing.
   // 'edit' = the user saved an edit.
   // 'draft' = the user saved a draft.
-  status?: 'success' | 'cancel' | 'edit' | 'draft'
+  // 'credit' = the user created a credit note.
+  status?: 'success' | 'cancel' | 'edit' | 'draft' | 'credit'
 }
 
 type Props = {
@@ -389,10 +390,14 @@ export default function GenerateInvoiceModal({
   const [customerVat, setCustomerVat] = useState('')
   const [generating, setGenerating] = useState(false)
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null)
+  const [creditCurrency, setCreditCurrency] = useState<string | null>(null)
 
   const nameIsDollar = customerName.startsWith('$') || customerName.startsWith('($)')
-  const detectedCurrency: AuditCurrencyCode = nameIsDollar ? 'USD' : invoiceCurrency
-  const cleanName = nameIsDollar ? customerName.replace(/^\(\$?\)\s*/, '').replace(/^\$\s*/, '').trim() : customerName
+  const detectedCurrency: AuditCurrencyCode = mode === 'credit'
+    ? (creditCurrency as AuditCurrencyCode) || invoiceCurrency
+    : nameIsDollar ? 'USD' : invoiceCurrency
+  // Preserve original name including ($ ) or $ prefix — it indicates USD currency
+  const cleanName = customerName
   const [referenceNumber, setReferenceNumber] = useState(orderNum)
   const [uploading, setUploading] = useState(false)
   const [uploadedDocs, setUploadedDocs] = useState<any[]>([])
@@ -521,20 +526,36 @@ export default function GenerateInvoiceModal({
     }
   }, [open, record?.id])
 
-  // Load draft data when in edit or finalize mode
+  // Load draft data when in edit, finalize, or credit mode
   useEffect(() => {
-    if (!open || (mode !== 'edit' && mode !== 'finalize') || !draftData) return
+    if (!open || (mode !== 'edit' && mode !== 'finalize' && mode !== 'credit') || !draftData) return
 
     const d = draftData
     if (d.invoice_date) setInvoiceDate(d.invoice_date)
     if (d.due_date) setDueDate(d.due_date)
-    if (d.invoice_number) setInvoiceNumber(d.invoice_number)
+    if (d.invoice_number && mode !== 'credit') setInvoiceNumber(d.invoice_number)
     if (d.customer_name) setCustomerName(d.customer_name)
     if (d.customer_address) setCustomerAddress(d.customer_address)
     if (d.customer_vat) setCustomerVat(d.customer_vat)
     if (d.reference_number) setReferenceNumber(d.reference_number)
     if (d.sales_code) setSalesCode(d.sales_code)
-    if (d.line_items?.length) {
+    if (d.currency) setCreditCurrency(d.currency)
+    if (mode === 'credit') {
+      // Credit notes only need a single line item with the ex-VAT amount.
+      const exVat = d.subtotal != null ? Number(d.subtotal) : (Number(d.total_amount) || 0) - (Number(d.vat_amount) || 0)
+      // Use the VAT type from the first line item of the original invoice
+      const origVatType = d.line_items?.[0]?.vatType || 'zero'
+      setLineItems([{
+        id: 'credit-line-1',
+        description: '',
+        quantity: '1',
+        unitPrice: exVat ? String(exVat) : '',
+        vehicle: '',
+        driver: '',
+        salesCode: d.sales_code || '200',
+        vatType: origVatType,
+      }])
+    } else if (d.line_items?.length) {
       setLineItems(d.line_items.map((item: any, i: number) => ({
         ...item,
         id: item.id || `line-load-${i}-${Date.now()}`,
@@ -921,6 +942,7 @@ export default function GenerateInvoiceModal({
       // If invoice is finalized (has invoice_number), regenerate PDF
       if (invoiceNumber) {
         try {
+          const isCreditNote = record?.is_credit_note || draftData?.is_credit_note
           const { blob: pdfBlob } = await generateInvoicePdf({
             invoiceNumber,
             customerName: cleanName,
@@ -943,6 +965,8 @@ export default function GenerateInvoiceModal({
             vatAmount: totalVat,
             totalAmount: totalZar,
             amountDue,
+            title: isCreditNote ? 'CREDIT NOTE' : undefined,
+            negative: isCreditNote || undefined,
           })
           const pdfUrl = await uploadInvoicePdf(invoiceNumber, pdfBlob)
           if (pdfUrl) {
@@ -962,9 +986,126 @@ export default function GenerateInvoiceModal({
       return
     }
 
+    // In credit mode, create a credit note draft in the invoices table
+    if (mode === 'credit') {
+      const creditInvoiceId = draftId
+      if (!creditInvoiceId) throw new Error('No invoice to credit')
+
+      // Create draft credit note in the invoices table
+      const res = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tripId: record?.trip_id || null,
+          sundryInvoiceId: record?.sundry_invoice_id || null,
+          isCreditNote: true,
+          customerName: cleanName,
+          customerAddress,
+          customerVat,
+          invoiceDate,
+          dueDate,
+          lineItems: lineItems.map(item => ({
+            ...item,
+            quantity: Number(item.quantity) || 0,
+            unitPrice: Number(item.unitPrice) || 0,
+          })),
+          subtotal,
+          vatAmount: totalVat,
+          totalAmount: totalZar,
+          amountDue,
+          currency: detectedCurrency,
+          referenceNumber: referenceNumber || null,
+          salesCode,
+          invoiceData: {
+            invoiceDate,
+            dueDate,
+            invoiceNumber: '',
+            customerName: cleanName,
+            customerAddress,
+            customerVat,
+            referenceNumber: referenceNumber || '',
+            salesCode,
+            lineItems: lineItems.map(item => ({
+              ...item,
+              quantity: Number(item.quantity) || 0,
+              unitPrice: Number(item.unitPrice) || 0,
+            })),
+            subtotal,
+            totalVat,
+            totalZar,
+            amountDue,
+          },
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to create credit note draft')
+      }
+
+      const createResJson = await res.json()
+      const createdInvoice = createResJson.data
+      if (!createdInvoice?.id || !createdInvoice?.invoice_number) {
+        throw new Error('Credit note draft created but missing data')
+      }
+
+      // Generate and upload credit note PDF (negative amounts, CREDIT NOTE header)
+      const { blob: pdfBlob } = await generateInvoicePdf({
+        invoiceNumber: createdInvoice.invoice_number,
+        customerName: cleanName,
+        customerAddress,
+        customerVat,
+        invoiceDate,
+        dueDate,
+        referenceNumber,
+        salesCode,
+        currency: detectedCurrency,
+        lineItems: lineItems.map(item => ({
+          description: item.description,
+          quantity: Number(item.quantity) || 0,
+          unitPrice: Number(item.unitPrice) || 0,
+          vatType: item.vatType,
+          vehicle: item.vehicle || '',
+          driver: item.driver || '',
+        })),
+        subtotal,
+        vatAmount: totalVat,
+        totalAmount: totalZar,
+        amountDue,
+        title: 'CREDIT NOTE',
+        negative: true,
+      })
+      const pdfUrl = await uploadInvoicePdf(createdInvoice.invoice_number, pdfBlob)
+      if (pdfUrl) {
+        await fetch(`/api/invoices/${createdInvoice.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoice_url: pdfUrl }),
+        }).catch(() => {})
+      }
+
+      // Mark the original invoice as credited (prevents double crediting)
+      await fetch(`/api/invoices/${creditInvoiceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ creditNoteId: createdInvoice.id }),
+      }).catch(() => {})
+
+      // Show preview in overlay
+      const previewUrl = URL.createObjectURL(pdfBlob)
+      setInvoiceNumber(createdInvoice.invoice_number)
+      setPreviewPdfUrl(previewUrl)
+      setGenerating(false)
+      toast.success(`Credit note ${createdInvoice.invoice_number} created as draft — awaiting approval`)
+      draftCreated = true
+      return
+    }
+
     // In finalize mode, use pre-assigned invoice number and generate PDF
     const invNumber = invoiceNumber
     if (!invNumber) throw new Error('Invoice number not assigned')
+
+    const isCreditNoteFinalize = record?.is_credit_note || draftData?.is_credit_note || false
 
     const { blob: pdfBlob, fileName } = await generateInvoicePdf({
       invoiceNumber: invNumber,
@@ -988,6 +1129,8 @@ export default function GenerateInvoiceModal({
       vatAmount: totalVat,
       totalAmount: totalZar,
       amountDue,
+      title: isCreditNoteFinalize ? 'CREDIT NOTE' : undefined,
+      negative: isCreditNoteFinalize || undefined,
     })
 
     let invoiceUrl = null
@@ -1108,11 +1251,12 @@ export default function GenerateInvoiceModal({
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <div>
             <h2 className="text-lg font-extrabold text-[#001e42]">
-              {mode === 'edit' ? 'Edit Draft Invoice' : 'Generate Invoice'}
+              {mode === 'edit' ? 'Edit Draft Invoice' : mode === 'credit' ? 'Credit Note' : 'Generate Invoice'}
             </h2>
             <p className="text-xs text-slate-500">
               {mode === 'draft' ? 'Fill in the details and create an invoice draft' : 
                mode === 'edit' ? 'Update the draft invoice details' : 
+               mode === 'credit' ? 'Credit this invoice and generate a credit note' :
                'Finalize the invoice and generate PDF'}
             </p>
           </div>
@@ -1147,8 +1291,8 @@ export default function GenerateInvoiceModal({
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Invoice Number</label>
-              <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="Auto-generated on generate" disabled={!!record?.is_invoiced} />
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">{mode === 'credit' ? 'Credit Note Number' : 'Invoice Number'}</label>
+              <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="Auto-generated on create" disabled={!!record?.is_invoiced} />
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Client</label>
@@ -1203,13 +1347,13 @@ export default function GenerateInvoiceModal({
                   <tr>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-16">Qty</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Unit Price</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Sales Code</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Vehicle</th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Driver</th>
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">{mode === 'credit' ? 'Amount' : 'Unit Price'}</th>
+                    {mode !== 'credit' && <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Sales Code</th>}
+                    {mode !== 'credit' && <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Vehicle</th>}
+                    {mode !== 'credit' && <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-28">Driver</th>}
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">VAT</th>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-32">Amount</th>
-                    <th className="px-4 py-3 w-8"></th>
+                    {mode !== 'credit' && <th className="px-4 py-3 w-8"></th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1219,7 +1363,7 @@ export default function GenerateInvoiceModal({
                         <AutoExpandTextarea
                           value={item.description}
                           onChange={(val) => updateLine(item.id, 'description', val)}
-                          placeholder="Description"
+                          placeholder={mode === 'credit' ? 'Credit note description (optional)' : 'Description'}
                           disabled={!!record?.is_invoiced}
                         />
                       </td>
@@ -1243,6 +1387,7 @@ export default function GenerateInvoiceModal({
                           disabled={!!record?.is_invoiced}
                         />
                       </td>
+                      {mode !== 'credit' && (
                       <td className="px-4 py-2">
                         <select
                           value={item.salesCode || salesCode}
@@ -1257,6 +1402,8 @@ export default function GenerateInvoiceModal({
                           ))}
                         </select>
                       </td>
+                      )}
+                      {mode !== 'credit' && (
                       <td className="px-4 py-2">
                         <SearchableFieldSelect
                           value={item.vehicle}
@@ -1266,6 +1413,8 @@ export default function GenerateInvoiceModal({
                           disabled={!!record?.is_invoiced}
                         />
                       </td>
+                      )}
+                      {mode !== 'credit' && (
                       <td className="px-4 py-2">
                         <SearchableFieldSelect
                           value={item.driver}
@@ -1275,6 +1424,7 @@ export default function GenerateInvoiceModal({
                           disabled={!!record?.is_invoiced}
                         />
                       </td>
+                      )}
                       <td className="px-4 py-2">
                         <Select
                           value={item.vatType}
@@ -1296,7 +1446,7 @@ export default function GenerateInvoiceModal({
                         {formatCurrency((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), detectedCurrency)}
                       </td>
                       <td className="px-4 py-2">
-                        {!record?.is_invoiced && lineItems.length > 1 && (
+                        {mode !== 'credit' && !record?.is_invoiced && lineItems.length > 1 && (
                           <button onClick={() => removeLine(item.id)} className="text-slate-400 hover:text-red-500">
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -1307,7 +1457,7 @@ export default function GenerateInvoiceModal({
                 </tbody>
               </table>
             </div>
-            {!record?.is_invoiced && (
+            {!record?.is_invoiced && mode !== 'credit' && (
               <Button variant="outline" size="sm" onClick={addLine} className="mt-3">
                 <Plus className="mr-1 h-3 w-3" /> Add Line
               </Button>
@@ -1326,8 +1476,8 @@ export default function GenerateInvoiceModal({
                 <span className="font-medium">{formatCurrency(totalVat, detectedCurrency)}</span>
               </div>
               <div className="border-t pt-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-lg font-bold text-[#001e42]">AMOUNT DUE</span>
+<div className="flex items-center justify-between">
+                  <span className="text-lg font-bold text-[#001e42]">{mode === 'credit' ? 'CREDIT AMOUNT' : 'AMOUNT DUE'}</span>
                   <span className="text-lg font-bold text-[#001e42]">{formatCurrency(amountDue, detectedCurrency)}</span>
                 </div>
               </div>
@@ -1335,6 +1485,7 @@ export default function GenerateInvoiceModal({
           </div>
 
           {/* Documents */}
+          {mode !== 'credit' && (
           <div>
             <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">
               Supporting Documents {uploadedDocs.length > 0 && `(${uploadedDocs.length})`}
@@ -1394,15 +1545,16 @@ export default function GenerateInvoiceModal({
               </div>
             )}
           </div>
+          )}
         </div>
 
         <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
           <Button variant="outline" onClick={() => onClose({ status: 'cancel' })} disabled={generating}>Cancel</Button>
           <Button onClick={generatePdf} className="bg-[#001e42] text-white hover:bg-[#0b2955]" disabled={generating}>
             {generating ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {mode === 'draft' ? 'Creating...' : mode === 'edit' ? 'Saving...' : 'Generating...'}</>
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {mode === 'draft' ? 'Creating...' : mode === 'edit' ? 'Saving...' : mode === 'credit' ? 'Creating credit note...' : 'Generating...'}</>
             ) : (
-              <><Download className="mr-2 h-4 w-4" /> {mode === 'draft' ? 'Create Draft' : mode === 'edit' ? 'Save Changes' : 'Generate Invoice & Download'}</>
+              <><Download className="mr-2 h-4 w-4" /> {mode === 'draft' ? 'Create Draft' : mode === 'edit' ? 'Save Changes' : mode === 'credit' ? 'Create Credit Note' : 'Generate Invoice & Download'}</>
             )}
           </Button>
         </div>
@@ -1413,15 +1565,19 @@ export default function GenerateInvoiceModal({
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70" onClick={() => {
           URL.revokeObjectURL(previewPdfUrl)
           setPreviewPdfUrl(null)
-          router.push('/audit')
+          if (mode === 'credit') {
+            onClose({ status: 'credit' })
+          } else {
+            router.push('/audit')
+          }
         }}>
           <div className="relative flex h-[90vh] w-[90vw] max-w-5xl flex-col rounded-lg bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <h3 className="text-sm font-bold text-slate-900">Invoice Preview</h3>
+              <h3 className="text-sm font-bold text-slate-900">{mode === 'credit' ? 'Credit Note Preview' : 'Invoice Preview'}</h3>
               <div className="flex items-center gap-2">
                 <a
                   href={previewPdfUrl}
-                  download={`${invoiceNumber || 'invoice'}.pdf`}
+                  download={`${invoiceNumber || 'credit-note'}.pdf`}
                   className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   <Download className="h-4 w-4" />
@@ -1430,14 +1586,18 @@ export default function GenerateInvoiceModal({
                 <Button variant="outline" size="sm" onClick={() => {
                   URL.revokeObjectURL(previewPdfUrl)
                   setPreviewPdfUrl(null)
-                  router.push('/audit')
+                  if (mode === 'credit') {
+                    onClose({ status: 'credit' })
+                  } else {
+                    router.push('/audit')
+                  }
                 }}>
                   Close
                 </Button>
               </div>
             </div>
             <div className="flex-1 overflow-hidden">
-              <iframe src={previewPdfUrl} className="h-full w-full border-0" title="Invoice Preview" />
+              <iframe src={previewPdfUrl} className="h-full w-full border-0" title={mode === 'credit' ? 'Credit Note Preview' : 'Invoice Preview'} />
             </div>
           </div>
         </div>
